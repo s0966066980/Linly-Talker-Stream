@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Generator, Optional
@@ -13,10 +14,45 @@ if TYPE_CHECKING:
 
 
 DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
+DEFAULT_RESPONSE_MAX_CHARS = 120
+MIN_RESPONSE_MAX_CHARS = 20
+MAX_RESPONSE_MAX_CHARS = 2000
 # 只在完整句尾切給 TTS。逗號與冒號屬於句內停頓，拆開合成會重置韻律，
 # 也會讓 Avatar 在相鄰 TTS 請求之間提前填入靜音幀。
 SENTENCE_DELIMITERS = ".!?;。！？；"
 MIN_SENTENCE_LENGTH = 24
+
+
+def validate_response_max_chars(value) -> int:
+    """驗證並正規化使用者可調整的約略回覆字數。"""
+    if isinstance(value, bool):
+        raise ValueError("回覆字數必須是整數")
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("回覆字數必須是整數") from exc
+    if isinstance(value, float) and not value.is_integer():
+        raise ValueError("回覆字數必須是整數")
+    if not MIN_RESPONSE_MAX_CHARS <= normalized <= MAX_RESPONSE_MAX_CHARS:
+        raise ValueError(
+            f"回覆字數必須介於 {MIN_RESPONSE_MAX_CHARS} 到 {MAX_RESPONSE_MAX_CHARS} 之間"
+        )
+    return normalized
+
+
+def response_token_budget(max_chars: int) -> int:
+    """依目標中文字數換算帶緩衝的模型 token 安全上限。"""
+    estimated = max(32, math.ceil(max_chars * 1.5))
+    return min(4096, estimated)
+
+
+def with_response_length_instruction(system_prompt: str, max_chars: int) -> str:
+    """加入隱藏的柔性長度指令，不污染使用者可編輯的 Prompt。"""
+    prompt = (system_prompt or DEFAULT_SYSTEM_PROMPT).rstrip()
+    return (
+        f"{prompt}\n\n【回覆長度】請將每次回答控制在約 {max_chars} 個字以內，"
+        "並優先在限制內完成句子，不要在句子中途截斷。"
+    )
 
 
 def load_system_prompt(config=None) -> str:

@@ -20,6 +20,7 @@ from src.avatars.catalog import (
     resolve_wav2lip_weights,
 )
 from src.config.overrides import load_runtime_overrides, persist_runtime_overrides
+from src.llm.base import with_response_length_instruction
 from src.server.runtime_settings import (
     SettingsError,
     _is_embedding_model,
@@ -161,6 +162,8 @@ class OverridePersistTests(unittest.TestCase):
 
             class LLM:
                 model = "qwen3.5:4b"
+                max_tokens = 360
+                response_max_chars = 240
                 system_prompt = "請用繁體中文簡短回答。"
 
             class Model:
@@ -176,6 +179,8 @@ class OverridePersistTests(unittest.TestCase):
                 data = load_runtime_overrides()
 
             self.assertEqual(data["llm"]["model"], "qwen3.5:4b")
+            self.assertEqual(data["llm"]["max_tokens"], 360)
+            self.assertEqual(data["llm"]["response_max_chars"], 240)
             self.assertEqual(data["llm"]["system_prompt"], "請用繁體中文簡短回答。")
             self.assertEqual(data["model"]["type"], "musetalk")
             self.assertEqual(data["model"]["avatar_id"], "musetalk_avatar1")
@@ -211,6 +216,55 @@ class DefaultPromptSettingsTests(unittest.TestCase):
     def test_apply_llm_rejects_empty_prompt(self):
         with self.assertRaises(SettingsError):
             apply_llm_model(Config(), "qwen3.5:4b", "ollama", "   ")
+
+    def test_snapshot_exposes_response_length(self):
+        config = Config()
+        config.llm.response_max_chars = 240
+        with patch(
+            "src.server.runtime_settings.list_avatar_characters", return_value=[]
+        ), patch("src.server.runtime_settings.list_engines", return_value=[]):
+            snapshot = current_snapshot(config)
+
+        self.assertEqual(snapshot["llm"]["response_max_chars"], 240)
+
+    def test_apply_llm_updates_response_length_and_token_budget(self):
+        config = Config()
+        config.llm.provider = "ollama"
+        config.llm.base_url = "http://localhost:11434/v1"
+
+        with patch("src.server.runtime_settings.persist_runtime_overrides"), patch(
+            "src.server.runtime_settings.switch_llm_endpoint"
+        ) as switch:
+            result = apply_llm_model(
+                config,
+                "qwen3.5:4b",
+                "ollama",
+                "請使用繁體中文回答。",
+                240,
+            )
+
+        self.assertEqual(config.llm.response_max_chars, 240)
+        self.assertEqual(config.llm.max_tokens, 360)
+        self.assertEqual(result["response_max_chars"], 240)
+        self.assertEqual(switch.call_args.kwargs["response_max_chars"], 240)
+        self.assertEqual(switch.call_args.kwargs["max_tokens"], 360)
+        self.assertEqual(config.llm.extra_body["options"]["num_predict"], 360)
+
+    def test_apply_llm_rejects_invalid_response_length(self):
+        with self.assertRaises(SettingsError):
+            apply_llm_model(
+                Config(),
+                "qwen3.5:4b",
+                "ollama",
+                "請使用繁體中文回答。",
+                19,
+            )
+
+    def test_length_instruction_preserves_prompt_and_requests_complete_sentence(self):
+        prompt = with_response_length_instruction("請使用繁體中文回答。", 120)
+        self.assertTrue(prompt.startswith("請使用繁體中文回答。"))
+        self.assertIn("約 120 個字以內", prompt)
+        self.assertIn("不要在句子中途截斷", prompt)
 
 
 class ApplyAvatarGuardTests(unittest.TestCase):
@@ -273,6 +327,21 @@ class SpeechSettingsTests(unittest.TestCase):
         )
         self.assertTrue(ids.isdisjoint({"azuretts", "cosyvoice_api", "doubao", "tencent"}))
 
+    def test_snapshot_lists_all_edge_tts_zh_tw_voices(self):
+        voices = speech_snapshot(Config())["tts"]["edge_voices"]
+        self.assertEqual(
+            {voice["id"] for voice in voices},
+            {
+                "zh-TW-HsiaoChenNeural",
+                "zh-TW-HsiaoYuNeural",
+                "zh-TW-YunJheNeural",
+            },
+        )
+        self.assertEqual(
+            {voice["gender"] for voice in voices},
+            {"female", "male"},
+        )
+
     def test_tts_rejects_removed_provider(self):
         with self.assertRaises(SettingsError):
             apply_tts_settings(Config(), {"type": "azuretts"}, session_count=0)
@@ -297,6 +366,16 @@ class SpeechSettingsTests(unittest.TestCase):
         self.assertEqual(config.tts.type, "edgetts")
         self.assertIn("preview_audio", result)
         persist.assert_called_once()
+
+    def test_edge_tts_rejects_non_zh_tw_voice(self):
+        with patch("src.server.runtime_settings._engine_available", return_value=True):
+            with self.assertRaises(SettingsError) as ctx:
+                apply_tts_settings(
+                    Config(),
+                    {"type": "edgetts", "ref_file": "zh-CN-XiaoxiaoNeural"},
+                    session_count=0,
+                )
+        self.assertIn("台灣華語聲線", ctx.exception.message)
 
     def test_stt_prewarms_before_commit(self):
         config = Config()

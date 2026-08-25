@@ -158,6 +158,37 @@
 
             <div class="setting-item setting-item-stack">
               <div class="setting-label">
+                <label for="llm-response-max-chars">{{ t('settings.llm.responseLength') }}</label>
+                <span id="llm-response-max-chars-hint" class="setting-desc">
+                  {{ t('settings.llm.responseLengthDesc') }}
+                </span>
+              </div>
+              <div class="setting-control setting-control-grow">
+                <input
+                  id="llm-response-max-chars"
+                  v-model.number="selectedResponseMaxChars"
+                  type="number"
+                  inputmode="numeric"
+                  min="20"
+                  max="2000"
+                  step="10"
+                  :disabled="applyingLlm || loadingSettings"
+                  :aria-invalid="responseLengthError"
+                  aria-describedby="llm-response-max-chars-hint llm-response-max-chars-meta"
+                >
+                <div id="llm-response-max-chars-meta" class="field-meta">
+                  <span v-if="responseLengthError" class="field-error" role="alert">
+                    {{ t('settings.llm.responseLengthRange') }}
+                  </span>
+                  <span class="character-count">
+                    {{ selectedResponseMaxChars || '—' }} {{ t('settings.llm.responseLengthUnit') }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="setting-item setting-item-stack">
+              <div class="setting-label">
                 <label for="llm-system-prompt">{{ t('settings.llm.defaultPrompt') }}</label>
                 <span id="llm-system-prompt-hint" class="setting-desc">
                   {{ t('settings.llm.defaultPromptDesc') }}
@@ -185,7 +216,7 @@
             <button
               class="btn-apply"
               type="button"
-              :disabled="!llmDirty || applyingLlm || !selectedLlm || !selectedSystemPrompt.trim()"
+              :disabled="!llmDirty || applyingLlm || !selectedLlm || !selectedSystemPrompt.trim() || responseLengthError"
               @click="handleApplyLlm"
             >
               <i class="bi bi-hourglass-split spin" v-if="applyingLlm"></i>
@@ -780,11 +811,34 @@
                 <p class="field-hint warning-hint">{{ t('settings.speech.qwenFirstLoad') }}</p>
               </template>
 
+              <div v-else-if="ttsDraft.type === 'edgetts'" class="setting-item setting-item-stack">
+                <div class="setting-label">
+                  <label for="edge-tts-voice">{{ t('settings.speech.voice') }}</label>
+                  <span id="edge-tts-voice-hint" class="setting-desc">
+                    {{ t('settings.speech.edgeVoiceDesc') }}
+                  </span>
+                </div>
+                <div class="setting-control setting-control-grow">
+                  <select
+                    id="edge-tts-voice"
+                    v-model="ttsDraft.ref_file"
+                    :disabled="applyingTts || !speech.tts.edge_voices.length"
+                    aria-describedby="edge-tts-voice-hint"
+                  >
+                    <option
+                      v-for="voice in speech.tts.edge_voices"
+                      :key="voice.id"
+                      :value="voice.id"
+                    >
+                      {{ voice.name }} · {{ t(`settings.speech.${voice.gender}`) }} — {{ voice.id }}
+                    </option>
+                  </select>
+                </div>
+              </div>
+
               <div v-else class="setting-item">
                 <div class="setting-label">
-                  <label for="tts-reference">
-                    {{ ttsDraft.type === 'edgetts' ? t('settings.speech.voice') : t('settings.speech.reference') }}
-                  </label>
+                  <label for="tts-reference">{{ t('settings.speech.reference') }}</label>
                 </div>
                 <div class="setting-control">
                   <input id="tts-reference" v-model.trim="ttsDraft.ref_file" type="text" :disabled="applyingTts">
@@ -904,6 +958,8 @@ const {
   selectedAvatarId,
   selectedLlm,
   selectedSystemPrompt,
+  selectedResponseMaxChars,
+  responseLengthError,
   filteredCharacters,
   llmDirty,
   avatarDirty,
@@ -1512,6 +1568,7 @@ watch(settings, () => {
 
 .setting-control select,
 .setting-control input[type="text"],
+.setting-control input[type="number"],
 .setting-control textarea {
   padding: 0.5rem 0.75rem;
   background: var(--bg-secondary);
@@ -1524,6 +1581,7 @@ watch(settings, () => {
 
 .setting-control select:focus,
 .setting-control input[type="text"]:focus,
+.setting-control input[type="number"]:focus,
 .setting-control textarea:focus {
   outline: none;
   border-color: var(--primary);
@@ -1823,6 +1881,7 @@ input:checked + .slider:before {
 
 .setting-control-grow select,
 .setting-control-grow input[type="text"],
+.setting-control-grow input[type="number"],
 .setting-control-grow textarea {
   width: 100%;
   min-width: 0;
@@ -1855,6 +1914,7 @@ input:checked + .slider:before {
 
 .setting-control select:focus-visible,
 .setting-control input[type="text"]:focus-visible,
+.setting-control input[type="number"]:focus-visible,
 .setting-control textarea:focus-visible,
 .icon-action-btn:focus-visible,
 .engine-card:focus-visible,

@@ -7,7 +7,13 @@ from typing import Generator, Optional
 
 from openai import OpenAI, OpenAIError
 
-from src.llm.base import BaseLLM
+from src.llm.base import (
+    BaseLLM,
+    DEFAULT_RESPONSE_MAX_CHARS,
+    response_token_budget,
+    validate_response_max_chars,
+    with_response_length_instruction,
+)
 from src.utils.logging import logger
 
 
@@ -43,7 +49,10 @@ class OpenAILLM(BaseLLM):
             extra.pop("keep_alive", None)
             extra.pop("options", None)
         self.extra_body = extra
-        self.max_tokens = int(getattr(llm_cfg, "max_tokens", 128) or 128)
+        self.response_max_chars = validate_response_max_chars(
+            getattr(llm_cfg, "response_max_chars", DEFAULT_RESPONSE_MAX_CHARS)
+        )
+        self.max_tokens = response_token_budget(self.response_max_chars)
 
         logger.info(
             f"LLM initialized: model={self.model}, base_url={self.base_url}"
@@ -79,7 +88,10 @@ class OpenAILLM(BaseLLM):
         system_prompt: Optional[str] = None
     ) -> Generator[str, None, None]:
         start_time = time.perf_counter()
-        system_prompt = system_prompt or self.system_prompt
+        system_prompt = with_response_length_instruction(
+            system_prompt or self.system_prompt,
+            self.response_max_chars,
+        )
         
         try:
             # 新增使用者訊息到歷史

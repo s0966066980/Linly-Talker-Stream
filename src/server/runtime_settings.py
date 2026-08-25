@@ -18,7 +18,12 @@ from src.avatars.catalog import (
     list_engines,
 )
 from src.config.overrides import persist_runtime_overrides
-from src.llm.base import load_system_prompt
+from src.llm.base import (
+    DEFAULT_RESPONSE_MAX_CHARS,
+    load_system_prompt,
+    response_token_budget,
+    validate_response_max_chars,
+)
 from src.llm.llamacpp import (
     ensure_server,
     find_llama_server,
@@ -97,6 +102,9 @@ def current_snapshot(config) -> Dict[str, Any]:
             "base_url": llm.base_url,
             "provider": resolve_provider(config),
             "system_prompt": load_system_prompt(config),
+            "response_max_chars": int(
+                getattr(llm, "response_max_chars", DEFAULT_RESPONSE_MAX_CHARS)
+            ),
         },
         "avatar": {
             "type": model_cfg.type,
@@ -197,6 +205,7 @@ def apply_llm_model(
     model: str,
     provider: str = "",
     system_prompt: Optional[str] = None,
+    response_max_chars: Optional[int] = None,
 ) -> Dict[str, Any]:
     model = (model or "").strip()
     if not model:
@@ -209,6 +218,15 @@ def apply_llm_model(
     )
     if not next_system_prompt:
         raise SettingsError("預設 Prompt 不可為空")
+    try:
+        next_response_max_chars = validate_response_max_chars(
+            getattr(config.llm, "response_max_chars", DEFAULT_RESPONSE_MAX_CHARS)
+            if response_max_chars is None
+            else response_max_chars
+        )
+    except ValueError as exc:
+        raise SettingsError(str(exc)) from exc
+    next_max_tokens = response_token_budget(next_response_max_chars)
 
     previous = f"{resolve_provider(config)}/{config.llm.model}"
     if provider == "llamacpp":
@@ -232,23 +250,30 @@ def apply_llm_model(
         base_url = config.llm.base_url
         if "11434" not in (base_url or ""):
             base_url = "http://localhost:11434/v1"
+        existing_extra = dict(getattr(config.llm, "extra_body", None) or {})
+        options = dict(existing_extra.get("options") or {})
+        options.update(
+            {
+                "num_predict": next_max_tokens,
+                "num_ctx": options.get("num_ctx", 2048),
+                "temperature": options.get("temperature", 0.6),
+            }
+        )
         extra_body = {
             "reasoning_effort": "none",
             "think": False,
             "keep_alive": -1,
-            "options": {
-                "num_predict": int(getattr(config.llm, "max_tokens", 128) or 128),
-                "num_ctx": 2048,
-                "temperature": 0.6,
-            },
+            **existing_extra,
+            "options": options,
         }
-        extra_body.update(dict(getattr(config.llm, "extra_body", None) or {}))
         api_key = config.llm.api_key or "ollama"
 
     config.llm.provider = provider
     config.llm.model = model
     config.llm.base_url = base_url
     config.llm.api_key = api_key
+    config.llm.max_tokens = next_max_tokens
+    config.llm.response_max_chars = next_response_max_chars
     config.llm.system_prompt = next_system_prompt
     config.llm.extra_body = extra_body
     switch_llm_endpoint(
@@ -256,7 +281,8 @@ def apply_llm_model(
         base_url=base_url,
         extra_body=extra_body,
         api_key=api_key,
-        max_tokens=int(getattr(config.llm, "max_tokens", 128) or 128),
+        max_tokens=next_max_tokens,
+        response_max_chars=next_response_max_chars,
         system_prompt=next_system_prompt,
     )
     persist_runtime_overrides(config)
@@ -266,6 +292,7 @@ def apply_llm_model(
         "provider": provider,
         "base_url": base_url,
         "system_prompt": next_system_prompt,
+        "response_max_chars": next_response_max_chars,
     }
 
 
@@ -647,6 +674,14 @@ QWEN_TTS_SPEAKERS = (
     "Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric",
     "Ryan", "Aiden", "Ono_Anna", "Sohee",
 )
+EDGE_TTS_ZH_TW_VOICES = (
+    {"id": "zh-TW-HsiaoChenNeural", "name": "HsiaoChen", "gender": "female"},
+    {"id": "zh-TW-HsiaoYuNeural", "name": "HsiaoYu", "gender": "female"},
+    {"id": "zh-TW-YunJheNeural", "name": "YunJhe", "gender": "male"},
+)
+EDGE_TTS_ZH_TW_VOICE_IDS = frozenset(
+    voice["id"] for voice in EDGE_TTS_ZH_TW_VOICES
+)
 
 
 def _engine_available(item: Dict[str, str]) -> bool:
@@ -708,6 +743,7 @@ def speech_snapshot(config) -> Dict[str, Any]:
             "models": list(QWEN_TTS_MODELS),
             "languages": list(QWEN_TTS_LANGUAGES),
             "speakers": list(QWEN_TTS_SPEAKERS),
+            "edge_voices": [dict(voice) for voice in EDGE_TTS_ZH_TW_VOICES],
             "devices": list(STT_DEVICES),
         },
     }
@@ -798,8 +834,8 @@ def apply_tts_settings(config, params: Dict[str, Any], *, session_count: int) ->
     speaker = str(params.get("speaker", config.tts.speaker) or "").strip()
     instruct = str(params.get("instruct", config.tts.instruct) or "").strip()
     device = str(params.get("device", config.tts.device) or "auto").strip().lower()
-    if engine == "edgetts" and not ref_file:
-        raise SettingsError("Edge TTS 必須填寫語音名稱")
+    if engine == "edgetts" and ref_file not in EDGE_TTS_ZH_TW_VOICE_IDS:
+        raise SettingsError("請選擇可用的 Edge TTS 台灣華語聲線")
     if engine not in {"edgetts", "qwen3-tts"} and not tts_server:
         raise SettingsError("本地 TTS 必須填寫服務地址")
     if engine == "qwen3-tts":

@@ -22,3 +22,17 @@ test('套用 LLM 設定時會送出並同步預設 Prompt', () => {
   assert.match(settings, /system_prompt:\s*systemPrompt/)
   assert.match(settings, /runtime\.llm\.system_prompt\s*=\s*data\.system_prompt/)
 })
+
+test('設定面板提供可存取且有範圍限制的約略回覆字數欄位', () => {
+  assert.match(panel, /for="llm-response-max-chars"/)
+  assert.match(panel, /id="llm-response-max-chars"[\s\S]*type="number"/)
+  assert.match(panel, /min="20"/)
+  assert.match(panel, /max="2000"/)
+  assert.match(panel, /aria-describedby="llm-response-max-chars-hint llm-response-max-chars-meta"/)
+})
+
+test('套用 LLM 設定時會送出並同步回覆字數', () => {
+  assert.match(settings, /response_max_chars:\s*Number\(responseMaxChars\)/)
+  assert.match(settings, /runtime\.llm\.response_max_chars\s*=\s*Number/)
+  assert.match(settings, /value < 20 \|\| value > 2000/)
+})

@@ -204,6 +204,7 @@ class LLMConfig:
     llamacpp_ctx: int = 2048
     llamacpp_threads: int = 0  # 0 = 自動用滿 CPU
     max_tokens: int = 128  # 語音對話宜短，顯著降低尾端延遲
+    response_max_chars: int = 120  # 每次回答的約略字數上限
     system_prompt: str = ""
     # 透傳給 OpenAI 相容介面的額外請求體引數
     # 例如 Ollama 關閉思考鏈：{"reasoning_effort": "none"}

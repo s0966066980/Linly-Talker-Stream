@@ -22,3 +22,11 @@ test('Qwen3-TTS 顯示模型、聲線、指令及克隆參考欄位', () => {
   assert.match(panel, /ttsDraft\.instruct/)
   assert.match(panel, /qwenTtsKind === 'base'/)
 })
+
+test('Edge TTS 顯示可直接選擇的 zh-TW 聲線清單', () => {
+  assert.match(settings, /edge_voices:\s*\[\]/)
+  assert.match(panel, /id="edge-tts-voice"/)
+  assert.match(panel, /v-for="voice in speech\.tts\.edge_voices"/)
+  assert.match(panel, /:value="voice\.id"/)
+  assert.doesNotMatch(panel, /id="tts-reference"[\s\S]{0,120}ttsDraft\.type === 'edgetts'/)
+})

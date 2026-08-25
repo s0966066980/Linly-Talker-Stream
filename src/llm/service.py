@@ -107,6 +107,7 @@ def switch_llm_endpoint(
     extra_body=None,
     api_key: str = None,
     max_tokens: int = None,
+    response_max_chars: int = None,
     system_prompt: str = None,
 ):
     """更新已有會話的模型與介面，base_url 變化時重建客戶端。"""
@@ -122,6 +123,8 @@ def switch_llm_endpoint(
             llm._client = None
         if max_tokens is not None:
             llm.max_tokens = int(max_tokens)
+        if response_max_chars is not None:
+            llm.response_max_chars = int(response_max_chars)
         if system_prompt is not None:
             llm.system_prompt = system_prompt
         logger.info(

@@ -67,7 +67,8 @@ llm:
   llamacpp_port: 8080
   llamacpp_ctx: 2048          # 語音對話不需要長上下文
   llamacpp_threads: 0         # 0=自動用滿 CPU；有 CUDA 時主要靠 GPU
-  max_tokens: 128             # 限制回覆長度，降低尾延遲
+  max_tokens: 128             # 模型輸出 token 安全上限，會依回覆字數自動保留足夠空間
+  response_max_chars: 120     # 數位人每次回答的約略字數，實際結果會依模型略有差異
   extra_body:
     reasoning_effort: "none"  # 僅 Ollama：關閉思考鏈，降低首字延遲
 

@@ -1,4 +1,7 @@
+import os
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -6,7 +9,53 @@ import numpy as np
 import soundfile as sf
 
 from src.asr.engines.qwen3 import Qwen3ASR
+from src.speech import qwen_process
 from src.tts.engines.qwen3 import Qwen3TTS, _WORKER_CACHE
+
+
+class QwenWorkerEnvironmentTests(unittest.TestCase):
+    def test_worker_env_prepends_isolated_nvidia_libraries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env_root = Path(tmp) / ".venv-qwen-speech"
+            python = env_root / "bin" / "python"
+            python.parent.mkdir(parents=True)
+            python.touch()
+            site_packages = env_root / "lib" / "python3.10" / "site-packages"
+            nvrtc = site_packages / "nvidia" / "cuda_nvrtc" / "lib"
+            cudnn = site_packages / "nvidia" / "cudnn" / "lib"
+            nvrtc.mkdir(parents=True)
+            cudnn.mkdir(parents=True)
+
+            with patch.dict(
+                os.environ,
+                {"LD_LIBRARY_PATH": "/existing/cuda/lib"},
+                clear=False,
+            ):
+                worker_env = qwen_process.qwen_worker_env(python)
+
+        library_dirs = worker_env["LD_LIBRARY_PATH"].split(os.pathsep)
+        self.assertEqual(library_dirs[:2], sorted([str(nvrtc), str(cudnn)]))
+        self.assertEqual(library_dirs[-1], "/existing/cuda/lib")
+        self.assertEqual(worker_env["USE_TF"], "0")
+
+    def test_worker_start_uses_augmented_environment(self):
+        python = Path("/fake/qwen/bin/python")
+        augmented = {"USE_TF": "0", "LD_LIBRARY_PATH": "/qwen/nvidia/lib"}
+        process = Mock()
+        process.poll.return_value = None
+        client = qwen_process.QwenWorkerClient()
+
+        with patch.object(Path, "is_file", return_value=True), patch(
+            "src.speech.qwen_process.qwen_speech_python", return_value=python
+        ), patch(
+            "src.speech.qwen_process.qwen_worker_env", return_value=augmented
+        ) as build_env, patch(
+            "src.speech.qwen_process.subprocess.Popen", return_value=process
+        ) as popen, patch.object(client, "request"):
+            client.start(kind="tts", model="Qwen/TTS", device="cuda")
+
+        build_env.assert_called_once_with(python)
+        self.assertIs(popen.call_args.kwargs["env"], augmented)
 
 
 class Qwen3ASRTests(unittest.TestCase):

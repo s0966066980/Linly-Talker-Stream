@@ -5,7 +5,8 @@ const runtime = reactive({
     model: '',
     base_url: '',
     provider: 'ollama',
-    system_prompt: ''
+    system_prompt: '',
+    response_max_chars: 120
   },
   avatar: {
     type: '',
@@ -97,6 +98,7 @@ const speech = reactive({
     models: [],
     languages: [],
     speakers: [],
+    edge_voices: [],
     devices: ['auto', 'cpu', 'cuda']
   }
 })
@@ -140,6 +142,12 @@ const selectedEngine = ref('')
 const selectedAvatarId = ref('')
 const selectedLlm = ref('')
 const selectedSystemPrompt = ref('')
+const selectedResponseMaxChars = ref(120)
+
+const responseLengthError = computed(() => {
+  const value = Number(selectedResponseMaxChars.value)
+  return !Number.isInteger(value) || value < 20 || value > 2000
+})
 
 const filteredCharacters = computed(() => {
   if (!selectedEngine.value) return runtime.characters
@@ -151,11 +159,12 @@ const currentProviderModels = computed(() => {
 })
 
 const llmDirty = computed(() => {
-  if (!selectedLlm.value || !selectedSystemPrompt.value.trim()) return false
+  if (!selectedLlm.value || !selectedSystemPrompt.value.trim() || responseLengthError.value) return false
   return (
     selectedProvider.value !== runtime.llm.provider ||
     selectedLlm.value !== runtime.llm.model ||
-    selectedSystemPrompt.value !== (runtime.llm.system_prompt || '')
+    selectedSystemPrompt.value !== (runtime.llm.system_prompt || '') ||
+    Number(selectedResponseMaxChars.value) !== Number(runtime.llm.response_max_chars || 120)
   )
 })
 
@@ -419,6 +428,7 @@ function applySnapshot(data) {
     selectedLlm.value = data.llm?.model || ''
   }
   selectedSystemPrompt.value = data.llm?.system_prompt || ''
+  selectedResponseMaxChars.value = Number(data.llm?.response_max_chars || 120)
 }
 
 async function loadRuntimeSettings() {
@@ -487,23 +497,31 @@ async function loadOllamaModels() {
 async function applyLlmModel(
   model = selectedLlm.value,
   provider = selectedProvider.value,
-  systemPrompt = selectedSystemPrompt.value
+  systemPrompt = selectedSystemPrompt.value,
+  responseMaxChars = selectedResponseMaxChars.value
 ) {
   applyingLlm.value = true
   try {
     const data = await parseJson(await fetch('/api/llm/model', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, provider, system_prompt: systemPrompt })
+      body: JSON.stringify({
+        model,
+        provider,
+        system_prompt: systemPrompt,
+        response_max_chars: Number(responseMaxChars)
+      })
     }))
     runtime.llm.model = data.model
     runtime.llm.provider = data.provider || provider
     runtime.llm.base_url = data.base_url || runtime.llm.base_url
     runtime.llm.system_prompt = data.system_prompt || systemPrompt
+    runtime.llm.response_max_chars = Number(data.response_max_chars || responseMaxChars)
     ollama.current = data.model
     selectedLlm.value = data.model
     selectedProvider.value = data.provider || provider
     selectedSystemPrompt.value = runtime.llm.system_prompt
+    selectedResponseMaxChars.value = runtime.llm.response_max_chars
     return data
   } finally {
     applyingLlm.value = false
@@ -626,6 +644,8 @@ export function useRuntimeSettings() {
     selectedAvatarId,
     selectedLlm,
     selectedSystemPrompt,
+    selectedResponseMaxChars,
+    responseLengthError,
     filteredCharacters,
     llmDirty,
     avatarDirty,

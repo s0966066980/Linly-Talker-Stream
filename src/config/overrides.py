@@ -29,6 +29,8 @@ def persist_runtime_overrides(config) -> None:
             "provider": getattr(config.llm, "provider", "ollama"),
             "base_url": getattr(config.llm, "base_url", ""),
             "api_key": getattr(config.llm, "api_key", ""),
+            "max_tokens": getattr(config.llm, "max_tokens", 128),
+            "response_max_chars": getattr(config.llm, "response_max_chars", 120),
             "system_prompt": getattr(config.llm, "system_prompt", ""),
             "extra_body": getattr(config.llm, "extra_body", {}) or {},
         },

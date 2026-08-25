@@ -23,6 +23,44 @@ def qwen_speech_python() -> Path:
     return Path(configured).expanduser() if configured else DEFAULT_PYTHON
 
 
+def _qwen_nvidia_library_dirs(python: Path) -> tuple[Path, ...]:
+    """Find NVIDIA wheel libraries installed inside the isolated Qwen env."""
+    env_root = python.expanduser().absolute().parent.parent
+    patterns = (
+        "lib/python*/site-packages/nvidia/*/lib",
+        "lib64/python*/site-packages/nvidia/*/lib",
+        "Lib/site-packages/nvidia/*/bin",
+    )
+    directories = {
+        path
+        for pattern in patterns
+        for path in env_root.glob(pattern)
+        if path.is_dir()
+    }
+    return tuple(sorted(directories, key=str))
+
+
+def qwen_worker_env(python: Path) -> Dict[str, str]:
+    """Build a worker environment that can load CUDA libraries from pip wheels."""
+    env = dict(os.environ)
+    env["USE_TF"] = "0"
+    library_variable = "PATH" if os.name == "nt" else "LD_LIBRARY_PATH"
+    existing = env.get(library_variable, "")
+    candidates = [str(path) for path in _qwen_nvidia_library_dirs(python)]
+    candidates.extend(path for path in existing.split(os.pathsep) if path)
+
+    unique_paths = []
+    seen = set()
+    for path in candidates:
+        if path in seen:
+            continue
+        seen.add(path)
+        unique_paths.append(path)
+    if unique_paths:
+        env[library_variable] = os.pathsep.join(unique_paths)
+    return env
+
+
 @lru_cache(maxsize=1)
 def qwen_worker_available() -> bool:
     python = qwen_speech_python()
@@ -33,7 +71,7 @@ def qwen_worker_available() -> bool:
             [str(python), "-c", "import qwen_asr, qwen_tts"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            env={**os.environ, "USE_TF": "0"},
+            env=qwen_worker_env(python),
             timeout=20,
             check=False,
         )
@@ -64,7 +102,7 @@ class QwenWorkerClient:
                 stderr=None,
                 text=True,
                 bufsize=1,
-                env={**os.environ, "USE_TF": "0"},
+                env=qwen_worker_env(python),
             )
         self.request("load", kind=kind, model=model, device=device)
 

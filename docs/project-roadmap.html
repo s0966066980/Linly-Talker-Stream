@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="zh-Hant" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Linly-Talker-Stream 專案現況、README 規劃、功能路線圖與真正逐句串流設計草案。">
+  <title>Linly-Talker-Stream｜專案規劃與逐句串流設計</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --primary: #6d28d9;
+      --primary-strong: #5b21b6;
+      --primary-soft: #ede9fe;
+      --secondary: #4338ca;
+      --accent: #be185d;
+      --background: #faf7ff;
+      --surface: #ffffff;
+      --surface-raised: #ffffff;
+      --surface-muted: #f4f0fb;
+      --foreground: #171126;
+      --muted: #625a72;
+      --border: #ddd5e8;
+      --success: #087a55;
+      --success-soft: #dcfce7;
+      --warning: #9a4d07;
+      --warning-soft: #fff4d6;
+      --danger: #b42318;
+      --danger-soft: #fee4e2;
+      --code-bg: #211a2d;
+      --code-text: #f7f1ff;
+      --focus: #7c3aed;
+      --shadow-sm: 0 1px 2px rgb(23 17 38 / 6%);
+      --shadow-md: 0 12px 32px rgb(49 30 78 / 9%);
+      --radius-sm: 10px;
+      --radius-md: 18px;
+      --radius-lg: 28px;
+      --content: 1180px;
+      --reading: 760px;
+    }
+
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --primary: #a78bfa;
+      --primary-strong: #c4b5fd;
+      --primary-soft: #31244e;
+      --secondary: #a5b4fc;
+      --accent: #f9a8d4;
+      --background: #100d16;
+      --surface: #191520;
+      --surface-raised: #211b2a;
+      --surface-muted: #272030;
+      --foreground: #f7f2fc;
+      --muted: #c2b8ce;
+      --border: #443a50;
+      --success: #6ee7b7;
+      --success-soft: #143d31;
+      --warning: #fbbf24;
+      --warning-soft: #443410;
+      --danger: #fda29b;
+      --danger-soft: #49201f;
+      --code-bg: #0c0a10;
+      --code-text: #f7f1ff;
+      --focus: #c4b5fd;
+      --shadow-sm: 0 1px 2px rgb(0 0 0 / 18%);
+      --shadow-md: 0 14px 36px rgb(0 0 0 / 24%);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 92px; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      background:
+        radial-gradient(circle at 88% 2%, color-mix(in srgb, var(--primary) 11%, transparent), transparent 28rem),
+        var(--background);
+      color: var(--foreground);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
+      font-size: 16px;
+      line-height: 1.65;
+      text-rendering: optimizeLegibility;
+    }
+
+    a { color: inherit; }
+    button, a { touch-action: manipulation; }
+    button { font: inherit; }
+    :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+    ::selection { background: var(--primary-soft); color: var(--foreground); }
+
+    .skip-link {
+      position: fixed;
+      z-index: 1000;
+      top: 8px;
+      left: 8px;
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      background: var(--foreground);
+      color: var(--background);
+      transform: translateY(-160%);
+      transition: transform 180ms ease-out;
+    }
+    .skip-link:focus { transform: translateY(0); }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      border-bottom: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+      background: color-mix(in srgb, var(--background) 90%, transparent);
+      backdrop-filter: blur(14px);
+    }
+    .topbar-inner {
+      width: min(calc(100% - 32px), var(--content));
+      min-height: 72px;
+      margin-inline: auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
+      min-width: max-content;
+      font-weight: 760;
+      letter-spacing: -0.02em;
+      text-decoration: none;
+    }
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 11px;
+      background: var(--primary);
+      color: white;
+      box-shadow: var(--shadow-sm);
+    }
+    .brand-mark svg { width: 20px; height: 20px; }
+    .desktop-nav { display: flex; align-items: center; gap: 4px; }
+    .desktop-nav a {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 12px;
+      border-radius: 10px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 650;
+      text-decoration: none;
+      transition: color 180ms ease-out, background 180ms ease-out;
+    }
+    .desktop-nav a:hover,
+    .desktop-nav a[aria-current="true"] {
+      background: var(--primary-soft);
+      color: var(--primary-strong);
+    }
+    .theme-toggle {
+      width: 44px;
+      height: 44px;
+      flex: 0 0 44px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--surface);
+      color: var(--foreground);
+      cursor: pointer;
+      transition: background 180ms ease-out, border-color 180ms ease-out;
+    }
+    .theme-toggle:hover { border-color: var(--primary); background: var(--primary-soft); }
+    .theme-toggle svg { width: 20px; height: 20px; }
+
+    main { overflow: clip; }
+    .container { width: min(calc(100% - 32px), var(--content)); margin-inline: auto; }
+    .hero { padding: clamp(64px, 10vw, 124px) 0 72px; }
+    .eyebrow,
+    .section-kicker {
+      margin: 0 0 14px;
+      color: var(--primary-strong);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .hero h1 {
+      max-width: 920px;
+      margin: 0;
+      font-size: clamp(42px, 7.2vw, 88px);
+      line-height: 0.98;
+      letter-spacing: -0.062em;
+      text-wrap: balance;
+    }
+    .hero h1 span { color: var(--primary); }
+    .hero-lead {
+      max-width: 720px;
+      margin: 28px 0 0;
+      color: var(--muted);
+      font-size: clamp(18px, 2vw, 22px);
+      line-height: 1.6;
+    }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 34px; }
+    .button {
+      min-height: 48px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      padding: 0 18px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--surface);
+      color: var(--foreground);
+      font-weight: 720;
+      text-decoration: none;
+      box-shadow: var(--shadow-sm);
+      transition: transform 180ms ease-out, box-shadow 180ms ease-out, background 180ms ease-out;
+    }
+    .button:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+    .button.primary { border-color: var(--primary); background: var(--primary); color: #fff; }
+    .button svg { width: 18px; height: 18px; }
+    .summary-strip {
+      margin-top: 64px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      box-shadow: var(--shadow-sm);
+    }
+    .summary-item { padding: 22px 24px; }
+    .summary-item + .summary-item { border-left: 1px solid var(--border); }
+    .summary-label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 13px; font-weight: 700; }
+    .summary-value { font-size: 17px; font-weight: 760; }
+
+    .section { padding: 84px 0; }
+    .section.alt { border-block: 1px solid var(--border); background: color-mix(in srgb, var(--surface-muted) 58%, transparent); }
+    .section-heading { max-width: var(--reading); margin-bottom: 36px; }
+    .section h2 {
+      margin: 0;
+      font-size: clamp(32px, 4.8vw, 56px);
+      line-height: 1.08;
+      letter-spacing: -0.045em;
+      text-wrap: balance;
+    }
+    .section-intro { margin: 18px 0 0; color: var(--muted); font-size: 18px; }
+    h3 { margin: 0; font-size: 21px; line-height: 1.3; letter-spacing: -0.02em; }
+    h4 { margin: 0; font-size: 16px; line-height: 1.35; }
+    p { margin: 0; }
+
+    .grid { display: grid; gap: 18px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      box-shadow: var(--shadow-sm);
+    }
+    .card-pad { padding: clamp(22px, 3vw, 30px); }
+    .card p { margin-top: 10px; color: var(--muted); }
+    .card-accent { border-top: 4px solid var(--primary); }
+    .card-success { border-top: 4px solid var(--success); }
+    .card-warning { border-top: 4px solid var(--warning); }
+    .card-danger { border-top: 4px solid var(--danger); }
+    .icon-box {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 18px;
+      border-radius: 12px;
+      background: var(--primary-soft);
+      color: var(--primary-strong);
+    }
+    .icon-box svg { width: 22px; height: 22px; }
+    .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+      padding: 4px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface-muted);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 680;
+    }
+
+    .callout {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 16px;
+      margin-top: 22px;
+      padding: 20px;
+      border: 1px solid color-mix(in srgb, var(--warning) 38%, var(--border));
+      border-radius: var(--radius-md);
+      background: var(--warning-soft);
+    }
+    .callout.success { border-color: color-mix(in srgb, var(--success) 38%, var(--border)); background: var(--success-soft); }
+    .callout-icon { width: 26px; height: 26px; color: var(--warning); }
+    .callout.success .callout-icon { color: var(--success); }
+    .callout p { margin-top: 4px; color: color-mix(in srgb, var(--foreground) 76%, var(--muted)); }
+
+    .readme-map {
+      display: grid;
+      grid-template-columns: 0.72fr 1.28fr;
+      gap: 20px;
+      align-items: start;
+    }
+    .readme-preview {
+      position: sticky;
+      top: 96px;
+      padding: 26px;
+      border-radius: var(--radius-md);
+      background: var(--code-bg);
+      color: var(--code-text);
+      box-shadow: var(--shadow-md);
+    }
+    .readme-preview .file-label { color: #c4b5fd; font: 700 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .readme-preview h3 { margin-top: 22px; font-size: 28px; }
+    .readme-preview p { margin-top: 12px; color: #d8cee5; }
+    .preview-rule { height: 1px; margin: 24px 0; background: #51455f; }
+    .preview-line { height: 9px; margin-top: 11px; border-radius: 999px; background: #403649; }
+    .preview-line.short { width: 58%; }
+    .outline { overflow: hidden; }
+    .outline-item {
+      display: grid;
+      grid-template-columns: 48px 1fr;
+      gap: 16px;
+      padding: 20px 22px;
+      border-bottom: 1px solid var(--border);
+    }
+    .outline-item:last-child { border-bottom: 0; }
+    .outline-number {
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: var(--primary-soft);
+      color: var(--primary-strong);
+      font: 800 13px/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+    .outline-item p { margin-top: 4px; }
+
+    .flow-card { padding: 26px; overflow: hidden; }
+    .flow-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 22px; }
+    .status-tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .status-tag.current { background: var(--danger-soft); color: var(--danger); }
+    .status-tag.proposed { background: var(--success-soft); color: var(--success); }
+    .flow {
+      display: flex;
+      align-items: stretch;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 4px 2px 12px;
+      scrollbar-width: thin;
+    }
+    .flow-node {
+      min-width: 112px;
+      flex: 1 0 112px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 96px;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface-muted);
+      text-align: center;
+    }
+    .flow-node strong { font-size: 14px; }
+    .flow-node span { margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+    .flow-node.bottleneck { border-color: var(--danger); background: var(--danger-soft); }
+    .flow-node.key { border-color: var(--success); background: var(--success-soft); }
+    .flow-arrow { flex: 0 0 18px; display: grid; place-items: center; color: var(--muted); font-weight: 900; }
+    .flow-note { margin-top: 14px; color: var(--muted); font-size: 14px; }
+
+    .stream-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
+    .stream-layout > .card { min-width: 0; }
+    .sticky-note { position: sticky; top: 96px; }
+    .fact-list { list-style: none; margin: 18px 0 0; padding: 0; }
+    .fact-list li { position: relative; padding: 10px 0 10px 30px; border-top: 1px solid var(--border); }
+    .fact-list li::before {
+      content: "";
+      position: absolute;
+      top: 17px;
+      left: 4px;
+      width: 10px;
+      height: 10px;
+      border: 3px solid var(--success);
+      border-radius: 50%;
+    }
+    .fact-list code, code {
+      padding: 0.12em 0.36em;
+      border-radius: 5px;
+      background: var(--surface-muted);
+      color: var(--primary-strong);
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.9em;
+    }
+    pre {
+      margin: 20px 0 0;
+      padding: 20px;
+      overflow-x: auto;
+      border-radius: 14px;
+      background: var(--code-bg);
+      color: var(--code-text);
+      font: 13px/1.7 ui-monospace, SFMono-Regular, Consolas, monospace;
+      tab-size: 2;
+    }
+    pre code { padding: 0; background: transparent; color: inherit; font: inherit; }
+    .source-ref { margin-top: 16px; color: var(--muted); font-size: 13px; }
+
+    .step-list { counter-reset: steps; display: grid; gap: 14px; margin-top: 22px; }
+    .step {
+      counter-increment: steps;
+      display: grid;
+      grid-template-columns: 42px 1fr;
+      gap: 14px;
+      padding: 18px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface);
+    }
+    .step::before {
+      content: counter(steps);
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: var(--primary);
+      color: #fff;
+      font-weight: 800;
+    }
+    .step p { margin-top: 4px; color: var(--muted); }
+
+    .table-wrap { margin-top: 22px; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-md); }
+    table { width: 100%; min-width: 720px; border-collapse: collapse; background: var(--surface); }
+    th, td { padding: 15px 16px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: var(--surface-muted); color: var(--foreground); font-size: 13px; letter-spacing: 0.02em; }
+    td { color: var(--muted); }
+    tbody tr:last-child td { border-bottom: 0; }
+    td strong { color: var(--foreground); }
+    .recommend { color: var(--success); font-weight: 800; }
+
+    .option-tabs { margin-top: 24px; }
+    .tab-list {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      padding: 6px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface-muted);
+    }
+    .tab-button {
+      min-height: 48px;
+      padding: 8px 12px;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-weight: 720;
+      transition: background 180ms ease-out, color 180ms ease-out, box-shadow 180ms ease-out;
+    }
+    .tab-button[aria-selected="true"] { background: var(--surface); color: var(--foreground); box-shadow: var(--shadow-sm); }
+    .tab-panel { margin-top: 14px; padding: 24px; }
+    .tab-panel[hidden] { display: none; }
+    .option-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+
+    .roadmap { position: relative; display: grid; gap: 18px; }
+    .phase { display: grid; grid-template-columns: 120px 1fr; gap: 18px; }
+    .phase-label {
+      position: relative;
+      padding-top: 20px;
+      color: var(--primary-strong);
+      font-size: 13px;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .phase-card { padding: 24px; }
+    .phase-card ul { margin: 14px 0 0; padding-left: 20px; color: var(--muted); }
+    .phase-card li + li { margin-top: 6px; }
+
+    details {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface);
+      overflow: hidden;
+    }
+    details + details { margin-top: 10px; }
+    summary {
+      min-height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 18px;
+      cursor: pointer;
+      font-weight: 750;
+      list-style: none;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: "+"; color: var(--primary); font-size: 24px; line-height: 1; }
+    details[open] summary::after { content: "−"; }
+    .details-body { padding: 0 18px 18px; color: var(--muted); }
+
+    .decision-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .decision { padding: 22px; }
+    .decision .choice { display: inline-block; margin-top: 12px; color: var(--success); font-weight: 800; }
+
+    footer { padding: 38px 0 52px; border-top: 1px solid var(--border); color: var(--muted); }
+    .footer-inner { display: flex; justify-content: space-between; gap: 20px; }
+    .footer-inner a { color: var(--primary-strong); font-weight: 700; text-decoration: none; }
+
+    @media (max-width: 900px) {
+      .desktop-nav { display: none; }
+      .summary-strip { grid-template-columns: 1fr; }
+      .summary-item + .summary-item { border-left: 0; border-top: 1px solid var(--border); }
+      .grid.three { grid-template-columns: 1fr; }
+      .readme-map, .stream-layout { grid-template-columns: 1fr; }
+      .readme-preview, .sticky-note { position: static; }
+      .phase { grid-template-columns: 1fr; gap: 0; }
+      .decision-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 680px) {
+      .container, .topbar-inner { width: min(calc(100% - 24px), var(--content)); }
+      .topbar-inner { min-height: 64px; }
+      .brand-text { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .hero { padding-top: 56px; }
+      .hero h1 { font-size: clamp(40px, 14vw, 58px); }
+      .hero-actions { display: grid; }
+      .button { width: 100%; }
+      .section { padding: 64px 0; }
+      .grid.two { grid-template-columns: 1fr; }
+      .flow-card { padding: 20px; }
+      .tab-list { grid-template-columns: 1fr; }
+      .outline-item { grid-template-columns: 40px 1fr; padding: 18px; }
+      .footer-inner { flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+    }
+
+    @media print {
+      .topbar, .hero-actions, .theme-toggle { display: none !important; }
+      body { background: #fff; color: #000; }
+      .section { padding: 36px 0; break-inside: avoid; }
+      .card, .readme-preview, details { box-shadow: none; break-inside: avoid; }
+      details > .details-body { display: block; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到主要內容</a>
+
+  <header class="topbar" aria-label="頁首導覽">
+    <div class="topbar-inner">
+      <a class="brand" href="#top" aria-label="回到頁首">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 17V7m16 10V7M8 14V10m4 7V7m4 7v-4" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="brand-text">Linly-Talker-Stream 規劃</span>
+      </a>
+      <nav class="desktop-nav" aria-label="章節導覽">
+        <a href="#overview">現況</a>
+        <a href="#readme">README</a>
+        <a href="#streaming">逐句串流</a>
+        <a href="#roadmap">路線圖</a>
+        <a href="#decisions">待決策</a>
+      </nav>
+      <button class="theme-toggle" type="button" aria-label="切換深色模式" aria-pressed="false" title="切換深色模式">
+        <svg class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.64 5.64l1.42 1.42m9.88 9.88 1.42 1.42m0-12.72-1.42 1.42M7.06 16.94l-1.42 1.42" stroke-linecap="round"/>
+          <circle cx="12" cy="12" r="4"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="main-content">
+    <section class="hero" id="top">
+      <div class="container">
+        <p class="eyebrow">Project review · 2026.08</p>
+        <h1>先讓數位人<br><span>更快開口。</span></h1>
+        <p class="hero-lead">這份閱讀版規劃把專案現況、全新 README、功能優先級，以及真正逐句串流的實作方式放在同一張地圖上。</p>
+        <div class="hero-actions">
+          <a class="button primary" href="#streaming">
+            查看逐句串流方案
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <a class="button" href="#roadmap">查看開發順序</a>
+        </div>
+        <div class="summary-strip" aria-label="建議摘要">
+          <div class="summary-item"><span class="summary-label">第一優先</span><span class="summary-value">逐句 LLM → TTS → Avatar</span></div>
+          <div class="summary-item"><span class="summary-label">產品化下一步</span><span class="summary-value">Persona ＋對話媒體庫</span></div>
+          <div class="summary-item"><span class="summary-label">公開部署前</span><span class="summary-value">驗證、CORS 與資源限制</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt" id="overview">
+      <div class="container">
+        <div class="section-heading">
+          <p class="section-kicker">01 · Project status</p>
+          <h2>專案已經跨過 Demo 階段</h2>
+          <p class="section-intro">現在的價值不是只有模型多，而是已經能完成一整個即時語音回合；下一階段應聚焦延遲、可觀測性與持久化。</p>
+        </div>
+        <div class="grid three">
+          <article class="card card-pad card-success">
+            <div class="icon-box" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h2l2-7 4 14 2-7h4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <h3>完整語音鏈</h3>
+            <p>伺服器端 VAD、STT、LLM、TTS、Avatar 與 WebRTC 已串成可用回合。</p>
+            <div class="pill-row"><span class="pill">Silero VAD</span><span class="pill">WebRTC</span><span class="pill">插話</span></div>
+          </article>
+          <article class="card card-pad card-accent">
+            <div class="icon-box" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h10M4 17h16M18 7h2M4 12h4m4 0h8" stroke-linecap="round"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/></svg></div>
+            <h3>執行期設定</h3>
+            <p>LLM、語音、角色、VAD 與預設 Prompt 可從前端調整，不必重啟整套系統。</p>
+            <div class="pill-row"><span class="pill">Ollama</span><span class="pill">llama.cpp</span><span class="pill">Prompt</span></div>
+          </article>
+          <article class="card card-pad card-warning">
+            <div class="icon-box" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M3 12h18" stroke-linecap="round"/></svg></div>
+            <h3>適合擴充</h3>
+            <p>多種 STT、TTS 與 Avatar adapter 已存在，現在需要統一註冊與能力描述。</p>
+            <div class="pill-row"><span class="pill">3 種 STT</span><span class="pill">7 種 TTS</span><span class="pill">5 種 Avatar</span></div>
+          </article>
+        </div>
+
+        <div class="callout">
+          <svg class="callout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 4.4 2.6 18a2 2 0 0 0 1.74 3h15.32a2 2 0 0 0 1.74-3L13.7 4.4a2 2 0 0 0-3.4 0Z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div><h3>現在的主要缺口</h3><p>LLM 仍先收完整回覆再交給 TTS；對話與錄影沒有索引；設定畫面與執行期設定檔過大；公開部署尚無驗證與嚴格 CORS。</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="readme">
+      <div class="container">
+        <div class="section-heading">
+          <p class="section-kicker">02 · README blueprint</p>
+          <h2>README 只負責讓人快速理解與啟動</h2>
+          <p class="section-intro">主文件使用繁體中文，詳細設定拆入 docs。每個主題只保留一個真實來源，避免引擎矩陣與 Roadmap 再次過期。</p>
+        </div>
+        <div class="readme-map">
+          <aside class="readme-preview" aria-label="README 首屏預覽">
+            <span class="file-label">README.md</span>
+            <h3>Linly-Talker-Stream</h3>
+            <p>本機優先、可熱切換 AI 引擎的全雙工即時數位人系統。</p>
+            <div class="preview-rule"></div>
+            <div class="preview-line"></div><div class="preview-line"></div><div class="preview-line short"></div>
+            <div class="preview-rule"></div>
+            <span class="pill">快速開始</span> <span class="pill">支援矩陣</span>
+          </aside>
+          <div class="card outline">
+            <div class="outline-item"><span class="outline-number">01</span><div><h3>Hero 與一句定位</h3><p>標題、價值主張、截圖或短影片、語言切換與 CI／License 徽章。</p></div></div>
+            <div class="outline-item"><span class="outline-number">02</span><div><h3>60 秒看懂</h3><p>全雙工、本機優先、可切換引擎、角色匯入、錄影與預設 Prompt。</p></div></div>
+            <div class="outline-item"><span class="outline-number">03</span><div><h3>快速開始</h3><p>明列 Python 3.10–3.11、Node、FFmpeg、CUDA 與最短啟動路徑。</p></div></div>
+            <div class="outline-item"><span class="outline-number">04</span><div><h3>引擎支援矩陣</h3><p>區分穩定、選用、實驗性、本機與需要網路，不把 Edge TTS 誤稱為離線。</p></div></div>
+            <div class="outline-item"><span class="outline-number">05</span><div><h3>架構與資料流</h3><p>以一張圖解釋 Browser → VAD → STT → LLM → TTS → Avatar → WebRTC。</p></div></div>
+            <div class="outline-item"><span class="outline-number">06</span><div><h3>隱私、限制與 Roadmap</h3><p>麥克風預設不保存；清楚寫出單機狀態、硬體需求及尚未完成的項目。</p></div></div>
+          </div>
+        </div>
+        <div class="callout success">
+          <svg class="callout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div><h3>文件拆分建議</h3><p><code>getting-started.md</code>、<code>engine-matrix.md</code>、<code>configuration.md</code>、<code>architecture.md</code>、<code>api.md</code>、<code>troubleshooting.md</code>。</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt" id="streaming">
+      <div class="container">
+        <div class="section-heading">
+          <p class="section-kicker">03 · True sentence streaming</p>
+          <h2>真正的逐句串流，不只是一個布林開關</h2>
+          <p class="section-intro">目標是讓第一句在 LLM 尚未完成整段回答前就開始合成與播放，同時保證插話後不會再冒出舊回合音訊。</p>
+        </div>
+
+        <div class="grid two">
+          <article class="card flow-card">
+            <div class="flow-title"><h3>目前流程</h3><span class="status-tag current">完整回覆後才說話</span></div>
+            <div class="flow" aria-label="目前語音流程">
+              <div class="flow-node"><strong>STT</strong><span>完整辨識</span></div><div class="flow-arrow" aria-hidden="true">→</div>
+              <div class="flow-node bottleneck"><strong>LLM</strong><span>收集所有 token</span></div><div class="flow-arrow" aria-hidden="true">→</div>
+              <div class="flow-node"><strong>TTS</strong><span>整段文字入列</span></div><div class="flow-arrow" aria-hidden="true">→</div>
+              <div class="flow-node"><strong>Avatar</strong><span>開始播放</span></div>
+            </div>
+            <p class="flow-note">瓶頸：<code>stream_to_avatar=False</code>，而且 <code>assistant_text</code> 只在最後送一次。</p>
+          </article>
+          <article class="card flow-card">
+            <div class="flow-title"><h3>建議流程</h3><span class="status-tag proposed">首句就開始說話</span></div>
+            <div class="flow" aria-label="建議的逐句串流流程">
+              <div class="flow-node"><strong>LLM delta</strong><span>持續產生</span></div><div class="flow-arrow" aria-hidden="true">→</div>
+              <div class="flow-node key"><strong>Segmenter</strong><span>語意分句</span></div><div class="flow-arrow" aria-hidden="true">→</div>
+              <div class="flow-node key"><strong>有界佇列</strong><span>最多 2 段</span></div><div class="flow-arrow" aria-hidden="true">→</div>
+              <div class="flow-node"><strong>TTS / Avatar</strong><span>邊合成邊播</span></div>
+            </div>
+            <p class="flow-note">每個 delta、句子與音訊 frame 都攜帶 <code>turn_id</code>，取消後立即失效。</p>
+          </article>
+        </div>
+
+        <div class="callout">
+          <svg class="callout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 4.4 2.6 18a2 2 0 0 0 1.74 3h15.32a2 2 0 0 0 1.74-3L13.7 4.4a2 2 0 0 0-3.4 0Z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div><h3>為什麼不能直接改成 True？</h3><p>LLM 現在跑在 executor。取消 asyncio task 不會停止底層同步 <code>chat_stream</code>；若 callback 直接送 TTS，插話後舊 worker 仍可能繼續排入句子。因此必須把取消令牌與 generation 檢查放進 token → 分句 → TTS 的每一個關卡。</p></div>
+        </div>
+
+        <div class="stream-layout" style="margin-top: 24px;">
+          <div class="card card-pad">
+            <h3>建議建立深層 TurnPipeline 模組</h3>
+            <p>讓 <code>VoiceTurnSession</code> 只知道「開始一個回合」與「取消回合」。同步 LLM、分句、有界佇列、事件順序、錯誤與清理全部藏在模組 implementation 裡。</p>
+            <pre aria-label="TurnPipeline 介面範例"><code>class TurnPipeline:
+    async def run(
+        self,
+        request: TurnRequest,
+        event_sink: Callable[[TurnEvent], None],
+    ) -&gt; TurnResult: ...
+
+    async def cancel(self, turn_id: str) -&gt; None: ...</code></pre>
+            <p class="source-ref">外部 interface 維持兩個動作；ASR、LLM、TTS 與 Avatar adapter 是 implementation 內部 seam。</p>
+
+            <div class="step-list">
+              <div class="step"><div><h4>LLM producer</h4><p>同步 <code>chat_stream</code> 在 worker thread 產生 delta，透過 thread-safe bridge 放進有界 asyncio queue；每次放入前後檢查 cancellation token。</p></div></div>
+              <div class="step"><div><h4>SentenceSegmenter</h4><p>硬標點達最小長度立即提交；軟標點、等待時間與最大字數作為無標點回答的保險。</p></div></div>
+              <div class="step"><div><h4>Speech consumer</h4><p>依序送入 TTS，每段附帶 <code>turn_id</code>、<code>segment_id</code> 與序號；佇列滿時反壓 LLM producer。</p></div></div>
+              <div class="step"><div><h4>Cancellation fence</h4><p>插話時先使 token 失效，再清文字佇列、TTS 佇列與 Avatar 音訊；任何舊 frame 都必須在輸出前再次驗證。</p></div></div>
+              <div class="step"><div><h4>Incremental events</h4><p>前端先收到 <code>assistant_delta</code> 更新字幕，完成時再收到 <code>assistant_final</code>，顯示文字與實際語音保持一致。</p></div></div>
+            </div>
+          </div>
+
+          <aside class="card card-pad sticky-note">
+            <h3>現有程式可直接利用</h3>
+            <ul class="fact-list">
+              <li><code>BaseLLM.chat_stream</code> 已提供 token 串流。</li>
+              <li><code>TextStreamProcessor</code> 已有標點緩衝雛形。</li>
+              <li><code>BaseTTS.msgqueue</code> 已能依序處理文字。</li>
+              <li><code>turn_id / generation</code> 已存在。</li>
+              <li><code>flush_talk</code> 已能停止多數 TTS 輸出。</li>
+              <li>WebRTC 已能回報 speaking start／end。</li>
+            </ul>
+          </aside>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>議題</th><th>建議預設</th><th>理由</th><th>必測情境</th></tr></thead>
+            <tbody>
+              <tr><td><strong>硬分隔符</strong></td><td>。！？!?；與換行</td><td>語意完整，適合立即交給 TTS</td><td>中英混合、連續標點</td></tr>
+              <tr><td><strong>軟分隔符</strong></td><td>，、：；達 18 字才切</td><td>縮短首句延遲，但避免語音過碎</td><td>短問句與列舉</td></tr>
+              <tr><td><strong>等待上限</strong></td><td>約 700 ms</td><td>模型長時間不吐標點時仍能開口</td><td>無標點長回答</td></tr>
+              <tr><td><strong>長度上限</strong></td><td>約 48 個可發音字元</td><td>限制單次 TTS 成本與等待</td><td>URL、數字、小數與英文縮寫</td></tr>
+              <tr><td><strong>待說佇列</strong></td><td>最多 2 段</td><td>控制延遲與插話後殘留量</td><td>LLM 快、TTS 慢</td></tr>
+              <tr><td><strong>顯示文字</strong></td><td>delta 累加、final 校正</td><td>畫面立即有反應且保留完整 Markdown</td><td>取消、重試與事件亂序</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="option-tabs">
+          <div class="tab-list" role="tablist" aria-label="逐句串流方案比較">
+            <button class="tab-button" id="tab-min" role="tab" aria-selected="false" aria-controls="panel-min" tabindex="-1">最小改動</button>
+            <button class="tab-button" id="tab-rec" role="tab" aria-selected="true" aria-controls="panel-rec">推薦方案</button>
+            <button class="tab-button" id="tab-deep" role="tab" aria-selected="false" aria-controls="panel-deep" tabindex="-1">完整重構</button>
+          </div>
+          <section class="card tab-panel" id="panel-min" role="tabpanel" aria-labelledby="tab-min" hidden>
+            <h3>開啟現有分句 callback，再補 generation guard</h3>
+            <p>適合快速驗證首句延遲，但 executor 取消、TTS 完成回報、反壓與舊音訊隔離仍較脆弱。應視為 prototype，不建議直接當最終架構。</p>
+            <div class="option-meta"><span class="pill">工程量：低</span><span class="pill">風險：中高</span><span class="pill">可觀測性：低</span></div>
+          </section>
+          <section class="card tab-panel" id="panel-rec" role="tabpanel" aria-labelledby="tab-rec">
+            <h3>TurnPipeline ＋取消令牌＋有界佇列</h3>
+            <p>保留現有引擎 adapter，但把回合協調集中到一個深層模組。能同時處理串流、插話、反壓、事件與指標，是目前最好的投入報酬。</p>
+            <div class="option-meta"><span class="pill">工程量：中</span><span class="pill">風險：可控</span><span class="pill">可測試性：高</span><span class="pill">建議採用</span></div>
+          </section>
+          <section class="card tab-panel" id="panel-deep" role="tabpanel" aria-labelledby="tab-deep" hidden>
+            <h3>所有 LLM／TTS adapter 改成原生 async stream</h3>
+            <p>長期最乾淨，但會同時碰觸所有語音引擎與 Avatar。除非近期要做多使用者 GPU 排程，否則現在投入過大。</p>
+            <div class="option-meta"><span class="pill">工程量：高</span><span class="pill">風險：高</span><span class="pill">長期一致性：最高</span></div>
+          </section>
+        </div>
+
+        <div style="margin-top: 28px;">
+          <h3>驗收條件</h3>
+          <div class="grid two" style="margin-top: 16px;">
+            <details open><summary>首句必須早於完整回答</summary><div class="details-body">測試 LLM 尚未結束時，第一個 TTS segment 已送出；記錄 LLM TTFT、首句提交與首音訊延遲。</div></details>
+            <details open><summary>插話後零舊音訊</summary><div class="details-body">取消回合後，即使 executor 還在退 token，任何舊 segment 或 audio frame 都不能抵達 Avatar 輸出。</div></details>
+            <details><summary>分句順序與完整性</summary><div class="details-body">所有可見文字只增不漏、segment 序號連續，最後拼接內容與完整 LLM 回覆一致。</div></details>
+            <details><summary>反壓與錯誤恢復</summary><div class="details-body">TTS 慢時佇列不無限成長；任一引擎失敗會送出單一 error，清理資源並重新開啟收音 gate。</div></details>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="roadmap">
+      <div class="container">
+        <div class="section-heading">
+          <p class="section-kicker">04 · Delivery roadmap</p>
+          <h2>先縮短等待，再累積產品價值</h2>
+          <p class="section-intro">每個階段都產出可驗證成果，不同時展開過多大型功能。</p>
+        </div>
+        <div class="roadmap">
+          <div class="phase"><div class="phase-label">Phase 1</div><article class="card phase-card card-accent"><h3>逐句串流與延遲指標</h3><ul><li>TurnPipeline、SentenceSegmenter、取消令牌</li><li>assistant_delta／final 事件</li><li>STT、LLM TTFT、TTS 首音訊與總延遲</li></ul></article></div>
+          <div class="phase"><div class="phase-label">Phase 2</div><article class="card phase-card"><h3>引擎註冊與前端拆分</h3><ul><li>EngineRegistry：list／validate／activate／health</li><li>SettingsPanel 按 AI、語音、角色、體驗拆成獨立模組</li><li>由註冊資料產生 README 引擎矩陣</li></ul></article></div>
+          <div class="phase"><div class="phase-label">Phase 3</div><article class="card phase-card"><h3>Persona 與對話媒體庫</h3><ul><li>一鍵套用 Avatar、Prompt、LLM、STT、TTS、VAD</li><li>SQLite 保存逐字稿、模型、延遲與錄影路徑</li><li>搜尋、播放、刪除與匯出</li></ul></article></div>
+          <div class="phase"><div class="phase-label">Phase 4</div><article class="card phase-card"><h3>字幕與本機知識庫</h3><ul><li>SRT／WebVTT 即時字幕</li><li>PDF、Markdown、文字檔 RAG</li><li>回答來源引用與知識庫管理</li></ul></article></div>
+          <div class="phase"><div class="phase-label">Later</div><article class="card phase-card"><h3>多模態、情緒與多人部署</h3><ul><li>表情、動作與結構化 AvatarAction</li><li>相機／圖片理解與 Omni 模型</li><li>使用者隔離、GPU 排程、驗證與 Rate limit</li></ul></article></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt" id="decisions">
+      <div class="container">
+        <div class="section-heading">
+          <p class="section-kicker">05 · Decisions to discuss</p>
+          <h2>開始實作前，先確認四個產品選擇</h2>
+          <p class="section-intro">技術可以調整，但這四項會直接決定語音體感、事件設計與測試範圍。</p>
+        </div>
+        <div class="decision-grid">
+          <article class="card decision"><h3>首句偏快，還是語意偏完整？</h3><p>太短會像機器逐片念字，太長又失去串流價值。</p><span class="choice">建議：硬標點優先，700 ms／48 字保底</span></article>
+          <article class="card decision"><h3>Markdown 要不要直接念？</h3><p>畫面需要保留 Markdown，但 TTS 不應朗讀星號、網址與程式碼符號。</p><span class="choice">建議：顯示文字與可發音文字分離</span></article>
+          <article class="card decision"><h3>插話要多徹底？</h3><p>只清 TTS queue 不夠；LLM worker 與已產生音訊也必須失效。</p><span class="choice">建議：以 turn_id 形成端到端取消柵欄</span></article>
+          <article class="card decision"><h3>先支援哪些 TTS？</h3><p>所有引擎一次改完風險高，應先選一個快且一個本機引擎驗證。</p><span class="choice">建議：Edge TTS ＋目前主力本機 TTS</span></article>
+        </div>
+        <div class="callout success">
+          <svg class="callout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div><h3>我的建議結論</h3><p>採用「推薦方案」：先為現有引擎建立 TurnPipeline，不大改每個 adapter；先把取消、事件順序、反壓與指標做對，再逐步把高使用量引擎改成原生 async stream。</p></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container footer-inner">
+      <span>Linly-Talker-Stream 專案分析與設計草案</span>
+      <a href="#top">回到頁首</a>
+    </div>
+  </footer>
+
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const toggle = document.querySelector('.theme-toggle');
+      const preferredDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const savedTheme = localStorage.getItem('linly-roadmap-theme');
+      const initialTheme = savedTheme || (preferredDark ? 'dark' : 'light');
+
+      function applyTheme(theme) {
+        root.dataset.theme = theme;
+        const isDark = theme === 'dark';
+        toggle.setAttribute('aria-pressed', String(isDark));
+        toggle.setAttribute('aria-label', isDark ? '切換淺色模式' : '切換深色模式');
+        toggle.setAttribute('title', isDark ? '切換淺色模式' : '切換深色模式');
+      }
+
+      applyTheme(initialTheme);
+      toggle.addEventListener('click', () => {
+        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        localStorage.setItem('linly-roadmap-theme', next);
+        applyTheme(next);
+      });
+
+      const tabs = [...document.querySelectorAll('[role="tab"]')];
+      function activateTab(tab) {
+        tabs.forEach((item) => {
+          const selected = item === tab;
+          item.setAttribute('aria-selected', String(selected));
+          item.tabIndex = selected ? 0 : -1;
+          document.getElementById(item.getAttribute('aria-controls')).hidden = !selected;
+        });
+      }
+      tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => activateTab(tab));
+        tab.addEventListener('keydown', (event) => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault();
+          let nextIndex = index;
+          if (event.key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;
+          if (event.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
+          if (event.key === 'Home') nextIndex = 0;
+          if (event.key === 'End') nextIndex = tabs.length - 1;
+          tabs[nextIndex].focus();
+          activateTab(tabs[nextIndex]);
+        });
+      });
+
+      const navLinks = [...document.querySelectorAll('.desktop-nav a')];
+      const sections = navLinks.map((link) => document.querySelector(link.getAttribute('href'))).filter(Boolean);
+      const observer = new IntersectionObserver((entries) => {
+        const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (!visible) return;
+        navLinks.forEach((link) => link.setAttribute('aria-current', String(link.getAttribute('href') === `#${visible.target.id}`)));
+      }, { rootMargin: '-20% 0px -65% 0px', threshold: [0, 0.1, 0.4] });
+      sections.forEach((section) => observer.observe(section));
+    })();
+  </script>
+</body>
+</html>

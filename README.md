@@ -1,374 +1,211 @@
-# Linly-Talker-Stream: Real-Time Streaming Conversational Digital Human System
+# Linly-Talker-Stream
 
-<div align="center">
-<h1>Full-duplex, low-latency, real-time interactive digital human framework</h1>
+以 WebRTC 串起語音辨識、LLM、語音合成與數字人渲染的即時對話系統。前端提供繁體中文操作介面，並可在設定頁直接切換模型、角色、VAD、STT、TTS、預設 Prompt 與回覆字數。
 
-[![madewithlove](https://img.shields.io/badge/made_with-%E2%9D%A4-red?style=for-the-badge&labelColor=orange)](https://github.com/Kedreamix/Linly-Talker-Stream)
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)
-![WebRTC](https://img.shields.io/badge/WebRTC-Real--Time-5A29E4?style=for-the-badge)
-![Vue](https://img.shields.io/badge/Vue-3-42b883?style=for-the-badge&logo=vue.js&logoColor=white)
+> 想先看圖再讀文件？直接用瀏覽器開啟 [`docs/project-overview.html`](docs/project-overview.html)。功能規劃與逐句串流方案則整理在 [`docs/project-roadmap.html`](docs/project-roadmap.html)。
 
-<img src="assets/linly_logo.png" /><br>
+## 30 秒理解
 
-[**English**](./README.md) | [**簡體中文**](./README_zh.md)
+```mermaid
+flowchart LR
+    U[使用者麥克風] -->|WebRTC 上行音軌| V[Silero VAD]
+    V -->|完整發話| S[STT]
+    S -->|辨識文字| L[LLM]
+    L -->|回覆文字| T[TTS]
+    T -->|20 ms 音訊幀| A[數字人渲染]
+    A -->|WebRTC 音訊 + 影像| B[Vue 前端]
+    B -->|插話 / 設定 / 文字訊息| R[aiohttp API]
+```
 
-</div>
+系統由伺服器擁有完整的「對話輪次」：Silero 判定使用者說完後，後端依序完成 STT、LLM、TTS，再把數字人的音訊與畫面透過 WebRTC 傳回瀏覽器。數字人開始或停止說話時，伺服器也會主動推送狀態，讓前端正確暫停或恢復收音。
 
-## News
-**2026.02 Update** 📆
+## 目前具備的功能
 
-- Released **Linly-Talker-Stream**: the real-time streaming architecture version of [Linly-Talker](https://github.com/Kedreamix/Linly-Talker). Built on top of the original multimodal stack, it introduces a **WebRTC real-time transport + streaming pipeline** for low-latency audio/video interaction and a full-duplex conversation experience.
+- 全雙工 WebRTC 音訊與影像傳輸，支援免按對話、按住說話與按鍵插話。
+- Silero 服務端串流 VAD，瀏覽器只傳輸音訊，不自行切段。
+- STT：faster-whisper、FunASR、Qwen3-ASR。
+- LLM：Ollama 與 llama.cpp，可列出並切換本機模型。
+- TTS：Edge TTS、Qwen3-TTS、GPT-SoVITS、XTTS、CosyVoice、Fish TTS、IndexTTS2。
+- 數字人：Wav2Lip、MuseTalk、Ultralight、ER-NeRF、TalkingGaussian。
+- 設定頁可修改預設 Prompt、約略回覆字數、數字人角色、VAD、STT 與 TTS。
+- Edge TTS 直接列出臺灣華語聲音：曉臻、曉雨與雲哲。
+- Qwen3 語音模型使用獨立虛擬環境，啟動子程序時自動補齊 NVIDIA 動態函式庫路徑。
+- 設定套用前執行可用性檢查與語音試聽，成功後才持久化至 YAML。
+- 繁體中文與英文介面。
 
----
+## 串流能力：目前做到哪裡
 
-<details>
-<summary>Table of Contents</summary>
+本專案目前同時存在兩條處理路徑，不能把它們都稱為「真正逐句串流」：
 
-<!-- TOC -->
+| 路徑 | LLM 輸出 | 送入 TTS 的時機 | 現況 |
+| --- | --- | --- | --- |
+| 文字訊息 | 逐 chunk 接收 | 累積到完整句號後立即排入 TTS | 已具備逐句管線 |
+| 免按語音對話 | 等待完整 LLM 回覆 | 完整回覆完成後一次排入 TTS | 尚未逐句 |
 
-- [News](#news)
-- [Introduction](#introduction)
-- [Demos & Showcase](#demos--showcase)
-- [Roadmap (TODO)](#roadmap-todo)
-- [Highlights](#highlights)
-- [Project Structure Overview](#project-structure-overview)
-- [Real-Time Interaction Pipeline](#real-time-interaction-pipeline)
-- [Requirements](#requirements)
-- [Quick Start (Recommended)](#quick-start-recommended)
-- [Manual Installation Example (wav2lip)](#manual-installation-example-wav2lip)
-- [Startup Methods](#startup-methods)
-- [Configuration](#configuration)
-- [Config Presets](#config-presets)
-- [Models & Data](#models--data)
-- [Backend APIs](#backend-apis)
-- [FAQ](#faq)
-- [References](#references)
-- [Acknowledgements](#acknowledgements)
-- [License](#license)
-- [Star History](#star-history)
+此外，Qwen3-TTS 目前會先完成整句波形，再切成固定 20 ms 音訊幀送往數字人；它是「音訊幀串流播放」，但不是模型生成期間就持續吐出音訊的增量 TTS。
 
-<!-- /TOC -->
+若要讓語音對話也成為真正的逐句串流，建議讓 `VoiceTurnSession` 直接消費 LLM chunk，在伺服器內以句界緩衝器產生 `sentence_ready` 事件，再把每句依序送入有界 TTS 佇列。完整設計、取消規則與驗收指標請看 [專案規劃與逐句串流設計](docs/project-roadmap.html)。
 
-</details>
-
-## Introduction
-
-## Why Linly-Talker-Stream?
-
-Linly-Talker-Stream is the **real-time streaming architecture version** of [Linly-Talker](https://github.com/Kedreamix/Linly-Talker). It upgrades traditional turn-based QA into a more human-like **full-duplex conversational system**:
-
-- 🎤 **Listen while speaking**: user speech and avatar playback can run in parallel.
-- ⚡ **Low-latency transport**: real-time audio/video transmission via WebRTC.
-- ✋ **Barge-in and interruption support**: more natural conversational rhythm.
-- 🧩 **Modular multimodal pipeline**: ASR / LLM / TTS / Avatar modules are replaceable and extensible.
-
-If you want to build AI assistants, digital human front desks, interactive guides, or live Q&A scenarios, this project can serve as a practical real-time interaction engineering baseline.
-
-> On top of Linly-Talker’s multimodal pipeline (ASR / LLM / TTS / Avatar), this project references [LiveTalking](https://github.com/lipku/LiveTalking) for real-time communication design and performs a **streaming pipeline refactor**. Continuous optimization is planned.
-
-## Demos & Showcase
-
-> [!NOTE]
->
-> - Linly-Talker demo video: https://www.bilibili.com/video/BV1rN4y1a76x/
-> - Linly-Talker-Stream demo video: **TODO (to be added)**
-
-Linly-Talker-Stream is positioned as the “real-time streaming version,” reusing and extending [Linly-Talker](https://github.com/Kedreamix/Linly-Talker)’s multimodal digital human capabilities:
-
-- Project: [Linly-Talker](https://github.com/Kedreamix/Linly-Talker)
-- If this project helps you, please also star [**Linly-Talker**](https://github.com/Kedreamix/Linly-Talker) to support upstream development.
-
-**System Architecture**
-
-![Linly-Talker architecture](assets/HOI_en.png)
-
-**Web UI Preview**
-
-![Linly-Talker Stream](assets/linly_web_en.png)
-
-## Roadmap (TODO)
-
-- [ ] Introduce **Omni multimodality**, evolving from fixed `ASR + LLM + TTS` into a more complete end-to-end pipeline.
-- [ ] Add server-side **VAD** to improve endpoint detection, interruption handling, and turn control stability.
-
-> [!IMPORTANT]
-> This project is under active iteration. PRs and Issues are welcome.
-
-## Highlights
-
-- **WebRTC real-time streaming playback** with low latency in browsers.
-- **Full-duplex interaction (currently available)**: supports speaking and listening simultaneously. The current full-duplex implementation mainly relies on **browser speech recognition** (with built-in VAD/endpoint detection) for user-side speech detection and transcription, while avatar audio/video is continuously streamed via WebRTC.
-- **Switchable avatar engines** via configuration:
-  - `wav2lip` (2D)
-  - `musetalk` (2D)
-  - `ernerf` (3D)
-  - `talkinggaussian` (3D)
-- **Modular architecture** with isolated dependencies for on-demand installation and extension.
-
----
-
-## Project Structure Overview
+## 專案架構
 
 ```text
 Linly-Talker-Stream/
-├── pyproject.toml                    # Root project config (core dependencies)
-├── config/                           # Runtime config files (YAML)
-├── scripts/                          # Environment setup / startup scripts
-├── models/                           # Model weights
-├── data/                             # Avatar assets / recorded files
-├── web/                              # Vue frontend
-└── src/
-    ├── server/                       # Backend (WebRTC + APIs)
-    ├── asr/                          # Speech recognition engines
-    ├── llm/                          # LLM adapters
-    ├── tts/                          # Speech synthesis engines
-    └── avatars/                      # Avatar engines (2D/3D)
+├── config/                 # 服務、模型、語音、VAD 與 Prompt 設定
+├── docs/                   # ADR、研究、架構說明與功能路線圖
+├── scripts/                # 安裝、模型下載、憑證與啟動腳本
+├── src/
+│   ├── asr/                # STT 介面、工廠與各引擎
+│   ├── avatars/            # 數字人介面、角色素材與五種渲染引擎
+│   ├── config/             # YAML schema、載入與設定持久化
+│   ├── llm/                # 對話引擎、歷史、Prompt 與句界緩衝
+│   ├── server/             # aiohttp、WebRTC、API、輪次與執行時設定
+│   ├── speech/             # Qwen3 語音隔離程序與 IPC
+│   ├── tts/                # TTS 介面、佇列與各語音引擎
+│   └── vad/                # Silero 串流端點偵測
+├── tests/                  # Python 單元與整合測試
+└── web/
+    ├── src/components/     # Vue 操作畫面與設定面板
+    ├── src/composables/    # WebRTC、語音狀態、設定與 i18n
+    ├── src/locales/        # 繁體中文與英文文案
+    └── tests/              # Node 前端邏輯測試
 ```
 
-### Real-Time Interaction Pipeline
+| 層級 | 主要責任 | 關鍵位置 |
+| --- | --- | --- |
+| 互動層 | 視訊、麥克風、字幕、設定與插話控制 | `web/src/` |
+| 傳輸與會話層 | WebRTC 協商、事件通道、單一對話輪次 | `src/server/` |
+| 語音理解層 | Silero 切分發話，STT 轉成文字 | `src/vad/`、`src/asr/` |
+| 回覆層 | Prompt、歷史、Ollama／llama.cpp 與回覆長度 | `src/llm/` |
+| 語音與渲染層 | TTS 佇列、20 ms 音訊幀、嘴型與畫面輸出 | `src/tts/`、`src/avatars/` |
+| 設定層 | 型別驗證、執行時套用、試聽與 YAML 持久化 | `src/config/`、`src/server/runtime_settings.py` |
 
-1. Browser captures microphone/camera input.
-2. Speech enters the ASR and conversation pipeline.
-3. LLM generates response text.
-4. TTS outputs synthesized speech stream.
-5. Avatar engine drives lip-sync and renders video.
-6. WebRTC sends generated streams back to the browser in real time.
+## 快速開始
 
----
+### 需求
 
-## Requirements
+- Linux
+- Python 3.10 或 3.11；自動安裝腳本使用 Python 3.10.19
+- [`uv`](https://docs.astral.sh/uv/)
+- Node.js 與 npm
+- FFmpeg
+- NVIDIA GPU 與相容的 CUDA 環境（建議；部分引擎可使用 CPU，但速度較慢）
 
-- **Python**: 3.10+
-- **Node.js**: 16+
-- **uv**: recommended Python package manager ([installation docs](https://docs.astral.sh/uv/getting-started/installation/))
-- **Browser**: Chrome / Edge recommended (remote microphone access usually requires HTTPS)
+### 1. 安裝環境
 
----
-
-## Quick Start (Recommended)
+入門可先選 Wav2Lip；若要使用其他數字人，將參數改成 `musetalk`、`ernerf` 或 `talkinggaussian`。
 
 ```bash
-# 1) Clone repository
-git clone https://github.com/Kedreamix/Linly-Talker-Stream.git
+git clone https://github.com/s0966066980/Linly-Talker-Stream.git
 cd Linly-Talker-Stream
-
-# 2) One-click environment setup (auto install uv + create .venv + install dependencies)
 bash scripts/setup-env.sh wav2lip
-
-# 3) Configure API key (default using Alibaba Cloud Bailian's Qwen-plus interface)
-export DASHSCOPE_API_KEY="your_api_key_here"
-
-# 4) One-click start backend + frontend
-bash scripts/start-all.sh config/config_wav2lip.yaml
 ```
 
-Open in browser: `http://localhost:3000`
-
-> **Notes**
-> - Supported avatars: `wav2lip`, `musetalk`, `ernerf`, `talkinggaussian`
-> - DashScope API key application: [Alibaba Cloud Bailian Console](https://bailian.console.aliyun.com) (free quota available)
-> - For detailed installation of uv / Node.js, see [FAQ.md](./FAQ.md)
-
----
-
-## Manual Installation Example (wav2lip)
+若只想手動安裝核心依賴：
 
 ```bash
-# Backend dependencies
 uv venv --python 3.10.19
-uv sync
-uv pip install -e src/avatars/wav2lip/
-
-# Frontend dependencies
-cd web && npm install && cd ..
-
-# Environment variable
-export DASHSCOPE_API_KEY="your_api_key_here"
-
-# Start services
-bash scripts/start-all.sh config/config_wav2lip.yaml
+uv sync --extra vad
+cd web
+npm install
+cd ..
 ```
 
-### Generate HTTPS Certificates (Recommended)
+### 2. 準備數字人模型與角色素材
 
-Microphone access for remote usage requires HTTPS:
+不同 Avatar 的權重與素材需求不同。安裝腳本會處理對應 Python 套件，但仍需依所選引擎放置模型權重與角色資料。MuseTalk 可先執行：
 
 ```bash
-bash scripts/create_ssl_certs.sh
+bash scripts/download_musetalk_weights.sh
 ```
 
-Then set `app.ssl: true` in config and access with `https://localhost:3000`.
-
-### Install Other Avatar Modules
-
-```bash
-# TalkingGaussian
-uv pip install -e src/avatars/talkinggaussian/
-uv pip install -e src/avatars/talkinggaussian/submodules/diff-gaussian-rasterization/ --no-build-isolation
-uv pip install -e src/avatars/talkinggaussian/submodules/simple-knn/ --no-build-isolation
-uv pip install -e src/avatars/talkinggaussian/gridencoder/ --no-build-isolation
-
-# MuseTalk (requires additional dependencies and post-processing)
-uv pip install chumpy==0.70 --no-build-isolation
-uv pip install -e src/avatars/musetalk/
-uv run mim install mmengine
-uv run mim install mmcv==2.2.0 --no-build-isolation
-uv run mim install mmdet==3.1.0
-uv run mim install mmpose==1.3.2
-bash scripts/post_musetalk_install.sh
-```
-
-### Optional Qwen3 speech engines
-
-Qwen3-ASR and Qwen3-TTS run locally and do not require an API key. Install their
-official inference packages, then choose them in **Settings → Voice**. The first
-apply downloads the selected model and runs a real warm-up/preview before saving.
+### 3. 可選：安裝 Qwen3 語音環境
 
 ```bash
 bash scripts/setup-qwen-speech.sh
 ```
 
-The script creates an isolated `.venv-qwen-speech` so Qwen's recent Transformers
-pins do not replace the versions used by the avatar stack. The 0.6B checkpoints
-are the recommended starting point. CUDA is strongly recommended; CPU inference
-is available but considerably slower.
+這會建立 `.venv-qwen-speech`，避免 Qwen3 的新套件版本影響數字人主環境。若使用參考音訊前處理，系統也需要安裝 SoX。
 
-For Base voice cloning/reference-audio preprocessing, also install the system
-`sox` package if the setup script prints a warning.
+### 4. 產生本機 HTTPS 憑證
 
-## Startup Methods
-
-### A. Start Backend and Frontend Separately
+遠端瀏覽器使用麥克風通常需要安全來源；預設設定已開啟 HTTPS。
 
 ```bash
-# Backend
-bash scripts/start-backend.sh config/config_wav2lip.yaml
-# or
-uv run python src/server/app.py --config config/config_wav2lip.yaml
-
-# Frontend
-bash scripts/start-frontend.sh config/config_wav2lip.yaml
+bash scripts/create_ssl_certs.sh
 ```
 
-### B. Start with One Command
+### 5. 啟動
 
 ```bash
-bash scripts/start-all.sh config/config_wav2lip.yaml
+bash scripts/start-all.sh config/config.yaml
 ```
 
-Default ports:
-- Backend: `http://localhost:8010`
-- Frontend: `http://localhost:3000`
+預設入口：
 
----
+- 前端：`https://localhost:3000`
+- 後端健康檢查：`https://localhost:8010/health`
+- 後端日誌：`logs/start-all-backend.log`
 
-## Configuration
+首次開啟自簽憑證頁面時，瀏覽器會顯示安全警告；在本機確認憑證後即可繼續。
 
-All configs are in `config/*.yaml`. Common fields:
+## 設定方式
 
-- `app.listenport`: backend port (default `8010`)
-- `app.ssl`: whether to enable HTTPS (recommended for remote recording)
-- `model.type`: avatar type (`wav2lip` / `musetalk` / `ernerf` / `talkinggaussian`)
-- `tts.type`: keyless TTS engine (`edgetts`, `gpt-sovits`, `cosyvoice`, `fishtts`, `indextts2`, or `xtts`)
-- `asr.mode`: `browser` (recommended) / `server` / `auto`
-- `llm.*`: LLM config (defaults to Qwen-plus on DashScope)
+主要設定檔是 [`config/config.yaml`](config/config.yaml)，也可以在前端「設定」面板直接修改。設定 API 會先驗證模型或引擎，通過後才更新執行中狀態並寫回 YAML。
 
-Default config reads:
+| 分類 | 可調整內容 | 套用注意事項 |
+| --- | --- | --- |
+| LLM | Ollama／llama.cpp、模型、預設 Prompt、約略回覆字數 | 會更新現有 LLM session；回覆字數是柔性目標 |
+| 數字人 | 引擎與角色 | 有進行中會話時不可切換 |
+| VAD | 啟用、門檻、靜音、最短／最長發話等 | 立即套用至新的發話判定 |
+| STT | Whisper／FunASR／Qwen3-ASR、模型、語言、裝置 | 引擎切換時需先中斷會話 |
+| TTS | 引擎、聲音、模型、語言、說話者、裝置與指令 | 先執行實際試聽，再保存設定 |
+
+所有麥克風音訊預設只存在短生命週期的記憶體緩衝；除非使用者明確啟動錄製功能，系統不持久保存原始收音。
+
+## 開發與驗證
+
+後端測試：
 
 ```bash
-export DASHSCOPE_API_KEY="YOUR_KEY_HERE"
+uv run python -m unittest discover -s tests
 ```
 
-> ⚠️ **Important**: LLM features require an API key from [Alibaba Cloud Bailian](https://bailian.console.aliyun.com), which provides free usage quota.
-
-## Config Presets
-
-The repository provides runnable config presets with modular installation:
-
-| Status | Config File | Avatar Type | 2D/3D | One-Click Setup Command |
-|------|---------|-----------|------|------------|
-| ✅ | `config/config_wav2lip.yaml` | wav2lip | 2D | `bash scripts/setup-env.sh wav2lip` |
-| ✅ | `config/config_musetalk.yaml` | musetalk | 2D | `bash scripts/setup-env.sh musetalk` |
-| ✅ | `config/config_talkinggaussian.yaml` | talkinggaussian | 3D | `bash scripts/setup-env.sh talkinggaussian` |
-| ⬜ | `config/config_ernerf.yaml` | ernerf | 3D | `bash scripts/setup-env.sh ernerf` |
-
-Recommended engine switch procedure:
-
-1. Install the target avatar module.
-2. Start with matching `config/config_*.yaml`.
-3. Verify model and asset paths in the config.
-
-## Models & Data
-
-### Quick Download
-
-| Avatar | Type | Download Method |
-|--------|------|---------|
-| **Wav2Lip** | 2D | Download `wav2lip256.pth` + `wav2lip256_avatar1.tar.gz` from [Quark Drive](https://pan.quark.cn/s/83a750323ef0) (from [LiveTalking](https://github.com/lipku/LiveTalking)) |
-| **MuseTalk** | 2D | `bash scripts/download_musetalk_weights.sh` |
-| **TalkingGaussian** | 3D | 🔗 TBD |
-| **ER-NeRF** | 3D | 🔗 TBD |
-
-**Placement Instructions**
+前端測試與正式建置：
 
 ```bash
-# Wav2Lip
-# 1. Rename wav2lip256.pth to wav2lip.pth and place it in models/
-# 2. Extract wav2lip256_avatar1.tar.gz to data/avatars/
-
-# MuseTalk (auto download to correct path)
-bash scripts/download_musetalk_weights.sh
-
-# TalkingGaussian
-# Extract talkinggaussian_obama.tar.gz to data/avatars/
+cd web
+npm test
+npm run build
 ```
 
-> 💡 **Advanced usage**: for custom avatar assets, directory structure details, and config path setup, see [FAQ.md](./FAQ.md).
+整合檢查：
 
----
+```bash
+uv run python scripts/check-integration.py
+```
 
-## Backend APIs
+## 常見問題
 
-Main endpoints (see `src/server/server.py`):
+### Qwen3-TTS 顯示 cuDNN Frontend 或 `libnvrtc.so.12` 錯誤
 
-- `POST /offer`: WebRTC SDP handshake
-- `POST /human`: text dialogue (`type=chat` calls LLM, `type=echo` for text playback)
-- `POST /asr`: upload audio → ASR → LLM → drive avatar speech
-- `POST /humanaudio`: upload audio file to drive avatar speech
-- `POST /record`: start/stop recording
-- `GET /download/{filename}`: download recorded files
-- `GET /health`: health check
+目前版本會自動把 Qwen3 獨立環境內的 NVIDIA 函式庫目錄加入 worker 環境。更新程式後請完整重新啟動後端，讓常駐的 Qwen worker 使用新環境；若仍失敗，再重新執行 `bash scripts/setup-qwen-speech.sh`。
 
-## FAQ
+### 設定套用失敗
 
-See [FAQ.md](./FAQ.md).
+切換 Avatar、STT 或 TTS 前先中斷目前 WebRTC 會話。TTS 設定只有在試聽成功後才會保存，因此模型未下載、服務未啟動或 GPU 記憶體不足都會直接回報錯誤。
 
----
+### 遠端裝置沒有麥克風權限
 
-## References
+確認已執行 `scripts/create_ssl_certs.sh`、`app.ssl` 為 `true`，並使用 HTTPS 開啟前端。正式環境請改用受信任憑證。
 
-- WebRTC backend: [aiortc](https://github.com/aiortc/aiortc) + [aiohttp](https://github.com/aio-libs/aiohttp)
-- Frontend: [Vue 3](https://vuejs.org/) + [Vite](https://vitejs.dev/)
-- Speech: [Whisper](https://github.com/openai/whisper), [FunASR](https://github.com/alibaba-damo-academy/FunASR), [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR), [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), [edge-tts](https://github.com/rany2/edge-tts)
-- Avatar driving: [Wav2Lip](https://github.com/Rudrabha/Wav2Lip), [MuseTalk](https://github.com/TMElyralab/MuseTalk), [ER-NeRF](https://github.com/Fictionarry/ER-NeRF), [TalkingGaussian](https://github.com/Fictionarry/TalkingGaussian)
-- Interactive systems: [Linly-Talker](https://github.com/Kedreamix/Linly-Talker), [LiveTalking](https://github.com/lipku/LiveTalking), [OpenAvatarChat](https://github.com/HumanAIGC-Engineering/OpenAvatarChat)
+## 延伸文件
 
-You can also refer to [Linly-Talker](https://github.com/Kedreamix/Linly-Talker) and [LiveTalking](https://github.com/lipku/LiveTalking) for additional context.
+- [可視化專案架構與說明](docs/project-overview.html)
+- [專案規劃與真正逐句串流設計](docs/project-roadmap.html)
+- [Qwen3 語音整合研究](docs/research/qwen3-speech-integration.md)
+- [架構決策紀錄](docs/adr/)
+- [專案共通語言](CONTEXT.md)
 
-## Acknowledgements
+## 授權
 
-- [LiveTalking](https://github.com/lipku/LiveTalking): provided great references for real-time avatar/WebRTC streaming pipelines; this repo refactors and extends that design.
-- [Linly-Talker](https://github.com/Kedreamix/Linly-Talker): the upstream multimodal digital human system integrated into this real-time streaming version.
-
-## License
-
-This repository uses **Apache License 2.0** (consistent with [LiveTalking](https://github.com/lipku/LiveTalking)).
-
-> [!CAUTION]
-> Please comply with local laws and regulations when using or deploying this project (copyright, privacy, data protection, etc.).
-
-See `LICENSE` and `NOTICE` for details.
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Kedreamix/Linly-Talker-Stream&type=Date)](https://star-history.com/#Kedreamix/Linly-Talker-Stream&Date)
+本專案採用 [Apache License 2.0](LICENSE)。各模型、權重與第三方子專案仍依其各自授權條款使用。
