@@ -1,4 +1,4 @@
-"""配置数据结构定义"""
+"""配置資料結構定義"""
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 
@@ -12,24 +12,24 @@ class WebConfig:
 
 @dataclass
 class AppConfig:
-    """应用配置"""
+    """應用配置"""
     listenport: int = 8010
-    listenhost: str = "0.0.0.0"  # 监听地址：0.0.0.0 允许外部访问，127.0.0.1 仅本地
+    listenhost: str = "0.0.0.0"  # 監聽地址：0.0.0.0 允許外部訪問，127.0.0.1 僅本地
     max_session: int = 1
     
     # SSL/HTTPS 配置
-    ssl: bool = False  # 主开关：true 启用 HTTPS，false 使用 HTTP
-    ssl_cert: Optional[str] = None  # SSL 证书文件路径（.pem 或 .crt）
-    ssl_key: Optional[str] = None   # SSL 私钥文件路径（.key）
+    ssl: bool = False  # 主開關：true 啟用 HTTPS，false 使用 HTTP
+    ssl_cert: Optional[str] = None  # SSL 證書檔案路徑（.pem 或 .crt）
+    ssl_key: Optional[str] = None   # SSL 私鑰檔案路徑（.key）
     
-    # 前端配置（可选，支持嵌套字典或 WebConfig 对象）
+    # 前端配置（可選，支援巢狀字典或 WebConfig 物件）
     web: Optional[Dict[str, Any]] = field(default_factory=lambda: {"port": 3000, "host": "0.0.0.0"})
 
 
 @dataclass
 class ERNeRfConfig:
-    """ERNeRF 专用配置"""
-    # 数据与路径
+    """ERNeRF 專用配置"""
+    # 資料與路徑
     pose: str = "data/avatars/ernerf_obama/data_kf.json"
     au: str = "data/avatars/ernerf_obama/au.csv"
 
@@ -37,7 +37,7 @@ class ERNeRfConfig:
     ckpt: str = "data/avatars/ernerf_obama/ngp_kf.pth"
     torso_imgs: str = ""
 
-    # 采样与训练相关
+    # 取樣與訓練相關
     data_range: List[int] = field(default_factory=lambda: [0, -1])
     seed: int = 0
     num_rays: int = 4096 * 16
@@ -48,14 +48,14 @@ class ERNeRfConfig:
     update_extra_interval: int = 16
     max_ray_batch: int = 4096
 
-    # loss 相关
+    # loss 相關
     warmup_step: int = 10000
     amb_aud_loss: int = 1
     amb_eye_loss: int = 1
     unc_loss: int = 1
     lambda_amb: float = 1e-4
 
-    # 网络 / 渲染 backbone 选项
+    # 網路 / 渲染 backbone 選項
     fp16: bool = False
     bg_img: str = "white" #  white |  black
     fbg: bool = False
@@ -64,7 +64,7 @@ class ERNeRfConfig:
     smooth_eye: bool = False
     torso_shrink: float = 0.8
 
-    # 数据集 / 空间相关
+    # 資料集 / 空間相關
     color_space: str = "srgb"
     preload: int = 0
     bound: float = 1.0
@@ -76,20 +76,20 @@ class ERNeRfConfig:
     density_thresh_torso: float = 0.01
     patch_size: int = 1
 
-    # 嘴唇 / 躯干相关
+    # 嘴唇 / 軀幹相關
     init_lips: bool = False
     finetune_lips: bool = False
     smooth_lips: bool = False
     torso: bool = False
     head_ckpt: str = ""
 
-    # GUI 与相机
+    # GUI 與相機
     gui: bool = False
     radius: float = 3.35
     fovy: float = 21.24
     max_spp: int = 1
 
-    # 其它杂项（音频注意力等）
+    # 其它雜項（音訊注意力等）
     att: int = 2
     aud: str = ""
     emb: bool = False
@@ -104,14 +104,14 @@ class ERNeRfConfig:
     smooth_path: bool = False
     smooth_path_window: int = 7
 
-    # ASR 相关
+    # ASR 相關
     asr: bool = False
     asr_wav: str = ""
     asr_play: bool = False
     asr_model: str = "cpierse/wav2vec2-large-xlsr-53-esperanto"
     asr_save_feats: bool = False
 
-    # 全身模式相关
+    # 全身模式相關
     fullbody: bool = False
     fullbody_img: str = "data/fullbody/img"
     fullbody_width: int = 580
@@ -119,14 +119,14 @@ class ERNeRfConfig:
     fullbody_offset_x: int = 0
     fullbody_offset_y: int = 0
 
-    # -O 快捷选项：等价于 fp16 + cuda_ray + exp_eye
+    # -O 快捷選項：等價於 fp16 + cuda_ray + exp_eye
     O: bool = False
 
 
 @dataclass
 class TalkingGaussianConfig:
-    """TalkingGaussian 专用配置"""
-    # 模型路径
+    """TalkingGaussian 專用配置"""
+    # 模型路徑
     source_path: str = "data/avatars/talkinggaussian_obama/Obama/source"
     model_path: str = "data/avatars/talkinggaussian_obama/Obama/model"
     bg_img: str = "white"
@@ -140,7 +140,7 @@ class ModelConfig:
     batch_size: int = 16
     model_path: str = "./models"
     
-    # 模型专属配置
+    # 模型專屬配置
     ernerf: ERNeRfConfig = field(default_factory=ERNeRfConfig)
     talkinggaussian: TalkingGaussianConfig = field(default_factory=TalkingGaussianConfig)
 
@@ -148,20 +148,46 @@ class ModelConfig:
 @dataclass
 class TTSConfig:
     """TTS 配置"""
-    type: str = "edgetts"  # edgetts | azuretts | fishtts | gpt-sovits | cosyvoice | tencent | doubao | indextts2 | xtts
-    ref_file: str = "zh-CN-YunxiaNeural"
+    type: str = "edgetts"  # edgetts | qwen3-tts | fishtts | gpt-sovits | cosyvoice | indextts2 | xtts
+    ref_file: str = "zh-TW-HsiaoChenNeural"
     ref_text: Optional[str] = None
     tts_server: str = "http://127.0.0.1:9880"
+    model: str = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
+    language: str = "Chinese"
+    speaker: str = "Vivian"
+    instruct: str = ""
+    device: str = "auto"  # auto | cpu | cuda
 
 
 @dataclass
 class ASRConfig:
-    """ASR 语音识别配置"""
-    mode: str = "browser"  # browser | server | auto (优先浏览器，不支持时降级到服务器)
-    type: str = "whisper"  # whisper | funasr (仅当 mode=server 时使用)
-    model_size: str = "base"  # tiny | base | small | medium | large (仅 whisper 使用)
+    """ASR 語音識別配置"""
+    mode: str = "server"  # 互動麥克風固定由 WebRTC 傳到伺服器
+    type: str = "whisper"  # whisper (faster-whisper) | funasr | qwen3-asr
+    model_size: str = "base"  # engine-specific model name or Hugging Face/local path
     language: str = "zh"  # zh | en | auto
     device: str = "auto"  # auto | cpu | cuda
+
+
+@dataclass
+class VADConfig:
+    """VAD 語音活動檢測配置（服務端端點檢測）"""
+    enabled: bool = True
+    type: str = "silero"
+    sample_rate: int = 16000
+    frame_ms: int = 0  # Silero 固定使用 32ms/512 點
+    threshold: float = 0.5
+    aggressiveness: int = 2  # 保留用於讀取舊配置，不再暴露為可選引擎
+    device: str = "cpu"  # silero 專屬：cpu | cuda | auto
+    model_path: str = ""  # silero 專屬：本地 silero_vad.jit/.onnx，留空自動載入
+    use_onnx: bool = False  # silero 專屬：用 onnxruntime 推理
+
+    # 端點檢測引數（與引擎無關）
+    speech_start_ms: int = 100  # 連續多久判定為語音才算開口
+    min_speech_ms: int = 250  # 短於此時長的片段當噪聲丟棄
+    min_silence_ms: int = 500  # 連續靜音多久判定說完（端點）
+    speech_pad_ms: int = 150  # 片段前後各留多少音訊，避免吃字
+    max_speech_ms: int = 15000  # 單段上限，超過強制切斷；0 = 不限制
 
 
 @dataclass
@@ -170,14 +196,26 @@ class LLMConfig:
     api_key: str = ""
     base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     model: str = "qwen-plus"
+    # ollama | llamacpp
+    provider: str = "ollama"
+    llamacpp_dir: str = ""
+    llamacpp_host: str = "127.0.0.1"
+    llamacpp_port: int = 8080
+    llamacpp_ctx: int = 2048
+    llamacpp_threads: int = 0  # 0 = 自動用滿 CPU
+    max_tokens: int = 128  # 語音對話宜短，顯著降低尾端延遲
+    system_prompt: str = ""
+    # 透傳給 OpenAI 相容介面的額外請求體引數
+    # 例如 Ollama 關閉思考鏈：{"reasoning_effort": "none"}
+    extra_body: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class AudioConfig:
-    """音频配置"""
+    """音訊配置"""
     fps: int = 50
     sample_rate: int = 16000
-    # 滑动窗口配置
+    # 滑動視窗配置
     l: int = 10  # left length
     m: int = 8   # middle length
     r: int = 10  # right length
@@ -185,7 +223,7 @@ class AudioConfig:
 
 @dataclass
 class VideoConfig:
-    """视频配置"""
+    """影片配置"""
     width: int = 450
     height: int = 450
     fps: int = 25
@@ -193,23 +231,24 @@ class VideoConfig:
 
 @dataclass
 class CustomVideoConfig:
-    """自定义视频配置"""
+    """自定義影片配置"""
     config_path: str = ""
 
 
 @dataclass
 class Config:
-    """全局配置"""
+    """全域性配置"""
     app: AppConfig = field(default_factory=AppConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)
     asr: ASRConfig = field(default_factory=ASRConfig)
+    vad: VADConfig = field(default_factory=VADConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
     video: VideoConfig = field(default_factory=VideoConfig)
     custom_video: CustomVideoConfig = field(default_factory=CustomVideoConfig)
     
-    # 其他动态配置
+    # 其他動態配置
     sessionid: int = 0
     customopt: List = field(default_factory=list)
     

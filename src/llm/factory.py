@@ -1,4 +1,4 @@
-"""LLM 工厂类"""
+"""LLM 工廠類"""
 
 from typing import Type
 
@@ -16,11 +16,11 @@ _ENGINE_MAP: dict[str, Type[BaseLLM]] = {
 
 
 def create_llm_engine(llm_type: str = "openai", config=None, parent=None) -> BaseLLM:
-    """根据类型创建 LLM 引擎"""
+    """根據型別建立 LLM 引擎"""
     engine_cls = _ENGINE_MAP.get(llm_type.lower())
     if engine_cls is None:
         raise ValueError(
-            f"未知的 LLM 类型: {llm_type!r}\n"
-            f"支持的类型: {', '.join(_ENGINE_MAP.keys())}"
+            f"未知的 LLM 型別: {llm_type!r}\n"
+            f"支援的型別: {', '.join(_ENGINE_MAP.keys())}"
         )
     return engine_cls(config, parent)

@@ -1,21 +1,18 @@
-"""TTS 工厂类
+"""TTS 工廠類
 
-统一根据字符串类型创建不同的 TTS 引擎实例。
+統一根據字串型別建立不同的 TTS 引擎例項。
 """
 
 from typing import Type
 
 from .engines import (
-    AzureTTS,
     BaseTTS,
     CosyVoiceTTS,
-    CosyVoiceAPITTS,
-    DoubaoTTS,
     EdgeTTS,
     FishTTS,
     IndexTTS2,
+    Qwen3TTS,
     SovitsTTS,
-    TencentTTS,
     XTTS,
 )
 
@@ -24,21 +21,18 @@ _ENGINE_MAP: dict[str, Type[BaseTTS]] = {
     "gpt-sovits": SovitsTTS,
     "xtts": XTTS,
     "cosyvoice": CosyVoiceTTS,
-    "cosyvoice_api": CosyVoiceAPITTS,
     "fishtts": FishTTS,
-    "tencent": TencentTTS,
-    "doubao": DoubaoTTS,
     "indextts2": IndexTTS2,
-    "azuretts": AzureTTS,
+    "qwen3-tts": Qwen3TTS,
 }
 
 
 def create_tts_engine(tts_type: str, config, parent) -> BaseTTS:
     """
-    根据类型创建 TTS 引擎
+    根據型別建立 TTS 引擎
     """
-    # 统一入口，便于扩展不同 TTS 提供方
+    # 統一入口，便於擴充套件不同 TTS 提供方
     engine_cls = _ENGINE_MAP.get(tts_type)
     if engine_cls is None:
-        raise ValueError(f"未知的 TTS 类型: {tts_type!r}")
+        raise ValueError(f"未知的 TTS 型別: {tts_type!r}")
     return engine_cls(config, parent)

@@ -11,13 +11,16 @@
     >
       <i class="bi bi-mic-fill"></i>
     </div>
-    <div class="voice-record-label">按住说话，松开发送</div>
+    <div class="voice-record-label">{{ t('chat.voiceButton') }}，{{ t('chat.voiceButtonRecording') }}</div>
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import { useSpeechRecognition } from '../composables/useSpeechRecognition'
+import { useI18n } from '../composables/useI18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   inputText: {
@@ -63,8 +66,8 @@ const startRecording = async () => {
       startRecognition()
     }
   } catch (error) {
-    console.error('无法访问麦克风:', error)
-    emit('notification', '无法访问麦克风，请检查浏览器权限设置', 'error')
+    console.error('無法訪問麥克風:', error)
+    emit('notification', '無法訪問麥克風，請檢查瀏覽器許可權設定', 'error')
   }
 }
 
@@ -74,7 +77,7 @@ const stopRecording = () => {
   mediaRecorder.stop()
   isRecording.value = false
   
-  // 停止所有音轨
+  // 停止所有音軌
   mediaRecorder.stream.getTracks().forEach(track => track.stop())
   
   if (isSupported) {

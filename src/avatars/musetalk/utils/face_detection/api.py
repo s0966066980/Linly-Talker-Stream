@@ -117,7 +117,7 @@ class YOLOv8_face:
 
     def softmax(self, x, axis=1):
         x_exp = np.exp(x)
-        # 如果是列向量，则axis=0
+        # 如果是列向量，則axis=0
         x_sum = np.sum(x_exp, axis=axis, keepdims=True)
         s = x_exp / x_sum
         return s
@@ -153,7 +153,7 @@ class YOLOv8_face:
         # if isinstance(outputs, tuple):
         #     outputs = list(outputs)
         # if float(cv2.__version__[:3])>=4.7:
-        #     outputs = [outputs[2], outputs[0], outputs[1]] ###opencv4.7需要这一步，opencv4.5不需要
+        #     outputs = [outputs[2], outputs[0], outputs[1]] ###opencv4.7需要這一步，opencv4.5不需要
         # Perform inference on the image
         det_bboxes, det_conf, det_classid, landmarks = self.post_process(outputs, scale_h, scale_w, padh, padw)
         return det_bboxes, det_conf, det_classid, landmarks
@@ -178,7 +178,7 @@ class YOLOv8_face:
             kpts[:, 1::3] = (kpts[:, 1::3] * 2.0 + (self.anchors[stride][:, 1].reshape((-1,1)) - 0.5)) * stride
             kpts[:, 2::3] = 1 / (1+np.exp(-kpts[:, 2::3]))
 
-            bbox -= np.array([[padw, padh, padw, padh]])  ###合理使用广播法则
+            bbox -= np.array([[padw, padh, padw, padh]])  ###合理使用廣播法則
             bbox *= np.array([[scale_w, scale_h, scale_w, scale_h]])
             kpts -= np.tile(np.array([padw, padh, 0]), 5).reshape((1,15))
             kpts *= np.tile(np.array([scale_w, scale_h, 1]), 5).reshape((1,15))
@@ -197,7 +197,7 @@ class YOLOv8_face:
         confidences = np.max(scores, axis=1)  ####max_class_confidence
         
         mask = confidences>self.conf_threshold
-        bboxes_wh = bboxes_wh[mask]  ###合理使用广播法则
+        bboxes_wh = bboxes_wh[mask]  ###合理使用廣播法則
         confidences = confidences[mask]
         classIds = classIds[mask]
         landmarks = landmarks[mask]

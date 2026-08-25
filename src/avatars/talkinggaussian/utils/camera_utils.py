@@ -72,23 +72,23 @@ def camera_to_JSON(id, camera : Camera):
 
 def loadCamOnTheFly(camera, eval = False, bg_img_config = "white"):
     """
-    动态加载相机数据
+    動態載入相機資料
     Args:
-        camera: 相机对象
-        eval: 是否为推理模式
-        bg_img_config: 背景图像配置，可选值:
+        camera: 相機物件
+        eval: 是否為推理模式
+        bg_img_config: 背景影像配置，可選值:
             - "white": 白色背景
             - "black": 黑色背景
-            - 文件路径: 自定义背景图像路径
+            - 檔案路徑: 自定義背景影像路徑
     """
     image_path = camera.image_path
     
     if eval:
-        # 推理模式：只加载背景相关数据
+        # 推理模式：只加載背景相關資料
         torso_img_path = image_path.replace("gt_imgs", "torso_imgs").replace("jpg", "png")
         torso_img = PILtoTorch(np.array(Image.open(torso_img_path).convert("RGBA")) * 1.0).to(camera.data_device)
         
-        # 根据配置加载背景
+        # 根據配置載入背景
         if bg_img_config == "white":
             # 白色背景 (255, 255, 255)
             bg_img = torch.ones(3, torso_img.shape[1], torso_img.shape[2]).to(camera.data_device) * 255
@@ -96,16 +96,16 @@ def loadCamOnTheFly(camera, eval = False, bg_img_config = "white"):
             # 黑色背景 (0, 0, 0)
             bg_img = torch.zeros(3, torso_img.shape[1], torso_img.shape[2]).to(camera.data_device)
         else:
-            # 自定义背景图像路径
+            # 自定義背景影像路徑
             if os.path.exists(bg_img_config):
                 bg_img = PILtoTorch(np.array(Image.open(bg_img_config).convert("RGB"))).to(camera.data_device)
             else:
-                # 兜底：尝试从数据目录加载 bc.jpg
+                # 兜底：嘗試從資料目錄載入 bc.jpg
                 bc_img_path = os.path.join("/".join(image_path.split("/")[:-2]), bg_img_config)
                 if os.path.exists(bc_img_path):
                     bg_img = PILtoTorch(np.array(Image.open(bc_img_path).convert("RGB"))).to(camera.data_device)
                 else:
-                    # 默认使用白色背景
+                    # 預設使用白色背景
                     bg_img = torch.ones(3, torso_img.shape[1], torso_img.shape[2]).to(camera.data_device) * 255
         
         bg = torso_img[:3] * torso_img[3:] / 255 + bg_img * (1.0 - torso_img[3:] / 255)
@@ -116,7 +116,7 @@ def loadCamOnTheFly(camera, eval = False, bg_img_config = "white"):
     image = Image.open(image_path)
     image = np.array(image.convert("RGB"))
 
-    # 根据配置加载背景
+    # 根據配置載入背景
     torso_img_path = image_path.replace("gt_imgs", "torso_imgs").replace("jpg", "png")
     torso_img = PILtoTorch(np.array(Image.open(torso_img_path).convert("RGBA")) * 1.0).to(camera.data_device)
     

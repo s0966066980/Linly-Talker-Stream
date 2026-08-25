@@ -14,42 +14,42 @@ from src.utils.logging import logger
 class IndexTTS2(BaseTTS):
     def __init__(self, config, parent):
         super().__init__(config, parent)
-        # IndexTTS2 配置参数
-        self.server_url = config.tts.tts_server  # Gradio服务器地址
-        self.ref_audio_path = config.tts.ref_file  # 参考音频文件路径
-        self.max_tokens = getattr(config.tts, "max_tokens", 120)  # 最大token数
+        # IndexTTS2 配置引數
+        self.server_url = config.tts.tts_server  # Gradio伺服器地址
+        self.ref_audio_path = config.tts.ref_file  # 參考音訊檔案路徑
+        self.max_tokens = getattr(config.tts, "max_tokens", 120)  # 最大token數
 
-        # 初始化Gradio客户端
+        # 初始化Gradio客戶端
         try:
             from gradio_client import Client, handle_file
 
             self.client = Client(self.server_url)
             self.handle_file = handle_file
-            logger.info(f"IndexTTS2 Gradio客户端初始化成功: {self.server_url}")
+            logger.info(f"IndexTTS2 Gradio客戶端初始化成功: {self.server_url}")
         except ImportError:
-            logger.error("IndexTTS2 需要安装 gradio_client: pip install gradio_client")
+            logger.error("IndexTTS2 需要安裝 gradio_client: pip install gradio_client")
             raise
         except Exception as e:
-            logger.error(f"IndexTTS2 Gradio客户端初始化失败: {e}")
+            logger.error(f"IndexTTS2 Gradio客戶端初始化失敗: {e}")
             raise
 
     def txt_to_audio(self, msg):
         text, textevent = msg
         try:
-            # 先进行文本分割
+            # 先進行文本分割
             segments = self.split_text(text)
             if not segments:
-                logger.error("IndexTTS2 文本分割失败")
+                logger.error("IndexTTS2 文本分割失敗")
                 return
 
-            logger.info(f"IndexTTS2 文本分割为 {len(segments)} 个片段")
+            logger.info(f"IndexTTS2 文本分割為 {len(segments)} 個片段")
 
-            # 循环生成每个片段的音频
+            # 迴圈生成每個片段的音訊
             for i, segment_text in enumerate(segments):
                 if self.state != State.RUNNING:
                     break
 
-                logger.info(f"IndexTTS2 正在生成第 {i+1}/{len(segments)} 段音频...")
+                logger.info(f"IndexTTS2 正在生成第 {i+1}/{len(segments)} 段音訊...")
                 audio_file = self.indextts2_generate(segment_text)
 
                 if audio_file:
@@ -61,15 +61,15 @@ class IndexTTS2(BaseTTS):
                         is_last=(i == len(segments) - 1),
                     )
                 else:
-                    logger.error(f"IndexTTS2 第 {i+1} 段音频生成失败")
+                    logger.error(f"IndexTTS2 第 {i+1} 段音訊生成失敗")
 
         except Exception as e:
-            logger.exception(f"IndexTTS2 txt_to_audio 错误: {e}")
+            logger.exception(f"IndexTTS2 txt_to_audio 錯誤: {e}")
 
     def split_text(self, text):
         """使用 IndexTTS2 API 分割文本"""
         try:
-            logger.info(f"IndexTTS2 开始分割文本，长度: {len(text)}")
+            logger.info(f"IndexTTS2 開始分割文本，長度: {len(text)}")
 
             result = self.client.predict(
                 text=text,
@@ -79,27 +79,27 @@ class IndexTTS2(BaseTTS):
 
             if "value" in result and "data" in result["value"]:
                 data = result["value"]["data"]
-                logger.info(f"IndexTTS2 共分割为 {len(data)} 个片段")
+                logger.info(f"IndexTTS2 共分割為 {len(data)} 個片段")
 
                 segments = []
                 for i, item in enumerate(data):
-                    序号 = item[0] + 1
-                    分句内容 = item[1]
-                    token数 = item[2]
-                    logger.info(f"片段 {序号}: {len(分句内容)} 字符, {token数} tokens")
-                    segments.append(分句内容)
+                    序號 = item[0] + 1
+                    分句內容 = item[1]
+                    token數 = item[2]
+                    logger.info(f"片段 {序號}: {len(分句內容)} 字元, {token數} tokens")
+                    segments.append(分句內容)
 
                 return segments
             else:
-                logger.error(f"IndexTTS2 文本分割结果格式异常: {result}")
+                logger.error(f"IndexTTS2 文本分割結果格式異常: {result}")
                 return [text]
 
         except Exception as e:
-            logger.exception(f"IndexTTS2 文本分割失败: {e}")
+            logger.exception(f"IndexTTS2 文本分割失敗: {e}")
             return [text]
 
     def indextts2_generate(self, text):
-        """调用 IndexTTS2 Gradio API 生成语音"""
+        """呼叫 IndexTTS2 Gradio API 生成語音"""
         start = time.perf_counter()
 
         try:
@@ -132,35 +132,35 @@ class IndexTTS2(BaseTTS):
             )
 
             end = time.perf_counter()
-            logger.info(f"IndexTTS2 片段生成完成，耗时: {end-start:.2f}s")
+            logger.info(f"IndexTTS2 片段生成完成，耗時: {end-start:.2f}s")
 
             if "value" in result:
                 audio_file = result["value"]
                 return audio_file
             else:
-                logger.error(f"IndexTTS2 结果格式异常: {result}")
+                logger.error(f"IndexTTS2 結果格式異常: {result}")
                 return None
 
         except Exception as e:
-            logger.exception(f"IndexTTS2 API调用失败: {e}")
+            logger.exception(f"IndexTTS2 API呼叫失敗: {e}")
             return None
 
     def file_to_stream(self, audio_file, msg, is_first=False, is_last=False):
-        """将音频文件转换为音频流"""
+        """將音訊檔案轉換為音訊流"""
         text, textevent = msg
 
         try:
             stream, sample_rate = sf.read(audio_file)
-            logger.info(f"IndexTTS2 音频文件 {sample_rate}Hz: {stream.shape}")
+            logger.info(f"IndexTTS2 音訊檔案 {sample_rate}Hz: {stream.shape}")
 
             stream = stream.astype(np.float32)
 
             if stream.ndim > 1:
-                logger.info(f"IndexTTS2 音频有 {stream.shape[1]} 个声道，只使用第一个")
+                logger.info(f"IndexTTS2 音訊有 {stream.shape[1]} 個聲道，只使用第一個")
                 stream = stream[:, 0]
 
             if sample_rate != self.sample_rate and stream.shape[0] > 0:
-                logger.info(f"IndexTTS2 重采样: {sample_rate}Hz -> {self.sample_rate}Hz")
+                logger.info(f"IndexTTS2 重取樣: {sample_rate}Hz -> {self.sample_rate}Hz")
                 stream = resampy.resample(
                     x=stream, sr_orig=sample_rate, sr_new=self.sample_rate
                 )
@@ -187,10 +187,10 @@ class IndexTTS2(BaseTTS):
             try:
                 if os.path.exists(audio_file):
                     os.remove(audio_file)
-                    logger.info(f"IndexTTS2 已删除临时文件: {audio_file}")
+                    logger.info(f"IndexTTS2 已刪除臨時檔案: {audio_file}")
             except Exception as e:
-                logger.warning(f"IndexTTS2 删除临时文件失败: {e}")
+                logger.warning(f"IndexTTS2 刪除臨時檔案失敗: {e}")
 
         except Exception as e:
-            logger.exception(f"IndexTTS2 音频流处理失败: {e}")
+            logger.exception(f"IndexTTS2 音訊流處理失敗: {e}")
 

@@ -1,1 +1,1 @@
-"""Linly-Talker-Stream 核心模块"""
+"""Linly-Talker-Stream 核心模組"""

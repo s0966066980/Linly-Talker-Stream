@@ -1,4 +1,4 @@
-"""LLM 基类模块"""
+"""LLM 基類模組"""
 
 from __future__ import annotations
 
@@ -13,12 +13,34 @@ if TYPE_CHECKING:
 
 
 DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.'
-SENTENCE_DELIMITERS = ",.!;:，。！？：；"
-MIN_SENTENCE_LENGTH = 10
+# 只在完整句尾切給 TTS。逗號與冒號屬於句內停頓，拆開合成會重置韻律，
+# 也會讓 Avatar 在相鄰 TTS 請求之間提前填入靜音幀。
+SENTENCE_DELIMITERS = ".!?;。！？；"
+MIN_SENTENCE_LENGTH = 24
+
+
+def load_system_prompt(config=None) -> str:
+    """取得設定中的預設 Prompt，未設定時沿用 config/prompt.txt。"""
+    llm_config = getattr(config, "llm", None) if config is not None else None
+    configured_prompt = getattr(llm_config, "system_prompt", "") or ""
+    if configured_prompt.strip():
+        return configured_prompt.strip()
+
+    from pathlib import Path
+
+    prompt_file = Path(__file__).parent.parent.parent / "config" / "prompt.txt"
+    try:
+        prompt = prompt_file.read_text(encoding="utf-8").strip()
+        return prompt or DEFAULT_SYSTEM_PROMPT
+    except FileNotFoundError:
+        logger.warning(f"Prompt file not found: {prompt_file}, using default")
+    except Exception as exc:
+        logger.error(f"Error loading prompt: {exc}, using default")
+    return DEFAULT_SYSTEM_PROMPT
 
 
 class TextStreamProcessor:
-    """文本流处理器，负责分句和缓冲"""
+    """文本流處理器，負責分句和緩衝"""
     
     def __init__(self, delimiters: str = SENTENCE_DELIMITERS, min_length: int = MIN_SENTENCE_LENGTH):
         self.delimiters = delimiters
@@ -29,7 +51,7 @@ class TextStreamProcessor:
         if not text:
             return
         
-        # 以标点为分隔符，尽量保持语义完整再发给 TTS
+        # 以標點為分隔符，儘量保持語義完整再發給 TTS
         last_pos = 0
         for i, char in enumerate(text):
             if char in self.delimiters:
@@ -51,7 +73,7 @@ class TextStreamProcessor:
 
 
 class BaseLLM(ABC):
-    """所有 LLM 引擎的基类"""
+    """所有 LLM 引擎的基類"""
     
     def __init__(self, config, parent: Optional["BaseAvatar"] = None):
         self.config = config
@@ -59,32 +81,26 @@ class BaseLLM(ABC):
         self.system_prompt = self._load_system_prompt()
     
     def _load_system_prompt(self) -> str:
-        from pathlib import Path
-        
-        prompt_file = Path(__file__).parent.parent.parent / 'config' / 'prompt.txt'
-        
-        try:
-            return prompt_file.read_text(encoding='utf-8').strip()
-        except FileNotFoundError:
-            # 没有自定义 prompt 时使用默认值
-            logger.warning(f"Prompt file not found: {prompt_file}, using default")
-            return DEFAULT_SYSTEM_PROMPT
-        except Exception as e:
-            logger.error(f"Error loading prompt: {e}, using default")
-            return DEFAULT_SYSTEM_PROMPT
+        return load_system_prompt(self.config)
     
     @abstractmethod
     def chat_stream(self, message: str, system_prompt: Optional[str] = None) -> Generator[str, None, None]:
-        """流式调用 LLM，子类必须实现"""
-        raise NotImplementedError("子类必须实现 chat_stream 方法")
+        """流式呼叫 LLM，子類必須實現"""
+        raise NotImplementedError("子類必須實現 chat_stream 方法")
     
-    def generate_response(self, message: str, avatar_stream: Optional["BaseAvatar"] = None) -> str:
-        """生成完整响应并推送到 avatar"""
+    def generate_response(
+        self,
+        message: str,
+        avatar_stream: Optional["BaseAvatar"] = None,
+        *,
+        stream_to_avatar: bool = True,
+    ) -> str:
+        """生成完整響應並推送到 avatar"""
         start_time = time.perf_counter()
         text_processor = TextStreamProcessor()
         full_response = ""
         
-        target_avatar = avatar_stream or self.parent
+        target_avatar = (avatar_stream or self.parent) if stream_to_avatar else None
         
         def send_to_avatar(text: str) -> None:
             if target_avatar:
@@ -92,7 +108,7 @@ class BaseLLM(ABC):
                 target_avatar.put_msg_txt(text)
         
         try:
-            # 记录首包延迟，方便定位 LLM 响应瓶颈
+            # 記錄首包延遲，方便定位 LLM 響應瓶頸
             first_chunk = True
             for chunk in self.chat_stream(message):
                 if first_chunk:

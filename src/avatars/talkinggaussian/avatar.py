@@ -4,7 +4,7 @@
 
 """
 TalkingGaussian Avatar Implementation
-基于 synthesize_fuse.py 的推理逻辑
+基於 synthesize_fuse.py 的推理邏輯
 """
 import os
 import torch
@@ -23,7 +23,7 @@ from av import AudioFrame, VideoFrame
 from src.avatars.base import BaseAvatar
 from src.utils.logging import logger
 
-# TalkingGaussian 相关导入 - 使用相对导入
+# TalkingGaussian 相關匯入 - 使用相對匯入
 from .scene import Scene
 from .gaussian_renderer import render_motion, render_motion_mouth
 from .gaussian_renderer import GaussianModel, MotionNetwork, MouthMotionNetwork
@@ -34,7 +34,7 @@ from .audio_stream_handler import TalkingGaussianAudioStreamHandler
 
 
 def dilate_fn(bin_img, ksize=13):
-    """膨胀函数，用于处理 mouth alpha"""
+    """膨脹函式，用於處理 mouth alpha"""
     pad = (ksize - 1) // 2
     out = F.max_pool2d(bin_img, kernel_size=ksize, stride=1, padding=pad)
     return out
@@ -42,17 +42,17 @@ def dilate_fn(bin_img, ksize=13):
 
 def load_model(config):
     """
-    加载 TalkingGaussian 模型
+    載入 TalkingGaussian 模型
     """
     logger.info(f'Loading TalkingGaussian model... from config: {config.model.talkinggaussian.model_path}')
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # 创建 parser 和参数组
+    # 建立 parser 和引陣列
     parser = ArgumentParser(description="TalkingGaussian Avatar")
     model_params = ModelParams(parser)
     pipeline_params = PipelineParams(parser)
     
-    # 优先读取训练时保存的 cfg_args（如果存在）
+    # 優先讀取訓練時儲存的 cfg_args（如果存在）
     cfg_args_path = os.path.join(config.talkinggaussian.model_path, "cfg_args")
     if os.path.exists(cfg_args_path):
         logger.info(f'Loading saved config from {cfg_args_path}')
@@ -70,12 +70,12 @@ def load_model(config):
     
     args.model_path = config.talkinggaussian.model_path
     args.source_path = config.talkinggaussian.source_path
-    args.bg_img = config.talkinggaussian.bg_img  # 传递背景配置
+    args.bg_img = config.talkinggaussian.bg_img  # 傳遞背景配置
     
     dataset = model_params.extract(args)
     pipeline = pipeline_params.extract(args)
     
-    # 确保 pipeline 对象有 debug 属性
+    # 確保 pipeline 物件有 debug 屬性
     if not hasattr(pipeline, 'debug'):
         pipeline.debug = False
     if not hasattr(pipeline, 'convert_SHs_python'):
@@ -90,18 +90,18 @@ def load_model(config):
 
     logger.info(f'Model config: source_path={dataset.source_path}, model_path={dataset.model_path}')
     with torch.no_grad():
-        # 创建 Gaussian 模型
+        # 建立 Gaussian 模型
         gaussians = GaussianModel(dataset.sh_degree)
         gaussians_mouth = GaussianModel(dataset.sh_degree)
         
-        # 加载场景
+        # 載入場景
         scene = Scene(dataset, gaussians, shuffle=False)
         
-        # 创建运动网络
+        # 建立運動網路
         motion_net = MotionNetwork(args=dataset).cuda()
         motion_net_mouth = MouthMotionNetwork(args=dataset).cuda()
         
-        # 加载 checkpoint
+        # 載入 checkpoint
         checkpoint_path = os.path.join(dataset.model_path, "chkpnt_fuse_latest.pth")
         logger.info(f'Loading checkpoint from {checkpoint_path}')
         
@@ -115,14 +115,14 @@ def load_model(config):
         motion_net_mouth.load_state_dict(motion_mouth_params, strict=False)
         gaussians_mouth.restore(model_mouth_params, None)
         
-        # 设置背景颜色
+        # 設定背景顏色
         bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
     
     logger.info('TalkingGaussian model loaded successfully')
     
 
-    # 加载 ASR 模型用于音频特征提取
+    # 載入 ASR 模型用於音訊特徵提取
     logger.info(f'[INFO] loading ASR model {config.model.ernerf.asr_model}...')
     if 'hubert' in config.model.ernerf.asr_model:
         from transformers import Wav2Vec2Processor, HubertModel
@@ -160,7 +160,7 @@ def load_avatar(config):
 
 
 class TalkingGaussianAvatar(BaseAvatar):
-    """TalkingGaussian Avatar 实现，基于 Gaussian Splatting"""
+    """TalkingGaussian Avatar 實現，基於 Gaussian Splatting"""
     
     def __init__(self, config, model, avatar):
         """
@@ -180,7 +180,7 @@ class TalkingGaussianAvatar(BaseAvatar):
         self.scene = model['scene']
         self.dilate = model['dilate']
         
-        # 获取相机视角
+        # 獲取相機視角
         # self.cameras = self.scene.getTestCameras()
         self.cameras = self.scene.getTrainCameras()
         if len(self.cameras) == 0:
@@ -190,16 +190,16 @@ class TalkingGaussianAvatar(BaseAvatar):
         
         self.current_camera_idx = 0
         
-        # 配置参数
+        # 配置引數
         self.W = config.video.width
         self.H = config.video.height
         
-        # 初始化录制所需的视频尺寸（继承自 BaseAvatar）
+        # 初始化錄製所需的影片尺寸（繼承自 BaseAvatar）
         self.width = config.video.width
         self.height = config.video.height
-        logger.info(f'[TalkingGaussian] 视频尺寸已初始化: {self.width}x{self.height}')
+        logger.info(f'[TalkingGaussian] 影片尺寸已初始化: {self.width}x{self.height}')
         
-        # 创建音频流处理器
+        # 建立音訊流處理器
         self.audio_processor = model['audio_processor']
         self.audio_model = model['audio_model']
         self.audio_stream = TalkingGaussianAudioStreamHandler(config, self, self.audio_processor, self.audio_model)
@@ -209,10 +209,10 @@ class TalkingGaussianAvatar(BaseAvatar):
     
     def test_step(self, loop=None, audio_track=None, video_track=None):
         """
-        单步推理和渲染（对齐 ERNeRF 的实现）
-        每次调用渲染一帧
+        單步推理和渲染（對齊 ERNeRF 的實現）
+        每次呼叫渲染一幀
         """
-        # 每次渲染对应 2 个音频块（25fps 视频, 50fps 音频）
+        # 每次渲染對應 2 個音訊塊（25fps 影片, 50fps 音訊）
         audiotype1 = 0
         audiotype2 = 0
         
@@ -223,7 +223,7 @@ class TalkingGaussianAvatar(BaseAvatar):
             else:
                 audiotype2 = type
             
-            # 音频推送到 WebRTC
+            # 音訊推送到 WebRTC
             frame_int16 = (frame * 32767).astype(np.int16)
             new_frame = AudioFrame(format='s16', layout='mono', samples=frame_int16.shape[0])
             new_frame.planes[0].update(frame_int16.tobytes())
@@ -232,7 +232,7 @@ class TalkingGaussianAvatar(BaseAvatar):
             
             self.record_audio_data(frame_int16)
         
-        if audiotype1 != 0 and audiotype2 != 0:  # 全为静音数据
+        if audiotype1 != 0 and audiotype2 != 0:  # 全為靜音資料
             self.speaking = False
         else:
             self.speaking = True
@@ -248,7 +248,7 @@ class TalkingGaussianAvatar(BaseAvatar):
             
             self.record_video_data(image)
         else:
-            # 进行推理渲染
+            # 進行推理渲染
             audio_feat = self.audio_stream.get_next_feat()  # [8, audio_dim, 16] for att_mode=2
             # logger.info(f'audio_feat shape: {audio_feat.shape}')
             
@@ -261,16 +261,16 @@ class TalkingGaussianAvatar(BaseAvatar):
             camera.image_width = self.W
             camera.image_height = self.H
         
-            # TalkingGaussian 从 camera.talking_dict 获取音频和表情特征
+            # TalkingGaussian 從 camera.talking_dict 獲取音訊和表情特徵
             if not hasattr(camera, 'talking_dict'):
                 camera.talking_dict = {}
             
-            # 注入音频特征
+            # 注入音訊特徵
             camera.talking_dict["auds"] = audio_feat.to(self.device)
             
             
             with torch.no_grad():
-                # 渲染整体人脸
+                # 渲染整體人臉
                 render_pkg = render_motion(
                     camera, 
                     self.gaussians, 
@@ -298,7 +298,7 @@ class TalkingGaussianAvatar(BaseAvatar):
             alpha = render_pkg["alpha"]
             image = render_pkg["render"] + mouth_image * (1.0 - alpha)  # [3, H', W']
             
-            # GPU 上 resize 到目标尺寸
+            # GPU 上 resize 到目標尺寸
             H, W = self.config.video.height, self.config.video.width
             if image.shape[1] != H or image.shape[2] != W:
                 image = torch.nn.functional.interpolate(
@@ -310,7 +310,7 @@ class TalkingGaussianAvatar(BaseAvatar):
             
             image = (image[0:3, ...].clamp(0, 1).permute(1, 2, 0).detach().cpu().numpy() * 255).astype(np.uint8)
             
-            # 全身模式预留接口（当前未启用）
+            # 全身模式預留介面（當前未啟用）
             # if hasattr(self, 'fullbody_list_cycle') and len(self.fullbody_list_cycle) > 0:
             #     idx = self.current_camera_idx % len(self.fullbody_list_cycle)
             #     image_fullbody = self.fullbody_list_cycle[idx]
@@ -330,8 +330,8 @@ class TalkingGaussianAvatar(BaseAvatar):
     
     def render(self, quit_event, loop=None, audio_track=None, video_track=None):
         """
-        主渲染循环（模仿 ERNeRF）
-        在主线程中同步执行音频处理和渲染
+        主渲染迴圈（模仿 ERNeRF）
+        在主執行緒中同步執行音訊處理和渲染
         """
         self.init_customindex()
         
@@ -340,7 +340,7 @@ class TalkingGaussianAvatar(BaseAvatar):
         _starttime = time.perf_counter()
         _totalframe = 0
         
-        # 启动 TTS 线程
+        # 啟動 TTS 執行緒
         self.tts.render(quit_event)
         
         while not quit_event.is_set():
@@ -367,12 +367,12 @@ class TalkingGaussianAvatar(BaseAvatar):
     
     def paste_back_frame(self, res_frame, idx):
         """
-        TalkingGaussian 直接生成完整图像，不需要粘贴
+        TalkingGaussian 直接生成完整影像，不需要貼上
         """
         return res_frame
     
     def __del__(self):
-        """清理资源"""
+        """清理資源"""
         logger.info(f'TalkingGaussianAvatar({self.sessionid}) deleted')
 
     def __enter__(self):

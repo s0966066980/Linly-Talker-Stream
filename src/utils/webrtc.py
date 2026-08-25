@@ -41,7 +41,7 @@ class PlayerStreamTrack(MediaStreamTrack):
         self.kind = kind
         self._player = player
         self._queue = asyncio.Queue(maxsize=100)
-        self.timelist = [] #记录最近包的时间戳
+        self.timelist = [] #記錄最近包的時間戳
         self.current_frame_count = 0
         if self.kind == 'video':
             self.framecount = 0
@@ -97,14 +97,20 @@ class PlayerStreamTrack(MediaStreamTrack):
         self._player._start(self)
 
         frame,eventpoint = await self._queue.get()
+        if frame is None:
+            self.stop()
+            raise Exception
         pts, time_base = await self.next_timestamp()
         frame.pts = pts
         frame.time_base = time_base
         if eventpoint and self._player is not None:
             self._player.notify(eventpoint)
-        if frame is None:
-            self.stop()
-            raise Exception
+        if self.kind == 'audio' and self._player is not None:
+            try:
+                samples = frame.to_ndarray().astype(np.float32, copy=False)
+                self._player.notify_audio_activity(bool(np.max(np.abs(samples))) if samples.size else False)
+            except Exception:
+                self._player.notify_audio_activity(False)
         if self.kind == 'video':
             self.totaltime += (time.perf_counter() - self.lasttime)
             self.framecount += 1
@@ -137,7 +143,8 @@ def player_worker_thread(
 class HumanPlayer:
 
     def __init__(
-        self, avatar_stream, format=None, options=None, timeout=None, loop=False, decode=True
+        self, avatar_stream, format=None, options=None, timeout=None, loop=False, decode=True,
+        on_audio_activity=None,
     ):
         self.__thread: Optional[threading.Thread] = None
         self.__thread_quit: Optional[threading.Event] = None
@@ -151,6 +158,11 @@ class HumanPlayer:
         self.__video = PlayerStreamTrack(self, kind="video")
 
         self.__container = avatar_stream
+        self.__on_audio_activity = on_audio_activity
+
+    def notify_audio_activity(self, active: bool):
+        if self.__on_audio_activity is not None:
+            self.__on_audio_activity(active)
 
     def notify(self,eventpoint):
         if self.__container is not None:

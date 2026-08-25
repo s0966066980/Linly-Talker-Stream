@@ -36,10 +36,10 @@ def video2imgs(vid_path, save_path, ext='.png', cut_frame=10000000):
         else:
             break
 
-##todo 简单根据文件后缀判断  要更精确的可以自己修改 使用 magic
+##todo 簡單根據檔案字尾判斷  要更精確的可以自己修改 使用 magic
 def is_video_file(file_path):
-    video_exts = ['.mp4', '.mkv', '.flv', '.avi', '.mov']  # 这里列出了一些常见的视频文件扩展名，可以根据需要添加更多
-    file_ext = os.path.splitext(file_path)[1].lower()  # 获取文件扩展名并转换为小写
+    video_exts = ['.mp4', '.mkv', '.flv', '.avi', '.mov']  # 這裡列出了一些常見的影片副檔名，可以根據需要新增更多
+    file_ext = os.path.splitext(file_path)[1].lower()  # 獲取副檔名並轉換為小寫
     return file_ext in video_exts
 
 
@@ -54,20 +54,19 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
 
 
 def create_musetalk_human(file, avatar_id):
-    # 保存文件设置 可以不动
-    save_path = os.path.join(current_dir, f'./data/avatars/{avatar_id}')
-    save_full_path = os.path.join(current_dir, f'./data/avatars/{avatar_id}/full_imgs')
+    # Must match load_avatar(): ./data/avatars/{avatar_id} relative to project root
+    save_path = os.path.join(project_root, "data", "avatars", avatar_id)
+    save_full_path = os.path.join(save_path, "full_imgs")
     create_dir(save_path)
     create_dir(save_full_path)
-    mask_out_path = os.path.join(current_dir, f'./data/avatars/{avatar_id}/mask')
+    mask_out_path = os.path.join(save_path, "mask")
     create_dir(mask_out_path)
 
-    # 模型
-    mask_coords_path = os.path.join(current_dir, f'{save_path}/mask_coords.pkl')
-    coords_path = os.path.join(current_dir, f'{save_path}/coords.pkl')
-    latents_out_path = os.path.join(current_dir, f'{save_path}/latents.pt')
+    mask_coords_path = os.path.join(save_path, "mask_coords.pkl")
+    coords_path = os.path.join(save_path, "coords.pkl")
+    latents_out_path = os.path.join(save_path, "latents.pt")
 
-    with open(os.path.join(current_dir, f'{save_path}/avator_info.json'), "w") as f:
+    with open(os.path.join(save_path, "avator_info.json"), "w") as f:
         json.dump({
             "avatar_id": avatar_id,
             "video_path": file,
@@ -144,7 +143,7 @@ def create_musetalk_human(file, avatar_id):
 # fp = FaceParsing(os.path.abspath(os.path.join(current_dir, '../models/face-parse-bisent/resnet18-5c106cde.pth')),
 #                  os.path.abspath(os.path.join(current_dir, '../models/face-parse-bisent/79999_iter.pth')))
 if __name__ == '__main__':
-    # 视频文件地址
+    # 影片檔案地址
     parser = argparse.ArgumentParser()
     parser.add_argument("--file",
                         type=str,

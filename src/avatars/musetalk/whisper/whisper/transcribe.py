@@ -105,7 +105,7 @@ def transcribe(
     sample_skip = 3000 # 
     with tqdm.tqdm(total=num_frames, unit='frames', disable=verbose is not False) as pbar:
         while seek < num_frames:
-            # seek是开始的帧数
+            # seek是開始的幀數
             end_seek = min(seek + sample_skip, num_frames)
             segment = pad_or_trim(mel[:,seek:seek+sample_skip], N_FRAMES).to(model.device).to(dtype)
             

@@ -4,9 +4,9 @@ import fs from 'fs'
 import path from 'path'
 import yaml from 'js-yaml'
 
-// 读取配置文件，前后端使用统一配置
-// 从环境变量或命令行参数获取配置文件路径，默认使用 talkinggaussian
-const configFile = process.env.CONFIG_FILE || 'config_talkinggaussian.yaml'
+// 讀取配置檔案，前後端使用統一配置
+// 埠 / SSL 讀預設服務配置；數字人引擎不依賴這份 yaml
+const configFile = process.env.CONFIG_FILE || 'config.yaml'
 const configPath = path.resolve(__dirname, '../config', configFile)
 let config = null
 let useSSL = false
@@ -20,38 +20,38 @@ try {
     const configContent = fs.readFileSync(configPath, 'utf8')
     config = yaml.load(configContent)
     
-    // 读取后端配置
+    // 讀取後端配置
     useSSL = config?.app?.ssl === true
     backendPort = config?.app?.listenport || 8010
     backendHost = config?.app?.listenhost || '0.0.0.0'
     
-    // 读取前端配置
+    // 讀取前端配置
     webPort = config?.app?.web?.port || 3000
     webHost = config?.app?.web?.host || '0.0.0.0'
     
-    // 调试输出
-    console.log('[DEBUG] 配置文件:', configFile)
+    // 除錯輸出
+    console.log('[DEBUG] 配置檔案:', configFile)
     console.log('[DEBUG] config.app.ssl =', config?.app?.ssl, ', type =', typeof config?.app?.ssl)
     console.log('[DEBUG] useSSL =', useSSL)
     
     console.log('┌─────────────────────────────────────────────┐')
-    console.log('│  📡 Linly-Talker-Stream 配置加载成功        │')
+    console.log('│  📡 Linly-Talker-Stream 配置載入成功        │')
     console.log('├─────────────────────────────────────────────┤')
-    console.log(`│  配置文件:  ${configFile.padEnd(27)} │`)
-    console.log(`│  SSL/HTTPS: ${useSSL ? '✅ 已启用' : '❌ 未启用'}                        │`)
-    console.log(`│  后端地址:  ${useSSL ? 'https' : 'http'}://${backendHost === '0.0.0.0' ? 'localhost' : backendHost}:${backendPort}${backendPort < 10000 ? '    ' : '   '}│`)
+    console.log(`│  配置檔案:  ${configFile.padEnd(27)} │`)
+    console.log(`│  SSL/HTTPS: ${useSSL ? '✅ 已啟用' : '❌ 未啟用'}                        │`)
+    console.log(`│  後端地址:  ${useSSL ? 'https' : 'http'}://${backendHost === '0.0.0.0' ? 'localhost' : backendHost}:${backendPort}${backendPort < 10000 ? '    ' : '   '}│`)
     console.log(`│  前端地址:  ${useSSL ? 'https' : 'http'}://${webHost === '0.0.0.0' ? 'localhost' : webHost}:${webPort}${webPort < 10000 ? '    ' : '   '}│`)
     console.log('└─────────────────────────────────────────────┘')
   } else {
-    console.warn(`⚠️  配置文件不存在: ${configPath}`)
-    console.warn('⚠️  使用默认配置 (HTTP 模式)')
+    console.warn(`⚠️  配置檔案不存在: ${configPath}`)
+    console.warn('⚠️  使用預設配置 (HTTP 模式)')
   }
 } catch (error) {
-  console.error('⚠️  无法读取配置文件，使用默认值:', error.message)
+  console.error('⚠️  無法讀取配置檔案，使用預設值:', error.message)
 }
 
 const protocol = useSSL ? 'https' : 'http'
-// 后端地址使用 localhost（前端访问后端时）
+// 後端地址使用 localhost（前端訪問後端時）
 const backendTarget = `${protocol}://localhost:${backendPort}`
 
 export default defineConfig({
@@ -59,7 +59,7 @@ export default defineConfig({
   server: {
     host: webHost,
     port: webPort,
-    // 根据配置文件自动启用/禁用 HTTPS
+    // 根據配置檔案自動啟用/停用 HTTPS
     ...(useSSL && {
       https: {
         key: fs.readFileSync(path.resolve(__dirname, '../ssl_certs/localhost.key')),
@@ -67,52 +67,8 @@ export default defineConfig({
       }
     }),
     proxy: {
-      '/health': {
-        target: backendTarget,
-        changeOrigin: true,
-        secure: false  // 允许自签名证书
-      },
-      '/human': {
-        target: backendTarget,
-        changeOrigin: true,
-        secure: false  // 允许自签名证书
-      },
-      '/humanaudio': {
-        target: backendTarget,
-        changeOrigin: true,
-        secure: false
-      },
-      '/asr': {
-        target: backendTarget,
-        changeOrigin: true,
-        secure: false
-      },
-      '/record': {
-        target: backendTarget,
-        changeOrigin: true,
-        secure: false
-      },
-      '/offer': {
-        target: backendTarget,
-        changeOrigin: true,
-        secure: false
-      },
-      '/interrupt_talk': {
-        target: backendTarget,
-        changeOrigin: true,
-        secure: false
-      },
-      '/is_speaking': {
-        target: backendTarget,
-        changeOrigin: true,
-        secure: false
-      },
-      '/set_audiotype': {
-        target: backendTarget,
-        changeOrigin: true,
-        secure: false
-      },
-      '/download': {
+      // 與後端 aiohttp 路由對齊；漏掉任一路徑會讓前端打到 Vite 自己並 404
+      '^/(health|human|humanaudio|asr|record|offer|interrupt_talk|is_speaking|set_audiotype|download|clear_history|api)(/|$)': {
         target: backendTarget,
         changeOrigin: true,
         secure: false

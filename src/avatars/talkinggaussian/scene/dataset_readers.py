@@ -97,12 +97,12 @@ def storePly(path, xyz, rgb):
 
 def readCamerasFromTransforms(path, transformsfile, white_background, extension=".jpg", audio_file='', audio_extractor='deepspeech', preload=True, eval = False, width = None, height = None, bg_img_config = "white"):
     """
-    从 transforms 文件读取相机信息
+    從 transforms 檔案讀取相機資訊
     Args:
-        bg_img_config: 背景图像配置，可选值:
+        bg_img_config: 背景影像配置，可選值:
             - "white": 白色背景
             - "black": 黑色背景
-            - 文件名或路径: 自定义背景图像
+            - 檔名或路徑: 自定義背景影像
     """
     cam_infos = []
     postfix_dict = {"deepspeech": "ds", "esperanto": "eo", "hubert": "hu"}
@@ -111,22 +111,22 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
         contents = json.load(json_file)
         focal_len = contents["focal_len"]
         
-        # 根据配置加载背景图像
+        # 根據配置載入背景影像
         if bg_img_config == "white":
-            bg_img = None  # 延迟到后面知道尺寸后创建白色背景
+            bg_img = None  # 延遲到後面知道尺寸後建立白色背景
         elif bg_img_config == "black":
-            bg_img = None  # 延迟到后面知道尺寸后创建黑色背景
+            bg_img = None  # 延遲到後面知道尺寸後建立黑色背景
         else:
-            # 自定义背景图像
+            # 自定義背景影像
             if os.path.exists(bg_img_config):
                 bg_img = np.array(Image.open(bg_img_config).convert("RGB"))
             else:
-                # 尝试从数据目录加载
+                # 嘗試從資料目錄載入
                 bg_img_path = os.path.join(path, bg_img_config)
                 if os.path.exists(bg_img_path):
                     bg_img = np.array(Image.open(bg_img_path).convert("RGB"))
                 else:
-                    bg_img = None  # 默认白色背景
+                    bg_img = None  # 預設白色背景
 
         frames = contents["frames"]
         
@@ -206,7 +206,7 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
             torso_img_path = os.path.join(path, 'torso_imgs', str(frame['img_id']) + '.png')
             if preload:
                 torso_img = np.array(Image.open(torso_img_path).convert("RGBA")) * 1.0
-                # 如果 bg_img 为 None，使用白色背景
+                # 如果 bg_img 為 None，使用白色背景
                 if bg_img is None:
                     current_bg_img = np.ones((torso_img.shape[0], torso_img.shape[1], 3), dtype=np.uint8) * 255
                 else:
@@ -230,7 +230,7 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
                 torso_img_path = os.path.join(path, 'torso_imgs', str(frame['img_id']) + '.png')
                 if preload:
                     torso_img = np.array(Image.open(torso_img_path).convert("RGBA")) * 1.0
-                    # 根据配置创建背景
+                    # 根據配置建立背景
                     if bg_img is None:
                         if bg_img_config == "black":
                             current_bg_img = np.zeros((torso_img.shape[0], torso_img.shape[1], 3), dtype=np.uint8)
@@ -311,7 +311,7 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
 def readNerfSyntheticInfo(path, white_background, eval, extension=".jpg", args=None):
     audio_file = args.audio
     audio_extractor = args.audio_extractor
-    bg_img_config = getattr(args, 'bg_img', 'white')  # 从 args 获取背景配置，默认白色
+    bg_img_config = getattr(args, 'bg_img', 'white')  # 從 args 獲取背景配置，預設白色
     
     
     print("Reading Training Transforms")

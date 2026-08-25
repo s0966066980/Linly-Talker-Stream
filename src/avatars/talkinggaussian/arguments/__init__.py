@@ -57,8 +57,8 @@ class ModelParams(ParamGroup):
         self.audio = ""
         self.init_num = 10_000
         self.audio_extractor = "deepspeech"
-        self.image_width = 450  # 默认图像宽度
-        self.image_height = 450  # 默认图像高度
+        self.image_width = 450  # 預設影像寬度
+        self.image_height = 450  # 預設影像高度
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):

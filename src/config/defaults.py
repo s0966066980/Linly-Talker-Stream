@@ -1,13 +1,13 @@
-"""默认配置值"""
+"""預設配置值"""
 from .schema import Config, AppConfig, ModelConfig, TTSConfig, LLMConfig, AudioConfig, VideoConfig, CustomVideoConfig
 
 
 def get_default_config() -> Config:
     """
-    获取默认配置
+    獲取預設配置
     
     Returns:
-        Config: 默认配置对象
+        Config: 預設配置物件
     """
     return Config(
         app=AppConfig(

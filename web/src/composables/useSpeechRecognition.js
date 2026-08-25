@@ -6,7 +6,7 @@ export function useSpeechRecognition(options = {}) {
     onResult = () => {},
     onFinalResult = () => {},
     onError = () => {},
-    language = 'zh-CN',
+    language = 'zh-TW',
     continuous = true
   } = options
   
@@ -50,11 +50,11 @@ export function useSpeechRecognition(options = {}) {
     }
     
     recognition.onerror = (event) => {
-      console.error('语音识别错误:', event.error)
+      console.error('語音識別錯誤:', event.error)
       
-      // no-speech 错误在连续模式下很常见，不需要特别处理
+      // no-speech 錯誤在連續模式下很常見，不需要特別處理
       if (event.error === 'no-speech' && shouldContinue) {
-        console.log('未检测到语音，继续监听...')
+        console.log('未檢測到語音，繼續監聽...')
         return
       }
       
@@ -63,18 +63,18 @@ export function useSpeechRecognition(options = {}) {
     
     recognition.onend = () => {
       isRecognizing = false
-      console.log('语音识别结束，shouldContinue:', shouldContinue)
+      console.log('語音識別結束，shouldContinue:', shouldContinue)
       
-      // 在连续模式下，如果标志为 true，则自动重启识别
+      // 在連續模式下，如果標誌為 true，則自動重啟識別
       if (shouldContinue) {
-        console.log('连续模式：自动重启语音识别')
+        console.log('連續模式：自動重啟語音識別')
         setTimeout(() => {
           if (shouldContinue && !isRecognizing) {
             try {
               recognition.start()
               isRecognizing = true
             } catch (error) {
-              console.error('重启语音识别失败:', error)
+              console.error('重啟語音識別失敗:', error)
             }
           }
         }, 100)
@@ -88,9 +88,9 @@ export function useSpeechRecognition(options = {}) {
         shouldContinue = true
         recognition.start()
         isRecognizing = true
-        console.log('启动语音识别，连续模式:', recognition.continuous)
+        console.log('啟動語音識別，連續模式:', recognition.continuous)
       } catch (error) {
-        console.error('启动语音识别失败:', error)
+        console.error('啟動語音識別失敗:', error)
       }
     }
   }
@@ -102,16 +102,16 @@ export function useSpeechRecognition(options = {}) {
         if (isRecognizing) {
           recognition.stop()
         }
-        console.log('停止语音识别')
+        console.log('停止語音識別')
       } catch (error) {
-        console.error('停止语音识别失败:', error)
+        console.error('停止語音識別失敗:', error)
       }
     }
   }
   
   const updateSettings = (settings) => {
     if (recognition) {
-      recognition.lang = settings.language || 'zh-CN'
+      recognition.lang = settings.language || 'zh-TW'
       recognition.continuous = settings.continuous !== undefined ? settings.continuous : true
     }
   }

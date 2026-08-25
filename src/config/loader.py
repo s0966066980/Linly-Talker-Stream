@@ -1,25 +1,25 @@
-"""配置加载器"""
+"""配置載入器"""
 import os
 import re
 import yaml
 from pathlib import Path
 from typing import Optional, Dict, Any
 from .schema import (
-    Config, AppConfig, ModelConfig, TTSConfig, ASRConfig, LLMConfig,
+    Config, AppConfig, ModelConfig, TTSConfig, ASRConfig, VADConfig, LLMConfig,
     AudioConfig, VideoConfig, CustomVideoConfig, ERNeRfConfig, TalkingGaussianConfig
 )
 
 
 def _merge_dicts(base: Dict, override: Dict) -> Dict:
     """
-    深度合并两个字典
+    深度合併兩個字典
     
     Args:
-        base: 基础字典
-        override: 覆盖字典
+        base: 基礎字典
+        override: 覆蓋字典
     
     Returns:
-        合并后的字典
+        合併後的字典
     """
     result = base.copy()
     for key, value in override.items():
@@ -31,18 +31,18 @@ def _merge_dicts(base: Dict, override: Dict) -> Dict:
 
 
 def load_yaml_config(config_file: Path) -> Dict:
-    """加载 YAML 配置文件，支持环境变量插值"""
+    """載入 YAML 配置檔案，支援環境變數插值"""
     if not config_file.exists():
         return {}
     
     with open(config_file, 'r', encoding='utf-8') as f:
         content = f.read()
     
-    # 替换 ${VAR_NAME} 格式的环境变量，只替换存在的环境变量
+    # 替換 ${VAR_NAME} 格式的環境變數，只替換存在的環境變數
     def replace_env_var(match):
         var_name = match.group(1)
         value = os.getenv(var_name)
-        # 只有环境变量存在时才替换，否则保持原样
+        # 只有環境變數存在時才替換，否則保持原樣
         return value if value is not None else match.group(0)
     
     content = re.sub(r'\$\{([^}]+)\}', replace_env_var, content)
@@ -53,45 +53,46 @@ def load_yaml_config(config_file: Path) -> Dict:
 
 def dict_to_config(config_dict: Dict) -> Config:
     """
-    将字典转换为 Config 对象
+    將字典轉換為 Config 物件
     
     Args:
         config_dict: 配置字典
     
     Returns:
-        Config 对象
+        Config 物件
     """
     app_config = AppConfig(**config_dict.get('app', {}))
     
-    # 处理 model 配置
+    # 處理 model 配置
     model_dict = config_dict.get('model', {})
     
-    # 如果顶层有 ernerf 配置，合并到 model.ernerf
+    # 如果頂層有 ernerf 配置，合併到 model.ernerf
     if 'ernerf' in config_dict:
         if 'ernerf' not in model_dict:
             model_dict['ernerf'] = {}
-        # 顶层 ernerf 优先级更高
+        # 頂層 ernerf 優先順序更高
         model_dict['ernerf'] = _merge_dicts(model_dict.get('ernerf', {}), config_dict['ernerf'])
     
-    # 如果顶层有 talkinggaussian 配置，合并到 model.talkinggaussian
+    # 如果頂層有 talkinggaussian 配置，合併到 model.talkinggaussian
     if 'talkinggaussian' in config_dict:
         if 'talkinggaussian' not in model_dict:
             model_dict['talkinggaussian'] = {}
-        # 顶层 talkinggaussian 优先级更高
+        # 頂層 talkinggaussian 優先順序更高
         model_dict['talkinggaussian'] = _merge_dicts(model_dict.get('talkinggaussian', {}), config_dict['talkinggaussian'])
     
-    # 创建 ERNeRfConfig
+    # 建立 ERNeRfConfig
     ernerf_config = ERNeRfConfig(**model_dict.get('ernerf', {}))
     
-    # 创建 TalkingGaussianConfig
+    # 建立 TalkingGaussianConfig
     talkinggaussian_config = TalkingGaussianConfig(**model_dict.get('talkinggaussian', {}))
     
-    # 创建 ModelConfig
+    # 建立 ModelConfig
     model_dict_for_init = {k: v for k, v in model_dict.items() if k not in ['ernerf', 'talkinggaussian']}
     model_config = ModelConfig(**model_dict_for_init, ernerf=ernerf_config, talkinggaussian=talkinggaussian_config)
     
     tts_config = TTSConfig(**config_dict.get('tts', {}))
     asr_config = ASRConfig(**config_dict.get('asr', {}))
+    vad_config = VADConfig(**config_dict.get('vad', {}))
     llm_config = LLMConfig(**config_dict.get('llm', {}))
     audio_config = AudioConfig(**config_dict.get('audio', {}))
     video_config = VideoConfig(**config_dict.get('video', {}))
@@ -102,6 +103,7 @@ def dict_to_config(config_dict: Dict) -> Config:
         model=model_config,
         tts=tts_config,
         asr=asr_config,
+        vad=vad_config,
         llm=llm_config,
         audio=audio_config,
         video=video_config,
@@ -113,20 +115,20 @@ def load_config(
     config_file: Optional[str] = None,
 ) -> Config:
     """
-    加载配置
+    載入配置
     
     Args:
-        config_file: 指定配置文件路径
+        config_file: 指定配置檔案路徑
     
     Returns:
-        Config: 最终配置对象
+        Config: 最終配置物件
     """
     from ..utils.paths import get_project_root, get_config_dir
     
-    # 1. 加载默认配置（起始为空，后续逐步合并）
+    # 1. 載入預設配置（起始為空，後續逐步合併）
     config_dict = {}
     
-    # 2. 加载指定的配置文件（如果有传入 --config）
+    # 2. 載入指定的配置檔案（如果有傳入 --config）
     if config_file:
         config_path = Path(config_file)
         if not config_path.is_absolute():
@@ -136,17 +138,24 @@ def load_config(
             file_config = load_yaml_config(config_path)
             config_dict = _merge_dicts(config_dict, file_config)
     
-    # 3. 如果没有指定配置文件，加载默认 config.yaml
+    # 3. 如果沒有指定配置檔案，載入預設 config.yaml
     if not config_file:
         default_config_file = get_config_dir() / "config.yaml"
         if default_config_file.exists():
             default_config = load_yaml_config(default_config_file)
             config_dict = _merge_dicts(config_dict, default_config)
     
-    # 4. 转换为 Config 对象
+    # 4. 合併設定面板寫入的執行時覆蓋（llm.model / 數字人引擎與角色）
+    from src.config.overrides import load_runtime_overrides
+
+    overrides = load_runtime_overrides()
+    if overrides:
+        config_dict = _merge_dicts(config_dict, overrides)
+
+    # 5. 轉換為 Config 物件
     config = dict_to_config(config_dict)
     
-    # 处理 -O 快捷选项
+    # 處理 -O 快捷選項
     if config.model.ernerf.O:
         config.model.ernerf.fp16 = True
         config.model.ernerf.cuda_ray = True

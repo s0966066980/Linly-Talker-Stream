@@ -9,7 +9,7 @@ authors = [
 ]
 
 dependencies = [
-    # 仅保留 avatar 及子模块实际 import 的库
+    # 僅保留 avatar 及子模組實際 import 的庫
     "av>=14.0.0",
     "numpy>=1.23,<2",
     "opencv-python>=4.8.0,<4.12",

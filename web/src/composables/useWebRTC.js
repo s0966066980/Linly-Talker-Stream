@@ -1,63 +1,150 @@
-// Linly-Talker-Stream (https://github.com/Kedreamix/Linly-Talker-Stream). Copyright [Linly-talker-stream@kedreamix]. Apache-2.0.
+// One peer connection carries avatar A/V, the microphone uplink and voice events.
 export function useWebRTC(options = {}) {
   let pc = null
+  let eventChannel = null
+  let microphoneStream = null
   let sessionIdValue = 0
-  const { onNotification } = options
-  
-  const startPlay = async (stunServer = 'stun:stun.miwifi.com:3478') => {
-    console.log('开始连接 WebRTC...')
-    console.log('使用 STUN 服务器:', stunServer || '不使用 STUN')
-    
-    // 关闭之前的连接
-    if (pc) {
-      console.log('关闭旧连接...')
-      pc.close()
-      pc = null
+  let lastEventSequence = 0
+  let captureRequested = true
+  let reconnectTimer = null
+  let shouldReconnect = false
+  let lastStunServer = null
+  const { onNotification, onVoiceEvent, onConnectionState, onSessionId } = options
+
+  const notifyConnection = (state) => {
+    if (onConnectionState) onConnectionState(state)
+  }
+
+  const scheduleReconnect = () => {
+    if (!shouldReconnect || reconnectTimer) return
+    const resumeCapture = captureRequested
+    setCaptureEnabled(false)
+    captureRequested = resumeCapture
+    notifyConnection('reconnecting')
+    reconnectTimer = setTimeout(async () => {
+      reconnectTimer = null
+      if (!shouldReconnect) return
+      try {
+        await startPlay(lastStunServer, captureRequested)
+      } catch (error) {
+        if (onNotification) onNotification(`語音通道重連失敗：${error.message}`, 'error')
+      }
+    }, 500)
+  }
+
+  const openMicrophone = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('此瀏覽器不支援麥克風存取')
     }
-    
     try {
-      console.log('✅ 创建 RTCPeerConnection...')
-      
-      // 创建 RTCPeerConnection 配置
-      const configuration = {
-        iceServers: []
-      }
-      
-      // 如果提供了 STUN 服务器，则添加
-      if (stunServer) {
-        configuration.iceServers.push({ urls: stunServer })
-      }
-      
-      pc = new RTCPeerConnection(configuration)
-      
-      // 添加接收 track 的处理
-      pc.ontrack = (event) => {
-        console.log('📺 收到媒体流:', event.track.kind)
-        const video = document.getElementById('video')
-        if (video && event.streams && event.streams[0]) {
-          video.srcObject = event.streams[0]
-          console.log('✅ 视频流已设置到 video 元素')
+      return await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1
         }
+      })
+    } catch (error) {
+      if (error?.name === 'OverconstrainedError' || error?.name === 'TypeError') {
+        return navigator.mediaDevices.getUserMedia({ audio: true })
       }
-      
-      // 监听连接状态
-      pc.onconnectionstatechange = () => {
-        console.log('📡 连接状态:', pc.connectionState)
+      throw error
+    }
+  }
+
+  const sendControl = (message) => {
+    if (!eventChannel || eventChannel.readyState !== 'open') return false
+    eventChannel.send(JSON.stringify(message))
+    return true
+  }
+
+  const setCaptureEnabled = (enabled, { finalize = false } = {}) => {
+    captureRequested = Boolean(enabled)
+    microphoneStream?.getAudioTracks().forEach((track) => {
+      track.enabled = Boolean(enabled)
+    })
+    return sendControl({ type: 'capture', enabled: Boolean(enabled), finalize })
+  }
+
+  const interruptVoice = () => {
+    microphoneStream?.getAudioTracks().forEach((track) => {
+      track.enabled = true
+    })
+    return sendControl({ type: 'interrupt' })
+  }
+
+  const startPlay = async (stunServer = null, initialCapture = true) => {
+    disposeConnection(false)
+    shouldReconnect = true
+    lastStunServer = stunServer
+    captureRequested = Boolean(initialCapture)
+    notifyConnection('preparing')
+    lastEventSequence = 0
+
+    const configuration = { iceServers: [] }
+    if (stunServer) configuration.iceServers.push({ urls: stunServer })
+    pc = new RTCPeerConnection(configuration)
+
+    const remoteStream = new MediaStream()
+    pc.ontrack = (event) => {
+      if (!remoteStream.getTracks().some((track) => track.id === event.track.id)) {
+        remoteStream.addTrack(event.track)
       }
-      
-      pc.oniceconnectionstatechange = () => {
-        console.log('🧊 ICE 连接状态:', pc.iceConnectionState)
+      const video = document.getElementById('video')
+      if (video) video.srcObject = remoteStream
+    }
+
+    pc.onconnectionstatechange = () => {
+      const state = pc?.connectionState || 'closed'
+      notifyConnection(state)
+      if (state === 'failed' || state === 'disconnected') scheduleReconnect()
+    }
+    pc.oniceconnectionstatechange = () => {
+      if (pc?.iceConnectionState === 'failed') scheduleReconnect()
+    }
+
+    eventChannel = pc.createDataChannel('voice-events', { ordered: true })
+    eventChannel.onopen = () => {
+      sendControl({
+        type: 'capture',
+        enabled: Boolean(microphoneStream) && captureRequested
+      })
+    }
+    eventChannel.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data)
+        if (!Number.isFinite(message.seq) || message.seq <= lastEventSequence) return
+        lastEventSequence = message.seq
+        if (onVoiceEvent) onVoiceEvent(message)
+      } catch (error) {
+        console.warn('Ignored invalid voice event', error)
       }
-      
-      // 添加 transceiver 来接收音视频
+    }
+    eventChannel.onclose = () => {
+      scheduleReconnect()
+    }
+    eventChannel.onerror = () => {
+      scheduleReconnect()
+    }
+
+    try {
+      microphoneStream = await openMicrophone()
+      pc.addTrack(microphoneStream.getAudioTracks()[0], microphoneStream)
+      microphoneStream.getAudioTracks()[0].enabled = captureRequested
+    } catch (error) {
+      microphoneStream = null
       pc.addTransceiver('audio', { direction: 'recvonly' })
-      pc.addTransceiver('video', { direction: 'recvonly' })
-      
-      console.log('📤 创建 Offer...')
+      if (onNotification) {
+        onNotification(`麥克風無法使用，已切換為文字對話：${error.message}`, 'warning')
+      }
+      notifyConnection('text_only')
+    }
+    pc.addTransceiver('video', { direction: 'recvonly' })
+
+    try {
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
-      
-      console.log('🔗 发送 Offer 到服务器...')
       const response = await fetch('/offer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -66,62 +153,60 @@ export function useWebRTC(options = {}) {
           type: pc.localDescription.type
         })
       })
-      
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        let message = `HTTP ${response.status}: ${response.statusText}`
+        try {
+          const payload = await response.json()
+          message = payload.msg || message
+        } catch (_) {
+          // Keep the HTTP fallback.
+        }
+        throw new Error(message)
       }
-      
       const data = await response.json()
-      console.log('📥 收到服务器响应，会话ID:', data.sessionid)
-      
-      // 保存 sessionId
       sessionIdValue = data.sessionid
+      if (onSessionId) onSessionId(sessionIdValue)
       const sessionInput = document.getElementById('sessionid')
-      if (sessionInput) {
-        sessionInput.value = data.sessionid
-      }
-      
-      // 设置远程描述
-      const answer = new RTCSessionDescription({
+      if (sessionInput) sessionInput.value = data.sessionid
+      await pc.setRemoteDescription(new RTCSessionDescription({
         sdp: data.sdp,
         type: data.type
-      })
-      await pc.setRemoteDescription(answer)
-      
-      console.log('✅ WebRTC 连接建立成功！')
-      
+      }))
       return sessionIdValue
-      
     } catch (error) {
-      console.error('❌ WebRTC 连接失败:', error)
-      if (onNotification) {
-        onNotification(`WebRTC 连接失败: ${error.message}`, 'error')
-      }
-      if (pc) {
-        pc.close()
-        pc = null
-      }
+      if (onNotification) onNotification(`WebRTC 連線失敗：${error.message}`, 'error')
+      stopPlay()
       throw error
     }
   }
-  
-  const stopPlay = () => {
-    console.log('停止 WebRTC 连接...')
-    
+
+  function disposeConnection(manual = true) {
+    if (manual) {
+      shouldReconnect = false
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    if (eventChannel) {
+      eventChannel.onclose = null
+      eventChannel.onerror = null
+      eventChannel.close()
+    }
+    eventChannel = null
     if (pc) {
       pc.close()
       pc = null
-      console.log('✅ WebRTC 连接已关闭')
     }
-    
+    microphoneStream?.getTracks().forEach((track) => track.stop())
+    microphoneStream = null
+    sessionIdValue = 0
     const video = document.getElementById('video')
-    if (video) {
-      video.srcObject = null
-    }
+    if (video) video.srcObject = null
+    notifyConnection('closed')
   }
-  
-  return {
-    startPlay,
-    stopPlay
+
+  function stopPlay() {
+    disposeConnection(true)
   }
+
+  return { startPlay, stopPlay, setCaptureEnabled, interruptVoice }
 }

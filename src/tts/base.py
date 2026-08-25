@@ -1,7 +1,7 @@
 """
-TTS 基类模块
+TTS 基類模組
 
-所有 TTS 引擎都应该继承 BaseTTS 并实现其抽象方法。
+所有 TTS 引擎都應該繼承 BaseTTS 並實現其抽象方法。
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 import queue
 from enum import Enum
 from queue import Queue
-from threading import Thread
+from threading import Event, Thread
 from typing import TYPE_CHECKING
 
 from src.utils.logging import logger
@@ -25,59 +25,68 @@ class State(Enum):
 
 class BaseTTS:
     """
-    所有 TTS 引擎的基类，负责：
-    - 统一的消息队列
-    - 统一的渲染线程（process_tts）
-    - 统一的采样率 / chunk 配置
-    具体引擎只需要实现 txt_to_audio。
+    所有 TTS 引擎的基類，負責：
+    - 統一的訊息佇列
+    - 統一的渲染執行緒（process_tts）
+    - 統一的取樣率 / chunk 配置
+    具體引擎只需要實現 txt_to_audio。
     """
 
     def __init__(self, config, parent: "BaseAvatar"):
         self.config = config
         self.parent = parent
 
-        # 20ms 一帧
+        # 20ms 一幀
         self.fps = config.audio.fps
         self.sample_rate = 16000
         # 320 samples per chunk (20ms * 16000 / 1000)
         self.chunk = self.sample_rate // self.fps
 
-        # 文本消息队列
+        # 文本訊息佇列
         self.msgqueue: "Queue[tuple[str, dict]]" = Queue()
         self.state: State = State.RUNNING
+        self._synthesis_active = Event()
 
     def flush_talk(self) -> None:
-        """清空队列并暂停当前说话状态。"""
+        """清空佇列並暫停當前說話狀態。"""
         self.msgqueue.queue.clear()
         self.state = State.PAUSE
 
     def put_msg_txt(self, msg: str, datainfo: dict | None = None) -> None:
-        """外部入口：放入一条待合成的文本消息。"""
+        """外部入口：放入一條待合成的文本訊息。"""
         if datainfo is None:
             datainfo = {}
         if len(msg) > 0:
             self.msgqueue.put((msg, datainfo))
 
+    def has_pending_work(self) -> bool:
+        """Return whether text is queued or an engine is currently synthesizing it."""
+        return self._synthesis_active.is_set() or not self.msgqueue.empty()
+
     def render(self, quit_event) -> None:
-        """启动独立线程持续消费队列，调用具体引擎的 txt_to_audio。"""
+        """啟動獨立執行緒持續消費佇列，呼叫具體引擎的 txt_to_audio。"""
         process_thread = Thread(target=self.process_tts, args=(quit_event,))
         process_thread.start()
 
     def process_tts(self, quit_event) -> None:
-        """循环从队列中取消息，并调用 txt_to_audio。"""
+        """迴圈從佇列中取訊息，並呼叫 txt_to_audio。"""
         while not quit_event.is_set():
             try:
                 msg: tuple[str, dict] = self.msgqueue.get(block=True, timeout=1)
                 self.state = State.RUNNING
             except queue.Empty:
                 continue
-            self.txt_to_audio(msg)
+            self._synthesis_active.set()
+            try:
+                self.txt_to_audio(msg)
+            finally:
+                self._synthesis_active.clear()
         logger.info("ttsreal thread stop")
 
     def txt_to_audio(self, msg: tuple[str, dict]):
         """
-        子类必须实现：
+        子類必須實現：
             msg: (text, textevent)
-        内部负责把音频分帧后，通过 parent.put_audio_frame(...) 推给上层。
+        內部負責把音訊分幀後，通過 parent.put_audio_frame(...) 推給上層。
         """
         raise NotImplementedError

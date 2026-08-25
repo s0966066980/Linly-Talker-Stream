@@ -147,5 +147,5 @@ class ERNeRFAudioStreamHandler(BaseAudioStreamHandler):
         print(f'[INFO] warm-up done, actual latency = {t:.6f}s')
 
     def stop(self):
-        """停止音频处理"""
+        """停止音訊處理"""
         pass

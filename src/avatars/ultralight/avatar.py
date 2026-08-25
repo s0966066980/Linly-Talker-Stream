@@ -55,7 +55,7 @@ def load_avatar(avatar_id):
     face_imgs_path = f"{avatar_path}/face_imgs" 
     coords_path = f"{avatar_path}/coords.pkl" 
     
-    model = Model(6, 'hubert').to(device)  # 假设Model是你自定义的类
+    model = Model(6, 'hubert').to(device)  # 假設Model是你自定義的類
     model.load_state_dict(torch.load(f"{avatar_path}/ultralight.pth"))
     
     with open(coords_path, 'rb') as f:

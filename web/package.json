@@ -1,12 +1,13 @@
 {
   "name": "linly-talker-stream-web",
   "version": "1.0.0",
-  "description": "Linly-Talker-Stream 实时流式数字人对话系统 - 前端界面",
+  "description": "Linly-Talker-Stream 即時流式數字人對話系統 - 前端介面",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "bootstrap": "^5.3.0",

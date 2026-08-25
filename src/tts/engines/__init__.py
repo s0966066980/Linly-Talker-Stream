@@ -1,6 +1,6 @@
-"""TTS 引擎实现集中入口。
+"""TTS 引擎實現集中入口。
 
-对外只需要从这里 import 对应的引擎类即可，例如：
+對外只需要從這裡 import 對應的引擎類即可，例如：
 
     from src.tts.engines import EdgeTTS, SovitsTTS
 """
@@ -10,12 +10,9 @@ from .edge import EdgeTTS
 from .fish import FishTTS
 from .sovits import SovitsTTS
 from .cosyvoice import CosyVoiceTTS
-from .cosyvoice_api import CosyVoiceAPITTS
-from .tencent import TencentTTS
-from .doubao import DoubaoTTS
 from .indextts2 import IndexTTS2
+from .qwen3 import Qwen3TTS
 from .xtts import XTTS
-from .azure import AzureTTS
 
 __all__ = [
     "BaseTTS",
@@ -24,10 +21,7 @@ __all__ = [
     "FishTTS",
     "SovitsTTS",
     "CosyVoiceTTS",
-    "CosyVoiceAPITTS",
-    "TencentTTS",
-    "DoubaoTTS",
     "IndexTTS2",
+    "Qwen3TTS",
     "XTTS",
-    "AzureTTS",
 ]

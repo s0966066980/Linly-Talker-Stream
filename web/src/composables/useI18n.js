@@ -1,18 +1,25 @@
-// 语言管理 Composable
+// 語言管理 Composable
 import { ref, computed } from 'vue'
-import zhCN from '../locales/zh-CN.js'
+import zhTW from '../locales/zh-TW.js'
 import enUS from '../locales/en-US.js'
 
 const languages = {
-  'zh-CN': zhCN,
+  'zh-TW': zhTW,
+  'zh-CN': zhTW, // 舊的簡體設定改走繁中
   'en-US': enUS
 }
 
-// 当前语言，默认中文
-const currentLocale = ref('zh-CN')
+const DEFAULT_LOCALE = 'zh-TW'
+
+const normalizeLocale = (locale) => {
+  if (!locale) return DEFAULT_LOCALE
+  if (locale === 'zh-CN' || locale === 'zh') return 'zh-TW'
+  return languages[locale] ? locale : DEFAULT_LOCALE
+}
+
+const currentLocale = ref(DEFAULT_LOCALE)
 
 export function useI18n() {
-  // 获取翻译文本
   const t = (key) => {
     const keys = key.split('.')
     let value = languages[currentLocale.value]
@@ -21,31 +28,28 @@ export function useI18n() {
       if (value && typeof value === 'object') {
         value = value[k]
       } else {
-        return key // 如果找不到，返回 key 本身
+        return key
       }
     }
     
     return value || key
   }
   
-  // 切换语言
   const setLocale = (locale) => {
-    if (languages[locale]) {
-      currentLocale.value = locale
-      // 保存到 localStorage
-      localStorage.setItem('linly-talker-stream-language', locale)
-    }
+    const next = normalizeLocale(locale)
+    currentLocale.value = next
+    localStorage.setItem('linly-talker-stream-language', next)
   }
   
-  // 从 localStorage 加载语言设置
   const loadLocale = () => {
     const savedLocale = localStorage.getItem('linly-talker-stream-language')
-    if (savedLocale && languages[savedLocale]) {
-      currentLocale.value = savedLocale
+    currentLocale.value = normalizeLocale(savedLocale)
+    if (savedLocale && savedLocale !== currentLocale.value) {
+      localStorage.setItem('linly-talker-stream-language', currentLocale.value)
     }
   }
   
-  // 获取当前语言
+  // 獲取當前語言
   const locale = computed(() => currentLocale.value)
   
   return {

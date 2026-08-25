@@ -1,4 +1,4 @@
-"""LLM 大语言模型模块"""
+"""LLM 大語言模型模組"""
 
 from src.llm.base import BaseLLM, TextStreamProcessor
 from src.llm.factory import create_llm_engine

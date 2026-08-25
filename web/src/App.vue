@@ -1,7 +1,7 @@
 <!-- Linly-Talker-Stream (https://github.com/Kedreamix/Linly-Talker-Stream). Copyright [Linly-talker-stream@kedreamix]. Apache-2.0. -->
 <template>
   <div class="app-wrapper">
-    <!-- 顶部导航栏 -->
+    <!-- 頂部導航欄 -->
     <header class="app-header">
       <div class="header-content">
         <div class="logo-section">
@@ -33,17 +33,20 @@
             <span>{{ t('header.github') }}</span>
           </a>
           <SettingsPanel 
+            :is-connected="isConnected || connectionStatus === 'connecting'"
             @settings-changed="onSettingsChanged" 
             @notification="showNotification"
+            @request-disconnect="handleStopConnection"
+            @avatar-ready="onAvatarReady"
           />
         </div>
       </div>
     </header>
 
-    <!-- 主内容区 -->
+    <!-- 主內容區 -->
     <main class="main-content">
       <div class="content-wrapper">
-        <!-- 左侧：对话区域 -->
+        <!-- 左側：對話區域 -->
         <div class="chat-section">
           <div class="chat-header">
             <h2><i class="bi bi-chat-dots"></i> {{ t('chat.title') }}</h2>
@@ -68,15 +71,15 @@
                 class="action-btn clear-history-btn"
                 @click="clearChatHistory"
                 :disabled="!isConnected"
-                :title="isConnected ? '清空对话历史' : '请先连接'"
+                :title="isConnected ? t('chat.clearHistory') : t('notifications.connectFirst')"
               >
                 <i class="bi bi-trash"></i>
-                清空历史
+                {{ t('chat.clearHistory') }}
               </button>
             </div>
           </div>
 
-          <!-- 对话模式 -->
+          <!-- 對話模式 -->
           <div v-if="activeMode === 'chat'" class="chat-mode">
             <div class="messages-container" ref="messagesRef">
               <div 
@@ -125,10 +128,19 @@
                     v-if="chatInput.trim()"
                     class="clear-input-btn"
                     @click="clearInput"
-                    title="清空输入框"
+                    :title="t('chat.clearInput')"
                   >
                     <i class="bi bi-x-circle-fill"></i>
                   </button>
+                </div>
+                <div
+                  v-if="isConnected"
+                  class="voice-state-badge"
+                  :data-state="voiceState"
+                  aria-live="polite"
+                >
+                  <span class="status-dot"></span>
+                  {{ voiceStateLabel }}
                 </div>
                 <div class="input-actions">
                   <button 
@@ -138,7 +150,7 @@
                     @click="handleVoiceButtonClick"
                     @touchstart.prevent="handleVoiceButtonPress"
                     @touchend="handleVoiceButtonRelease"
-                    :class="{ recording: isRecordingVoice, 'continuous-mode': appSettings.voiceContinuous }"
+                    :class="{ recording: isRecordingVoice, 'continuous-mode': handsFreeTalk }"
                     :disabled="!isConnected"
                     :title="getVoiceButtonTitle"
                   >
@@ -146,12 +158,7 @@
                       <i class="bi bi-mic-fill"></i>
                       <span v-if="isRecordingVoice" class="recording-pulse"></span>
                     </div>
-                    <span class="voice-btn-text" v-if="appSettings.voiceContinuous">
-                      {{ isRecordingVoice ? '点击停止' : '点击录音' }}
-                    </span>
-                    <span class="voice-btn-text" v-else>
-                      {{ isRecordingVoice ? '松开发送' : '按住说话' }}
-                    </span>
+                    <span class="voice-btn-text">{{ voiceButtonLabel }}</span>
                   </button>
                   <button 
                     class="send-btn" 
@@ -167,7 +174,7 @@
             </div>
           </div>
 
-          <!-- 朗读模式 -->
+          <!-- 朗讀模式 -->
           <div v-if="activeMode === 'tts'" class="tts-mode">
             <div class="tts-container">
               <h3><i class="bi bi-file-text"></i> {{ t('chat.ttsTitle') }}</h3>
@@ -190,7 +197,7 @@
           </div>
         </div>
 
-        <!-- 右侧：视频区域 -->
+        <!-- 右側：影片區域 -->
         <div class="video-section">
           <div class="video-card">
             <div class="video-header">
@@ -200,12 +207,13 @@
                   v-if="!isConnected" 
                   class="connect-btn" 
                   @click="handleStartConnection"
-                  :disabled="!backendReady"
-                  :title="backendReady ? '' : t('tooltips.connectDisabled')"
+                  :disabled="!canConnect"
+                  :title="connectDisabledTitle"
                 >
-                  <i class="bi bi-play-circle" v-if="backendReady"></i>
-                  <i class="bi bi-hourglass-split spin" v-else></i>
-                  {{ backendReady ? t('video.connect') : t('video.backendStarting') }}
+                  <i class="bi bi-play-circle" v-if="canConnect"></i>
+                  <i class="bi bi-hourglass-split spin" v-else-if="!backendReady"></i>
+                  <i class="bi bi-sliders" v-else></i>
+                  {{ connectButtonLabel }}
                 </button>
                 <button 
                   v-else 
@@ -221,9 +229,11 @@
             <div class="video-wrapper">
               <video id="video" autoplay playsinline></video>
               <div class="video-overlay" v-if="!isConnected">
-                <i class="bi bi-camera-video-off" v-if="backendReady"></i>
+                <i class="bi bi-camera-video-off" v-if="canConnect"></i>
+                <i class="bi bi-sliders" v-else-if="backendReady"></i>
                 <i class="bi bi-hourglass-split spin" v-else style="font-size: 4rem;"></i>
-                <p v-if="backendReady">{{ t('video.overlayTextReady') }}</p>
+                <p v-if="canConnect">{{ t('video.overlayTextReady') }}</p>
+                <p v-else-if="backendReady">{{ t('video.overlaySelectAvatar') }}</p>
                 <p v-else>{{ t('video.overlayTextLoading') }}</p>
               </div>
               <div class="recording-badge" v-if="isRecording">
@@ -267,7 +277,7 @@
       </div>
     </main>
 
-    <!-- 调试面板 -->
+    <!-- 除錯面板 -->
     <DebugPanel 
       v-if="appSettings.showDebugPanel"
       :connection-status="connectionStatus"
@@ -294,12 +304,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import DebugPanel from './components/DebugPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import { useWebRTC } from './composables/useWebRTC'
-import { useSpeechRecognition } from './composables/useSpeechRecognition'
 import { useI18n } from './composables/useI18n'
+import { useRuntimeSettings } from './composables/useRuntimeSettings'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
 
@@ -310,7 +320,7 @@ marked.setOptions({
       try {
         return hljs.highlight(code, { language: lang }).value
       } catch (err) {
-        console.error('代码高亮失败:', err)
+        console.error('程式碼高亮失敗:', err)
       }
     }
     return hljs.highlightAuto(code).value
@@ -320,14 +330,16 @@ marked.setOptions({
 })
 
 const { t, setLocale, loadLocale } = useI18n()
+const { vad, vadDraft, loadVadSettings, applyVadSettings } = useRuntimeSettings()
+const handsFreeTalk = computed(() => Boolean(vad.enabled))
 
-// Markdown 渲染函数
+// Markdown 渲染函式
 const renderMarkdown = (text) => {
   if (!text) return ''
   try {
     return marked.parse(text)
   } catch (error) {
-    console.error('Markdown 解析错误:', error)
+    console.error('Markdown 解析錯誤:', error)
     return text
   }
 }
@@ -340,37 +352,50 @@ const chatInput = ref('')
 const ttsInput = ref('')
 const isThinking = ref(false)
 const isRecordingVoice = ref(false)
+const handsFreePaused = ref(false)
+const voiceState = ref('disconnected')
+const avatarSpeaking = computed(() => voiceState.value === 'avatar_speaking')
 const messagesRef = ref(null)
 const notifications = ref([])
 let notificationIdCounter = 0
-const lastRecordFile = ref(null)  // 最后一次录制的文件信息
-const backendReady = ref(false)  // 后端是否就绪
+const lastRecordFile = ref(null)  // 最後一次錄製的檔案資訊
+const backendReady = ref(false)  // 後端是否就緒
+const modelReady = ref(false)    // 是否已套用數字人引擎
 
-// 应用设置
+// 應用設定
 const appSettings = ref({
-  useStun: true,
-  stunServer: 'stun:stun.l.google.com:19302',
+  useStun: false,
+  stunServer: 'stun:stun.miwifi.com:3478',
   customStunServer: '',
   autoRecord: false,
   recordFormat: 'mp4',
   showDebugPanel: false,
   showTimestamp: true,
   theme: 'dark',
-  uiLanguage: 'zh-CN',
-  videoSize: 100,
-  voiceContinuous: false,
-  voiceLanguage: 'zh-CN'
+  uiLanguage: 'zh-TW',
+  videoSize: 100
 })
 
 const chatMessages = ref([
   { 
     type: 'ai', 
-    text: '',  // 将在 onMounted 中设置
+    text: '',  // 將在 onMounted 中設定
     time: getCurrentTime()
   }
 ])
 
 const isConnected = computed(() => connectionStatus.value === 'connected')
+const canConnect = computed(() => backendReady.value && modelReady.value)
+const connectButtonLabel = computed(() => {
+  if (!backendReady.value) return t('video.backendStarting')
+  if (!modelReady.value) return t('video.selectAvatarFirst')
+  return t('video.connect')
+})
+const connectDisabledTitle = computed(() => {
+  if (!backendReady.value) return t('tooltips.connectDisabled')
+  if (!modelReady.value) return t('tooltips.selectAvatarFirst')
+  return ''
+})
 
 const statusClass = computed(() => {
   return {
@@ -393,10 +418,32 @@ const getVoiceButtonTitle = computed(() => {
   if (!isConnected.value) {
     return t('tooltips.voiceDisabled')
   }
-  if (appSettings.value.voiceContinuous) {
+  if (avatarSpeaking.value) return t('tooltips.voiceInterrupt')
+  if (handsFreeTalk.value) {
     return isRecordingVoice.value ? t('tooltips.voiceRecording') : t('tooltips.voiceContinuous')
   }
   return t('tooltips.voiceHold')
+})
+
+const voiceButtonLabel = computed(() => {
+  if (avatarSpeaking.value) return t('chat.voiceButtonInterrupt')
+  if (handsFreeTalk.value) {
+    return isRecordingVoice.value
+      ? t('chat.voiceButtonRecordingContinuous')
+      : t('chat.voiceButtonContinuous')
+  }
+  return isRecordingVoice.value
+    ? t('chat.voiceButtonRecording')
+    : t('chat.voiceButton')
+})
+
+const voiceStateLabel = computed(() => {
+  const known = new Set([
+    'preparing', 'listening', 'speech_detected', 'stt', 'llm', 'tts_ready',
+    'avatar_speaking', 'tail_guard', 'paused', 'degraded', 'reconnecting', 'error'
+  ])
+  const key = known.has(voiceState.value) ? voiceState.value : 'paused'
+  return t(`voiceStates.${key}`)
 })
 
 function getCurrentTime() {
@@ -404,13 +451,13 @@ function getCurrentTime() {
   return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
 }
 
-// 通知系统
+// 通知系統
 const showNotification = (message, type = 'info') => {
   const id = notificationIdCounter++
   const notification = { id, message, type }
   notifications.value.push(notification)
-  
-  // 3秒后自动移除
+
+  // 3秒後自動移除
   setTimeout(() => {
     const index = notifications.value.findIndex(n => n.id === id)
     if (index > -1) {
@@ -428,30 +475,55 @@ const getNotificationIcon = (type) => {
   }
 }
 
-const { startPlay, stopPlay } = useWebRTC({
-  onNotification: showNotification
+const handleVoiceEvent = (event) => {
+  if (event.type === 'state') {
+    voiceState.value = event.state
+    isRecordingVoice.value = ['listening', 'speech_detected'].includes(event.state)
+    isThinking.value = ['stt', 'llm', 'tts_ready'].includes(event.state)
+    if (event.state === 'error' && event.error) {
+      showNotification(event.error, 'error')
+    }
+    return
+  }
+  if (event.type === 'user_transcript' && event.text) {
+    addMessage(event.text, 'user')
+  } else if (event.type === 'assistant_text' && event.text) {
+    isThinking.value = false
+    addMessage(event.text, 'ai')
+  } else if (event.type === 'speaking_start') {
+    voiceState.value = 'avatar_speaking'
+    isRecordingVoice.value = false
+  } else if (event.type === 'speaking_end') {
+    voiceState.value = 'tail_guard'
+  }
+}
+
+const { startPlay, stopPlay, setCaptureEnabled, interruptVoice } = useWebRTC({
+  onNotification: showNotification,
+  onVoiceEvent: handleVoiceEvent,
+  onSessionId: (id) => {
+    sessionId.value = id
+  },
+  onConnectionState: (state) => {
+    if (state === 'connected') connectionStatus.value = 'connected'
+    if (state === 'failed') connectionStatus.value = 'disconnected'
+    if (state === 'reconnecting') voiceState.value = 'reconnecting'
+    if (state === 'text_only') voiceState.value = 'degraded'
+  }
 })
 
-// 设置变更处理
+// 設定變更處理
 const onSettingsChanged = (newSettings) => {
   appSettings.value = { ...newSettings }
-  console.log('设置已更新:', appSettings.value)
+  console.log('設定已更新:', appSettings.value)
   
-  // 更新语音识别设置
-  if (updateSettings) {
-    updateSettings({
-      language: newSettings.voiceLanguage,
-      continuous: newSettings.voiceContinuous
-    })
-  }
-  
-  // 更新视频大小
+  // 更新影片大小
   updateVideoSize(newSettings.videoSize)
   
-  // 更新主题
+  // 更新主題
   updateTheme(newSettings.theme)
   
-  // 更新界面语言
+  // 更新介面語言
   if (newSettings.uiLanguage) {
     setLocale(newSettings.uiLanguage)
   }
@@ -464,18 +536,18 @@ const updateVideoSize = (size) => {
   }
 }
 
-// 更新主题
+// 更新主題
 const updateTheme = (theme) => {
   const root = document.documentElement
   
   if (theme === 'auto') {
-    // 跟随系统
+    // 跟隨系統
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
     theme = prefersDark ? 'dark' : 'light'
   }
   
   if (theme === 'light') {
-    // 浅色模式
+    // 淺色模式
     root.style.setProperty('--primary', '#6366f1')
     root.style.setProperty('--primary-dark', '#4f46e5')
     root.style.setProperty('--primary-light', '#818cf8')
@@ -493,7 +565,7 @@ const updateTheme = (theme) => {
     root.style.setProperty('--shadow-lg', '0 10px 15px -3px rgba(0, 0, 0, 0.15)')
     root.style.setProperty('--bg-gradient', 'linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%)')
   } else {
-    // 深色模式（默认）
+    // 深色模式（預設）
     root.style.setProperty('--primary', '#6366f1')
     root.style.setProperty('--primary-dark', '#4f46e5')
     root.style.setProperty('--primary-light', '#818cf8')
@@ -513,7 +585,7 @@ const updateTheme = (theme) => {
   }
 }
 
-// 检查后端是否就绪
+// 檢查後端是否就緒
 const checkBackendReady = async () => {
   try {
     const response = await fetch('/health')
@@ -521,36 +593,40 @@ const checkBackendReady = async () => {
       const data = await response.json()
       if (data.ready) {
         backendReady.value = true
-        console.log('✅ 后端已就绪')
+        modelReady.value = Boolean(data.model_ready)
+        console.log('✅ 後端已就緒, model_ready=', modelReady.value)
         return true
       }
     }
   } catch (error) {
-    console.log('⏳ 等待后端启动...')
+    console.log('⏳ 等待後端啟動...')
   }
   return false
 }
 
+const onAvatarReady = async () => {
+  modelReady.value = true
+  await checkBackendReady()
+}
+
 const handleStartConnection = async () => {
-  console.log('🚀 用户点击"开始连接"按钮')
+  console.log('🚀 使用者點選"開始連線"按鈕')
   
-  // 再次确认后端是否就绪
+  // 再次確認後端是否就緒
   if (!backendReady.value) {
     showNotification(t('notifications.backendNotReady'), 'warning')
+    return
+  }
+  if (!modelReady.value) {
+    showNotification(t('notifications.selectAvatarFirst'), 'warning')
     return
   }
   
   connectionStatus.value = 'connecting'
   
   try {
-    // 使用设置中的 STUN 配置
-    const stunUrl = appSettings.value.useStun 
-      ? (appSettings.value.stunServer === 'custom' 
-          ? appSettings.value.customStunServer 
-          : appSettings.value.stunServer)
-      : null
-    
-    const newSessionId = await startPlay(stunUrl)
+    // 使用設定中的 STUN 配置
+    const newSessionId = await startPlay(null, handsFreeTalk.value)
     if (newSessionId) {
       sessionId.value = newSessionId
       showNotification(t('notifications.connectSuccess'), 'success')
@@ -562,7 +638,7 @@ const handleStartConnection = async () => {
         connectionStatus.value = 'connected'
         clearInterval(checkConnection)
         
-        // 自动录制
+        // 自動錄製
         if (appSettings.value.autoRecord) {
           setTimeout(() => {
             handleStartRecord()
@@ -579,26 +655,30 @@ const handleStartConnection = async () => {
       clearInterval(checkConnection)
     }, 60000)
   } catch (error) {
-    console.error('连接失败:', error)
+    console.error('連線失敗:', error)
     connectionStatus.value = 'disconnected'
     showNotification(t('notifications.connectFailed'), 'error')
   }
 }
 
 const handleStopConnection = () => {
+  handsFreePaused.value = false
   stopPlay()
+  sessionId.value = 0
+  voiceState.value = 'disconnected'
+  isRecordingVoice.value = false
   connectionStatus.value = 'disconnected'
   showNotification(t('notifications.disconnected'), 'info')
 }
 
 const handleStartRecord = async () => {
   if (!sessionId.value) {
-    console.error('无法录制：sessionId 为空')
+    console.error('無法錄製：sessionId 為空')
     showNotification(t('notifications.connectFirst'), 'warning')
     return
   }
   
-  console.log('🔴 开始录制，sessionId:', sessionId.value)
+  console.log('🔴 開始錄製，sessionId:', sessionId.value)
   
   try {
     const response = await fetch('/record', {
@@ -610,16 +690,16 @@ const handleStartRecord = async () => {
       })
     })
     
-    console.log('录制请求响应状态:', response.status)
+    console.log('錄製請求響應狀態:', response.status)
     
     if (response.ok) {
       const data = await response.json()
-      console.log('录制开始成功:', data)
+      console.log('錄製開始成功:', data)
       isRecording.value = true
       showNotification(t('notifications.recordStart'), 'success')
     } else {
       const errorText = await response.text()
-      console.error('录制开始失败:', response.status, errorText)
+      console.error('錄製開始失敗:', response.status, errorText)
       showNotification(`${t('notifications.recordStartFailed')}: ${response.status}`, 'error')
     }
   } catch (error) {
@@ -630,11 +710,11 @@ const handleStartRecord = async () => {
 
 const handleStopRecord = async () => {
   if (!sessionId.value) {
-    console.error('无法停止录制：sessionId 为空')
+    console.error('無法停止錄製：sessionId 為空')
     return
   }
   
-  console.log('⏹️ 停止录制，sessionId:', sessionId.value)
+  console.log('⏹️ 停止錄製，sessionId:', sessionId.value)
   
   try {
     const response = await fetch('/record', {
@@ -646,14 +726,14 @@ const handleStopRecord = async () => {
       })
     })
     
-    console.log('停止录制响应状态:', response.status)
+    console.log('停止錄製響應狀態:', response.status)
     
     if (response.ok) {
       const data = await response.json()
-      console.log('录制停止成功:', data)
+      console.log('錄製停止成功:', data)
       isRecording.value = false
       
-      // 保存文件信息
+      // 儲存檔案資訊
       if (data.filename) {
         lastRecordFile.value = {
           filename: data.filename,
@@ -665,7 +745,7 @@ const handleStopRecord = async () => {
       }
     } else {
       const errorText = await response.text()
-      console.error('停止录制失败:', response.status, errorText)
+      console.error('停止錄製失敗:', response.status, errorText)
       showNotification(`${t('notifications.recordStopFailed')}: ${response.status}`, 'error')
     }
   } catch (error) {
@@ -705,7 +785,7 @@ const addMessage = (text, type = 'user') => {
   })
 }
 
-// 清空输入框
+// 清空輸入框
 const clearInput = () => {
   chatInput.value = ''
 }
@@ -713,7 +793,7 @@ const clearInput = () => {
 const sendChatMessage = async () => {
   if (!chatInput.value.trim()) return
   
-  // 检查是否已连接
+  // 檢查是否已連線
   if (!isConnected.value) {
     showNotification(t('notifications.connectFirst'), 'warning')
     return
@@ -737,21 +817,21 @@ const sendChatMessage = async () => {
       })
     })
     
-    if (response.ok) {
-      const data = await response.json()
-      console.log('收到大模型回复:', data)
-      
-      // 显示大模型的回复
-      if (data.response || data.text) {
-        isThinking.value = false
-        addMessage(data.response || data.text, 'ai')
-      }
-    } else {
-      throw new Error(`HTTP ${response.status}`)
+    const data = await response.json().catch(() => ({}))
+    console.log('收到大模型回覆:', data)
+    if (!response.ok || data.code === -1) {
+      throw new Error(data.msg || `HTTP ${response.status}`)
+    }
+    if (data.response || data.text) {
+      addMessage(data.response || data.text, 'ai')
     }
   } catch (error) {
     console.error('Failed to send message:', error)
-    showNotification(t('notifications.messageFailed'), 'error')
+    const detail = error && error.message ? String(error.message) : ''
+    showNotification(
+      detail ? `${t('notifications.messageFailed')}：${detail}` : t('notifications.messageFailed'),
+      'error'
+    )
   } finally {
     isThinking.value = false
   }
@@ -760,7 +840,7 @@ const sendChatMessage = async () => {
 const sendTTSMessage = async () => {
   if (!ttsInput.value.trim()) return
   
-  // 检查是否已连接
+  // 檢查是否已連線
   if (!isConnected.value) {
     showNotification(t('notifications.connectFirst'), 'warning')
     return
@@ -780,7 +860,7 @@ const sendTTSMessage = async () => {
       })
     })
     
-    addMessage(`已发送朗读请求：${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`, 'system')
+    addMessage(`已傳送朗讀請求：${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`, 'system')
     ttsInput.value = ''
   } catch (error) {
     console.error('Failed to send TTS message:', error)
@@ -788,211 +868,59 @@ const sendTTSMessage = async () => {
   }
 }
 
-// 语音识别
-let mediaRecorder = null
-let audioChunks = []
+// WebRTC microphone controls; server-side Silero owns endpointing and STT.
+const handleVoiceButtonPress = () => {
+  if (handsFreeTalk.value || !isConnected.value) return
+  handsFreePaused.value = false
+  voiceState.value = 'listening'
+  isRecordingVoice.value = true
+  setCaptureEnabled(true)
+}
 
-const { startRecognition, stopRecognition, isSupported, updateSettings } = useSpeechRecognition({
-  onResult: (text) => {
-    // 实时显示识别的中间结果
-    chatInput.value = text
-  },
-  language: appSettings.value.voiceLanguage,
-  continuous: appSettings.value.voiceContinuous,
-  onFinalResult: async (text) => {
-    // 在非连续模式下，识别完成后自动停止录音
-    if (!appSettings.value.voiceContinuous && isRecordingVoice.value && mediaRecorder) {
-      console.log('识别完成，自动停止录音（非连续模式）')
-      stopVoiceRecording()
-    }
-    
-    if (text.trim()) {
-      addMessage(text, 'user')
-      // 清空输入框，准备下一次识别
-      chatInput.value = ''
-      isThinking.value = true
-      
-      try {
-        const response = await fetch('/human', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text: text,
-            type: 'chat',
-            interrupt: true,
-            sessionid: sessionId.value
-          })
-        })
-        
-        if (response.ok) {
-          const data = await response.json()
-          console.log('收到大模型回复:', data)
-          
-          // 显示大模型的回复
-          if (data.response || data.text) {
-            isThinking.value = false
-            addMessage(data.response || data.text, 'ai')
-          }
-        }
-        } catch (error) {
-        console.error('Failed to send voice message:', error)
-        showNotification(t('notifications.voiceMessageFailed'), 'error')
-      } finally {
-        isThinking.value = false
-      }
-    }
+const handleVoiceButtonRelease = () => {
+  if (handsFreeTalk.value || !isConnected.value) return
+  isRecordingVoice.value = false
+  voiceState.value = 'paused'
+  setCaptureEnabled(false, { finalize: true })
+}
+
+const handleVoiceButtonClick = () => {
+  if (!handsFreeTalk.value || !isConnected.value) return
+  if (avatarSpeaking.value) {
+    handsFreePaused.value = false
+    interruptVoice()
+    return
   }
+  handsFreePaused.value = !handsFreePaused.value
+  setCaptureEnabled(!handsFreePaused.value)
+}
+
+watch(handsFreeTalk, (enabled) => {
+  handsFreePaused.value = false
+  if (isConnected.value) setCaptureEnabled(enabled)
 })
 
-const startVoiceRecording = async () => {
-  if (isRecordingVoice.value) return
-  
-  // 检查是否已连接
+onUnmounted(() => {
+  stopPlay()
+})
+
+// 清空對話歷史
+const resetChatMessages = () => {
+  chatMessages.value = [
+    {
+      type: 'ai',
+      text: t('chat.welcomeMessage'),
+      time: getCurrentTime()
+    }
+  ]
+}
+
+const clearChatHistory = async () => {
   if (!isConnected.value) {
     showNotification(t('notifications.connectFirst'), 'warning')
     return
   }
-  
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    
-    audioChunks = []
-    mediaRecorder = new MediaRecorder(stream)
-    
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data.size > 0) {
-        audioChunks.push(e.data)
-      }
-    }
-    
-    mediaRecorder.start()
-    isRecordingVoice.value = true
-    
-    if (isSupported) {
-      startRecognition()
-    }
-  } catch (error) {
-    console.error('无法访问麦克风:', error)
-    showNotification(t('notifications.micPermission'), 'error')
-  }
-}
 
-const stopVoiceRecording = async () => {
-  if (!isRecordingVoice.value || !mediaRecorder) return
-  
-  console.log('停止语音录音')
-  
-  mediaRecorder.stop()
-  isRecordingVoice.value = false
-  
-  // 清空输入框中的临时识别结果
-  chatInput.value = ''
-  
-  // 停止浏览器语音识别
-  if (isSupported) {
-    stopRecognition()
-  }
-  
-  // 等待录音数据收集完成（用于可能的后端识别）
-  mediaRecorder.onstop = async () => {
-    // 关闭麦克风流
-    mediaRecorder.stream.getTracks().forEach(track => track.stop())
-    
-    // 如果浏览器支持 Web Speech API，优先使用浏览器识别，不发送到后端
-    // 浏览器识别的结果会通过 onFinalResult 回调处理
-    if (isSupported) {
-      console.log('使用浏览器语音识别，无需发送到后端')
-      audioChunks = []
-      return
-    }
-    
-    // 浏览器不支持时，才发送音频到后端进行 ASR 识别
-    if (audioChunks.length > 0) {
-      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' })
-      
-      try {
-        showNotification(t('notifications.voiceRecognizing'), 'info')
-        
-        const formData = new FormData()
-        formData.append('file', audioBlob, 'voice.webm')
-        formData.append('sessionid', sessionId.value)
-        
-        const response = await fetch('/asr', {
-          method: 'POST',
-          body: formData
-        })
-        
-        if (response.ok) {
-          const data = await response.json()
-          console.log('ASR 识别成功:', data)
-          
-          if (data.text) {
-            // 显示用户说的话
-            addMessage(data.text, 'user')
-            showNotification(t('notifications.voiceRecognized'), 'success')
-            
-            // 显示 AI 的回复
-            if (data.response) {
-              addMessage(data.response, 'ai')
-            }
-          } else {
-            showNotification(t('notifications.voiceNoContent'), 'warning')
-          }
-        } else {
-          console.error('ASR 识别失败:', response.status)
-          showNotification(t('notifications.voiceFailed'), 'error')
-        }
-      } catch (error) {
-        console.error('ASR 请求失败:', error)
-        showNotification(t('notifications.voiceRequestFailed'), 'error')
-      }
-    }
-    
-    // 清空音频数据
-    audioChunks = []
-  }
-}
-
-// 处理语音按钮的按下事件（用于按住说话模式）
-const handleVoiceButtonPress = (e) => {
-  // 在连续识别模式下，不处理按下事件
-  if (appSettings.value.voiceContinuous) {
-    return
-  }
-  startVoiceRecording()
-}
-
-// 处理语音按钮的释放事件（用于按住说话模式）
-const handleVoiceButtonRelease = (e) => {
-  // 在连续识别模式下，不处理释放事件
-  if (appSettings.value.voiceContinuous) {
-    return
-  }
-  stopVoiceRecording()
-}
-
-// 处理语音按钮的点击事件（用于连续识别模式）
-const handleVoiceButtonClick = (e) => {
-  // 只在连续识别模式下处理点击事件
-  if (!appSettings.value.voiceContinuous) {
-    return
-  }
-  
-  // 切换录音状态
-  if (isRecordingVoice.value) {
-    stopVoiceRecording()
-  } else {
-    startVoiceRecording()
-  }
-}
-
-// 清空对话历史
-const clearChatHistory = async () => {
-  if (!isConnected.value) {
-    showNotification('请先连接', 'warning')
-    return
-  }
-  
   try {
     const response = await fetch('/clear_history', {
       method: 'POST',
@@ -1001,52 +929,62 @@ const clearChatHistory = async () => {
         sessionid: sessionId.value
       })
     })
-    
-    if (response.ok) {
-      // 清空前端显示的消息（保留欢迎消息）
-      chatMessages.value = [
-        { 
-          type: 'ai', 
-          text: t('chat.welcomeMessage'),
-          time: getCurrentTime()
-        }
-      ]
-      showNotification('对话历史已清空', 'success')
-    } else {
-      throw new Error(`HTTP ${response.status}`)
+
+    let payload = {}
+    try {
+      payload = await response.json()
+    } catch (error) {
+      payload = {}
     }
+
+    if (!response.ok || payload.code === -1) {
+      throw new Error(payload.msg || `HTTP ${response.status}`)
+    }
+
+    resetChatMessages()
+    showNotification(t('notifications.historyCleared'), 'success')
   } catch (error) {
     console.error('Failed to clear history:', error)
-    showNotification('清空历史失败，请重试', 'error')
+    showNotification(`${t('notifications.historyClearFailed')}: ${error.message}`, 'error')
   }
 }
 
 onMounted(async () => {
-  console.log('✅ Vue 应用已挂载')
-  console.log('后端 API 地址: /offer (通过 Vite proxy 转发到 localhost:8010)')
+  console.log('✅ Vue 應用已掛載')
+  console.log('後端 API 地址: /offer (通過 Vite proxy 轉發到 localhost:8010)')
   
-  // 加载语言设置
+  // 載入語言設定
   loadLocale()
   
-  // 设置欢迎消息
+  // 設定歡迎訊息
   if (chatMessages.value.length > 0 && !chatMessages.value[0].text) {
     chatMessages.value[0].text = t('chat.welcomeMessage')
   }
   
-  // 应用初始主题
+  // 應用初始主題
   updateTheme(appSettings.value.theme)
   
-  // 开始轮询检查后端是否就绪
-  console.log('🔍 开始检查后端状态...')
+  // 拉一次 VAD / 識別來源，決定錄音走瀏覽器識別還是後端（後端才過 VAD）
+  loadVadSettings().then(async () => {
+    vadDraft.type = 'silero'
+    if (vad.type !== 'silero' || (vad.enabled && vad.asr_mode !== 'server')) {
+      await applyVadSettings()
+    }
+  }).catch((error) => {
+    console.warn('讀取 VAD 設定失敗，按瀏覽器識別處理:', error.message)
+  })
+
+  // 開始輪詢檢查後端是否就緒
+  console.log('🔍 開始檢查後端狀態...')
   const checkInterval = setInterval(async () => {
     const ready = await checkBackendReady()
     if (ready) {
       clearInterval(checkInterval)
       showNotification(t('notifications.backendReady'), 'success')
     }
-  }, 2000)  // 每2秒检查一次
+  }, 2000)  // 每2秒檢查一次
   
-  // 最多检查60秒
+  // 最多檢查60秒
   setTimeout(() => {
     if (!backendReady.value) {
       clearInterval(checkInterval)
@@ -1096,7 +1034,7 @@ body {
   flex-direction: column;
 }
 
-/* 顶部导航栏 */
+/* 頂部導航欄 */
 .app-header {
   background: var(--bg-secondary);
   backdrop-filter: blur(10px);
@@ -1221,7 +1159,7 @@ body {
   font-size: 1.125rem;
 }
 
-/* 主内容区 */
+/* 主內容區 */
 .main-content {
   flex: 1;
   padding: 2rem;
@@ -1236,7 +1174,7 @@ body {
   height: calc(100vh - 150px);
 }
 
-/* 左侧对话区 */
+/* 左側對話區 */
 .chat-section {
   background: var(--bg-secondary);
   border-radius: 16px;
@@ -1304,7 +1242,7 @@ body {
   color: white;
 }
 
-/* 对话模式 */
+/* 對話模式 */
 .chat-mode {
   flex: 1;
   display: flex;
@@ -1391,7 +1329,7 @@ body {
   background: var(--primary);
 }
 
-/* Markdown 样式 */
+/* Markdown 樣式 */
 .message-text :deep(h1),
 .message-text :deep(h2),
 .message-text :deep(h3),
@@ -1549,7 +1487,7 @@ body {
   }
 }
 
-/* 输入区 */
+/* 輸入區 */
 .input-area {
   padding: 1.5rem;
   border-top: 1px solid var(--border);
@@ -1567,7 +1505,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1rem;
-  padding-right: 3rem; /* 为清空按钮留空间 */
+  padding-right: 3rem; /* 為清空按鈕留空間 */
   color: var(--text-primary);
   font-size: 1rem;
   resize: none;
@@ -1589,7 +1527,7 @@ body {
   background: var(--bg-tertiary);
 }
 
-/* 清空输入框按钮 */
+/* 清空輸入框按鈕 */
 .clear-input-btn {
   position: absolute;
   right: 12px;
@@ -1615,6 +1553,37 @@ body {
 .input-actions {
   display: flex;
   gap: 1rem;
+}
+
+.voice-state-badge {
+  width: fit-content;
+  margin: 0.55rem 0 0.65rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  font-size: 0.78rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.voice-state-badge[data-state='listening'],
+.voice-state-badge[data-state='speech_detected'] {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+}
+
+.voice-state-badge[data-state='avatar_speaking'] {
+  color: var(--primary-light);
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+}
+
+.voice-state-badge[data-state='error'],
+.voice-state-badge[data-state='degraded'],
+.voice-state-badge[data-state='reconnecting'] {
+  color: var(--warning);
 }
 
 .voice-btn,
@@ -1664,7 +1633,7 @@ body {
   transform: none;
 }
 
-/* 录音状态样式 */
+/* 錄音狀態樣式 */
 .voice-btn.recording {
   background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
   color: white;
@@ -1678,7 +1647,7 @@ body {
   box-shadow: 0 6px 20px rgba(239, 68, 68, 0.5);
 }
 
-/* 连续模式样式 */
+/* 連續模式樣式 */
 .voice-btn.continuous-mode:not(.recording) {
   background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
   color: white;
@@ -1689,7 +1658,7 @@ body {
   background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
 }
 
-/* 语音按钮图标容器 */
+/* 語音按鈕圖示容器 */
 .voice-icon-wrapper {
   position: relative;
   display: flex;
@@ -1704,7 +1673,7 @@ body {
   z-index: 1;
 }
 
-/* 录音脉冲动画 */
+/* 錄音脈衝動畫 */
 .recording-pulse {
   position: absolute;
   top: 50%;
@@ -1761,7 +1730,7 @@ body {
   font-size: 0.95rem;
 }
 
-/* 朗读模式 */
+/* 朗讀模式 */
 .tts-mode {
   flex: 1;
   padding: 2rem;
@@ -1848,7 +1817,7 @@ body {
   font-size: 1.25rem;
 }
 
-/* 右侧视频区 */
+/* 右側影片區 */
 .video-section {
   background: var(--bg-secondary);
   border-radius: 16px;
@@ -2036,7 +2005,7 @@ body {
   animation: spin 2s linear infinite;
 }
 
-/* 响应式 */
+/* 響應式 */
 @media (max-width: 1400px) {
   .content-wrapper {
     grid-template-columns: 1fr 400px;
@@ -2088,7 +2057,7 @@ body {
   }
 }
 
-/* 滚动条样式 */
+/* 捲軸樣式 */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -2107,7 +2076,7 @@ body {
   background: var(--text-muted);
 }
 
-/* 通知样式 */
+/* 通知樣式 */
 .notification-container {
   position: fixed;
   top: 80px;
@@ -2168,7 +2137,7 @@ body {
   color: var(--primary);
 }
 
-/* 通知动画 */
+/* 通知動畫 */
 .notification-enter-active {
   animation: notification-in 0.3s ease-out;
 }

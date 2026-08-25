@@ -1,7 +1,7 @@
 [project]
 name = "linly-talker-stream"
 version = "0.1.0"
-description = "Linly-Talker-Stream: 实时流式数字人对话系统 - 模块化多 Avatar 支持，基于 WebRTC 的全双工交互"
+description = "Linly-Talker-Stream: 即時流式數字人對話系統 - 模組化多 Avatar 支援，基於 WebRTC 的全雙工互動"
 readme = "README.md"
 requires-python = ">=3.10, <3.12"
 license = { text = "Apache-2.0" }
@@ -15,6 +15,8 @@ dependencies = [
     "aiortc",
     "av",
     "edge-tts",
+    "faster-whisper>=1.1",
+    "onnxruntime>=1.16,<1.24",
     "librosa",
     "omegaconf",
     "openai",
@@ -31,11 +33,17 @@ dependencies = [
     "typing-extensions",
     "websockets==12.0",
     "resampy",
-    "azure-cognitiveservices-speech",
     "logger",
+    # mmengine/mmpose still import pkg_resources; setuptools>=82 removed it.
+    "setuptools==69.5.1",
     "transformers==4.46.0",
 ]
 
+# 服務端 VAD 依賴（按需安裝：uv pip install -e ".[vad]"）
+[project.optional-dependencies]
+vad = [
+    "silero-vad>=5.1",           # Silero VAD，pip 包自帶模型，可離線使用
+]
 [tool.uv.sources]
 torch = [
     { index = "pytorch-cu124" },
@@ -51,3 +59,7 @@ torchaudio = [
 name = "pytorch-cu124"
 url = "https://download.pytorch.org/whl/cu124"
 explicit = true
+
+[build-system]
+requires = ["setuptools==69.5.1", "wheel"]
+build-backend = "setuptools.build_meta"

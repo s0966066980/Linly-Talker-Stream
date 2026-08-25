@@ -15,7 +15,7 @@
         <video id="video" autoplay playsinline></video>
         <div class="recording-indicator" :class="{ active: isRecording }">
           <div class="blink"></div>
-          <span>录制中</span>
+          <span>錄製中</span>
         </div>
       </div>
       
@@ -27,14 +27,14 @@
               class="btn btn-primary w-100" 
               @click="$emit('start-connection')"
             >
-              <i class="bi bi-play-fill"></i> 开始连接
+              <i class="bi bi-play-fill"></i> 開始連線
             </button>
             <button 
               v-else 
               class="btn btn-danger w-100" 
               @click="$emit('stop-connection')"
             >
-              <i class="bi bi-stop-fill"></i> 停止连接
+              <i class="bi bi-stop-fill"></i> 停止連線
             </button>
           </div>
           
@@ -45,14 +45,14 @@
                 @click="$emit('start-record')"
                 :disabled="isRecording"
               >
-                <i class="bi bi-record-fill"></i> 开始录制
+                <i class="bi bi-record-fill"></i> 開始錄製
               </button>
               <button 
                 class="btn btn-outline-danger flex-grow-1" 
                 @click="$emit('stop-record')"
                 :disabled="!isRecording"
               >
-                <i class="bi bi-stop-fill"></i> 停止录制
+                <i class="bi bi-stop-fill"></i> 停止錄製
               </button>
             </div>
           </div>
@@ -62,7 +62,7 @@
           <div class="col-12">
             <div class="video-size-control">
               <label class="form-label">
-                视频大小调节: <span>{{ videoSize }}%</span>
+                影片大小調節: <span>{{ videoSize }}%</span>
               </label>
               <input 
                 type="range" 
@@ -76,23 +76,7 @@
           </div>
         </div>
         
-        <div class="settings-panel mt-3">
-          <div class="row">
-            <div class="col-md-12">
-              <div class="form-check form-switch mb-3">
-                <input 
-                  class="form-check-input" 
-                  type="checkbox" 
-                  id="use-stun"
-                  v-model="useStun"
-                >
-                <label class="form-check-label" for="use-stun">
-                  使用STUN服务器
-                </label>
-              </div>
-            </div>
-          </div>
-        </div>
+
       </div>
     </div>
   </div>
@@ -115,7 +99,6 @@ const props = defineProps({
 defineEmits(['start-connection', 'stop-connection', 'start-record', 'stop-record'])
 
 const videoSize = ref(100)
-const useStun = ref(false)
 
 const isConnected = computed(() => props.connectionStatus === 'connected')
 
@@ -129,11 +112,11 @@ const statusClass = computed(() => {
 
 const statusText = computed(() => {
   const statusMap = {
-    'connected': '已连接',
-    'connecting': '连接中...',
-    'disconnected': '未连接'
+    'connected': '已連線',
+    'connecting': '連線中...',
+    'disconnected': '未連線'
   }
-  return statusMap[props.connectionStatus] || '未连接'
+  return statusMap[props.connectionStatus] || '未連線'
 })
 
 const updateVideoSize = () => {

@@ -142,7 +142,7 @@ class NeRFNetwork(NeRFRenderer):
         self.hidden_dim_color = 64
         self.encoder_dir, self.in_dim_dir = get_encoder('spherical_harmonics')
         self.color_net = MLP(self.in_dim_dir + self.geo_feat_dim + self.individual_dim, 3, self.hidden_dim_color, self.num_layers_color)
-        # 处理音频的
+        # 處理音訊的
         self.unc_net = MLP(self.in_dim, 1, 32, 2)
 
         self.aud_ch_att_net = MLP(self.in_dim, self.audio_dim, 64, 2)
@@ -170,7 +170,7 @@ class NeRFNetwork(NeRFRenderer):
 
         # test: shrink x
         x = x * self.opt.torso_shrink
-        # 对pose进行了调整
+        # 對pose進行了調整
         # deformation-based
         wrapped_anchor = self.anchor_points[None, ...] @ poses.permute(0, 2, 1).inverse()
         wrapped_anchor = (wrapped_anchor[:, :, :2] / wrapped_anchor[:, :, 3, None] / wrapped_anchor[:, :, 2, None]).view(1, -1)

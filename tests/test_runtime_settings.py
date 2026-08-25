@@ -1,0 +1,442 @@
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.avatars.builder import slugify_name, suggest_avatar_id
+from src.llm.llamacpp import list_gguf_models, resolve_gguf
+from src.avatars.catalog import (
+    avatar_bootable,
+    detect_avatar_type,
+    find_preview_image,
+    is_safe_avatar_id,
+    list_avatar_characters,
+    list_engines,
+    resolve_wav2lip_weights,
+)
+from src.config.overrides import load_runtime_overrides, persist_runtime_overrides
+from src.server.runtime_settings import (
+    SettingsError,
+    _is_embedding_model,
+    apply_llm_model,
+    apply_avatar,
+    current_snapshot,
+    format_bytes,
+    is_ollama_endpoint,
+    ollama_native_url,
+    apply_stt_settings,
+    apply_tts_settings,
+    speech_snapshot,
+)
+from src.config.schema import Config
+
+
+class AvatarCatalogTests(unittest.TestCase):
+    def test_safe_avatar_id(self):
+        self.assertTrue(is_safe_avatar_id("musetalk_avatar1"))
+        self.assertTrue(is_safe_avatar_id("wav2lip-avatar.2"))
+        self.assertFalse(is_safe_avatar_id("../etc/passwd"))
+        self.assertFalse(is_safe_avatar_id("a/b"))
+        self.assertFalse(is_safe_avatar_id(""))
+
+    def test_detect_musetalk_and_wav2lip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            muse = root / "muse_role"
+            (muse / "mask").mkdir(parents=True)
+            (muse / "latents.pt").write_bytes(b"x")
+            wav = root / "wav_role"
+            (wav / "face_imgs").mkdir(parents=True)
+            (wav / "coords.pkl").write_bytes(b"x")
+            unknown = root / "notes"
+            unknown.mkdir()
+            (unknown / "readme.txt").write_text("nope")
+
+            self.assertEqual(detect_avatar_type(muse), "musetalk")
+            self.assertEqual(detect_avatar_type(wav), "wav2lip")
+            self.assertIsNone(detect_avatar_type(unknown))
+
+    def test_preview_prefers_numbered_full_imgs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            avatar = Path(tmp)
+            imgs = avatar / "full_imgs"
+            imgs.mkdir()
+            (imgs / "00000010.png").write_bytes(b"10")
+            (imgs / "00000002.png").write_bytes(b"02")
+            preview = find_preview_image(avatar)
+            self.assertEqual(preview.name, "00000002.png")
+
+    def test_list_characters_and_engines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            avatar_root = data_dir / "avatars"
+            muse = avatar_root / "musetalk_avatar1"
+            (muse / "full_imgs").mkdir(parents=True)
+            (muse / "mask").mkdir()
+            (muse / "latents.pt").write_bytes(b"x")
+            (muse / "full_imgs" / "00000000.png").write_bytes(b"img")
+            (muse / "avator_info.json").write_text(
+                '{"avatar_id": "musetalk_avatar1"}', encoding="utf-8"
+            )
+
+            models_dir = data_dir / "models"
+            (models_dir / "musetalk" / "musetalkV15").mkdir(parents=True)
+            (models_dir / "musetalk" / "musetalkV15" / "unet.pth").write_bytes(b"w")
+
+            with patch("src.avatars.catalog.get_data_dir", return_value=data_dir), patch(
+                "src.avatars.catalog.get_models_dir", return_value=models_dir
+            ):
+                characters = list_avatar_characters()
+                engines = {item["id"]: item for item in list_engines(characters)}
+
+            self.assertEqual(len(characters), 1)
+            self.assertEqual(characters[0]["type"], "musetalk")
+            self.assertTrue(characters[0]["has_preview"])
+            self.assertTrue(engines["musetalk"]["available"])
+            self.assertTrue(engines["musetalk"]["can_import"])
+            self.assertFalse(engines["wav2lip"]["available"])
+            self.assertTrue(engines["wav2lip"]["can_import"])
+            self.assertFalse(engines["ernerf"]["can_import"])
+            ok, reason = avatar_bootable("musetalk", "musetalk_avatar1")
+            self.assertTrue(ok, reason)
+            ok, reason = avatar_bootable("musetalk", "missing")
+            self.assertFalse(ok)
+            self.assertIn("找不到角色", reason)
+
+
+class OllamaHelperTests(unittest.TestCase):
+    def test_native_url_strips_v1(self):
+        self.assertEqual(
+            ollama_native_url("http://localhost:11434/v1"),
+            "http://localhost:11434",
+        )
+        self.assertEqual(
+            ollama_native_url("http://127.0.0.1:11434/v1/"),
+            "http://127.0.0.1:11434",
+        )
+
+    def test_detect_ollama_endpoint(self):
+        self.assertTrue(is_ollama_endpoint("http://localhost:11434/v1"))
+        self.assertTrue(is_ollama_endpoint("http://127.0.0.1:11434/v1"))
+        self.assertFalse(is_ollama_endpoint("https://dashscope.aliyuncs.com/compatible-mode/v1"))
+
+    def test_format_bytes(self):
+        self.assertEqual(format_bytes(0), "")
+        self.assertEqual(format_bytes(512), "512 B")
+        self.assertEqual(format_bytes(2 * 1024 ** 3), "2.0 GB")
+
+    def test_skip_embedding_models(self):
+        self.assertTrue(_is_embedding_model("nomic-embed-text:latest", "nomic-bert"))
+        self.assertFalse(_is_embedding_model("qwen3.5:4b", "qwen35"))
+
+
+class Wav2LipWeightsTests(unittest.TestCase):
+    def test_prefers_existing_256_checkpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            models = Path(tmp)
+            (models / "wav2lip256.pth").write_bytes(b"w")
+            with patch("src.avatars.catalog.get_models_dir", return_value=models):
+                path = resolve_wav2lip_weights()
+            self.assertEqual(path.name, "wav2lip256.pth")
+
+    def test_prefers_standard_name_when_both_exist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            models = Path(tmp)
+            (models / "wav2lip.pth").write_bytes(b"a")
+            (models / "wav2lip256.pth").write_bytes(b"b")
+            with patch("src.avatars.catalog.get_models_dir", return_value=models):
+                path = resolve_wav2lip_weights()
+            self.assertEqual(path.name, "wav2lip.pth")
+
+
+class OverridePersistTests(unittest.TestCase):
+    def test_roundtrip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "runtime_overrides.yaml"
+
+            class LLM:
+                model = "qwen3.5:4b"
+                system_prompt = "請用繁體中文簡短回答。"
+
+            class Model:
+                type = "musetalk"
+                avatar_id = "musetalk_avatar1"
+
+            class Config:
+                llm = LLM()
+                model = Model()
+
+            with patch("src.config.overrides.RUNTIME_OVERRIDES_FILE", path):
+                persist_runtime_overrides(Config())
+                data = load_runtime_overrides()
+
+            self.assertEqual(data["llm"]["model"], "qwen3.5:4b")
+            self.assertEqual(data["llm"]["system_prompt"], "請用繁體中文簡短回答。")
+            self.assertEqual(data["model"]["type"], "musetalk")
+            self.assertEqual(data["model"]["avatar_id"], "musetalk_avatar1")
+
+
+class DefaultPromptSettingsTests(unittest.TestCase):
+    def test_snapshot_exposes_effective_default_prompt(self):
+        config = Config()
+        config.llm.system_prompt = ""
+        with patch(
+            "src.server.runtime_settings.list_avatar_characters", return_value=[]
+        ), patch("src.server.runtime_settings.list_engines", return_value=[]):
+            snapshot = current_snapshot(config)
+
+        self.assertIn("繁體中文", snapshot["llm"]["system_prompt"])
+
+    def test_apply_llm_persists_and_updates_prompt(self):
+        config = Config()
+        config.llm.provider = "ollama"
+        config.llm.base_url = "http://localhost:11434/v1"
+        prompt = "你是數位人助理，請使用繁體中文簡短回答。"
+
+        with patch("src.server.runtime_settings.persist_runtime_overrides") as persist, patch(
+            "src.server.runtime_settings.switch_llm_endpoint"
+        ) as switch:
+            result = apply_llm_model(config, "qwen3.5:4b", "ollama", prompt)
+
+        self.assertEqual(config.llm.system_prompt, prompt)
+        self.assertEqual(result["system_prompt"], prompt)
+        persist.assert_called_once_with(config)
+        self.assertEqual(switch.call_args.kwargs["system_prompt"], prompt)
+
+    def test_apply_llm_rejects_empty_prompt(self):
+        with self.assertRaises(SettingsError):
+            apply_llm_model(Config(), "qwen3.5:4b", "ollama", "   ")
+
+
+class ApplyAvatarGuardTests(unittest.TestCase):
+    def test_requires_disconnect_when_session_active(self):
+        class LLM:
+            model = "qwen3.5:4b"
+
+        class Model:
+            type = "musetalk"
+            avatar_id = "musetalk_avatar1"
+
+        class Config:
+            llm = LLM()
+            model = Model()
+
+        characters = [
+            {"id": "musetalk_avatar1", "type": "musetalk"},
+            {"id": "musetalk_avatar2", "type": "musetalk"},
+        ]
+        engines = [
+            {
+                "id": "musetalk",
+                "available": True,
+                "message": "",
+            }
+        ]
+        with patch(
+            "src.server.runtime_settings.list_avatar_characters",
+            return_value=characters,
+        ), patch(
+            "src.server.runtime_settings.list_engines",
+            return_value=engines,
+        ):
+            with self.assertRaises(SettingsError) as ctx:
+                apply_avatar(Config(), "musetalk", "musetalk_avatar2", session_count=1)
+        self.assertEqual(ctx.exception.status, 409)
+        self.assertTrue(ctx.exception.extra.get("need_disconnect"))
+
+    def test_rejects_unknown_engine(self):
+        class Model:
+            type = "musetalk"
+            avatar_id = "musetalk_avatar1"
+
+        class Config:
+            model = Model()
+
+        with self.assertRaises(SettingsError):
+            apply_avatar(Config(), "not-a-real-engine", "x", session_count=0)
+
+
+class SpeechSettingsTests(unittest.TestCase):
+    def test_catalog_contains_only_keyless_tts(self):
+        ids = {item["id"] for item in speech_snapshot(Config())["tts"]["engines"]}
+        self.assertEqual(
+            ids,
+            {
+                "edgetts", "qwen3-tts", "gpt-sovits", "xtts",
+                "cosyvoice", "fishtts", "indextts2",
+            },
+        )
+        self.assertTrue(ids.isdisjoint({"azuretts", "cosyvoice_api", "doubao", "tencent"}))
+
+    def test_tts_rejects_removed_provider(self):
+        with self.assertRaises(SettingsError):
+            apply_tts_settings(Config(), {"type": "azuretts"}, session_count=0)
+
+    def test_speech_engine_change_requires_disconnect(self):
+        with self.assertRaises(SettingsError) as ctx:
+            apply_stt_settings(Config(), {"type": "whisper"}, session_count=1)
+        self.assertEqual(ctx.exception.status, 409)
+        self.assertTrue(ctx.exception.extra["need_disconnect"])
+
+    def test_tts_commits_only_after_preview(self):
+        config = Config()
+        with patch("src.server.runtime_settings._engine_available", return_value=True), patch(
+            "src.server.runtime_settings._preview_tts",
+            return_value="data:audio/wav;base64,dGVzdA==",
+        ), patch("src.server.runtime_settings.persist_runtime_overrides") as persist:
+            result = apply_tts_settings(
+                config,
+                {"type": "edgetts", "ref_file": "zh-TW-HsiaoChenNeural"},
+                session_count=0,
+            )
+        self.assertEqual(config.tts.type, "edgetts")
+        self.assertIn("preview_audio", result)
+        persist.assert_called_once()
+
+    def test_stt_prewarms_before_commit(self):
+        config = Config()
+        candidate = Mock()
+        with patch("src.server.runtime_settings._engine_available", return_value=True), patch(
+            "src.server.runtime_settings.create_asr_engine", return_value=candidate
+        ), patch("src.server.runtime_settings.activate_asr_engine"), patch(
+            "src.server.runtime_settings.persist_runtime_overrides"
+        ) as persist:
+            result = apply_stt_settings(
+                config,
+                {
+                    "type": "whisper",
+                    "model_size": "small",
+                    "language": "auto",
+                    "device": "cuda",
+                },
+                session_count=0,
+            )
+        candidate.ensure_ready.assert_called_once()
+        self.assertEqual(result["model_size"], "small")
+        self.assertEqual(config.asr.device, "cuda")
+        persist.assert_called_once()
+
+    def test_qwen_asr_model_is_exposed_and_committed(self):
+        config = Config()
+        candidate = Mock()
+        with patch("src.server.runtime_settings._engine_available", return_value=True), patch(
+            "src.server.runtime_settings.create_asr_engine", return_value=candidate
+        ), patch("src.server.runtime_settings.activate_asr_engine"), patch(
+            "src.server.runtime_settings.persist_runtime_overrides"
+        ):
+            result = apply_stt_settings(
+                config,
+                {
+                    "type": "qwen3-asr",
+                    "model_size": "Qwen/Qwen3-ASR-0.6B",
+                    "language": "auto",
+                    "device": "cuda",
+                },
+                session_count=0,
+            )
+        self.assertEqual(config.asr.type, "qwen3-asr")
+        self.assertEqual(result["model_size"], "Qwen/Qwen3-ASR-0.6B")
+        self.assertIn("qwen3-asr", result["models_by_engine"])
+
+    def test_qwen_tts_fields_commit_only_after_preview(self):
+        config = Config()
+        with patch("src.server.runtime_settings._engine_available", return_value=True), patch(
+            "src.server.runtime_settings._preview_tts",
+            return_value="data:audio/wav;base64,dGVzdA==",
+        ), patch("src.server.runtime_settings.persist_runtime_overrides"):
+            result = apply_tts_settings(
+                config,
+                {
+                    "type": "qwen3-tts",
+                    "model": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+                    "language": "Chinese",
+                    "speaker": "Vivian",
+                    "instruct": "溫柔地說",
+                    "device": "cuda",
+                },
+                session_count=0,
+            )
+        self.assertEqual(config.tts.type, "qwen3-tts")
+        self.assertEqual(config.tts.speaker, "Vivian")
+        self.assertEqual(config.tts.instruct, "溫柔地說")
+        self.assertIn("preview_audio", result)
+
+
+class AvatarNameTests(unittest.TestCase):
+    def test_slugify_and_suggest(self):
+        self.assertEqual(slugify_name("My Video.mp4"), "my_video")
+        self.assertEqual(slugify_name("../weird name!!.MOV"), "weird_name")
+        existing = {"musetalk_jonghyun"}
+        self.assertEqual(
+            suggest_avatar_id("musetalk", "jonghyun.mp4", existing),
+            "musetalk_jonghyun_2",
+        )
+        self.assertEqual(
+            suggest_avatar_id("wav2lip", "silent.mp4", set()),
+            "wav2lip_silent",
+        )
+
+
+class LlamaCppCatalogTests(unittest.TestCase):
+    def test_lists_and_resolves_gguf(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            gguf = folder / "LFM2.5-2.6B-Q4_K_M.gguf"
+            gguf.write_bytes(b"fake")
+            models = list_gguf_models(str(folder))
+            names = [item["name"] for item in models]
+            self.assertIn("LFM2.5-2.6B-Q4_K_M", names)
+            self.assertEqual(resolve_gguf("LFM2.5-2.6B-Q4_K_M", str(folder)), gguf)
+
+    def test_failed_reload_does_not_mutate_config(self):
+        class LLM:
+            def __init__(self):
+                self.model = "qwen3.5:4b"
+
+        class Model:
+            def __init__(self):
+                self.type = "musetalk"
+                self.avatar_id = "musetalk_avatar1"
+
+        class Config:
+            def __init__(self):
+                self.llm = LLM()
+                self.model = Model()
+
+        config = Config()
+        characters = [
+            {"id": "musetalk_avatar1", "type": "musetalk"},
+            {"id": "wav2lip256_avatar1", "type": "wav2lip"},
+        ]
+        engines = [
+            {"id": "musetalk", "available": True, "message": ""},
+            {"id": "wav2lip", "available": True, "message": ""},
+        ]
+
+        def boom(_config):
+            raise FileNotFoundError("missing weights")
+
+        with patch(
+            "src.server.runtime_settings.list_avatar_characters",
+            return_value=characters,
+        ), patch(
+            "src.server.runtime_settings.list_engines",
+            return_value=engines,
+        ), patch(
+            "src.avatars.factory.prepare_avatar_model",
+            side_effect=boom,
+        ):
+            with self.assertRaises(SettingsError):
+                apply_avatar(config, "wav2lip", "wav2lip256_avatar1", session_count=0)
+
+        self.assertEqual(config.model.type, "musetalk")
+        self.assertEqual(config.model.avatar_id, "musetalk_avatar1")
+
+
+if __name__ == "__main__":
+    unittest.main()

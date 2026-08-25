@@ -89,7 +89,7 @@ class ERNeRFAvatar(BaseAvatar):
         
         self.width = config.video.width
         self.height = config.video.height
-        logger.info(f'[ERNeRF] 视频尺寸已初始化: {self.width}x{self.height}')
+        logger.info(f'[ERNeRF] 影片尺寸已初始化: {self.width}x{self.height}')
 
         self.trainer, self.data_loader, audio_processor,audio_model = model
 
@@ -182,7 +182,7 @@ class ERNeRFAvatar(BaseAvatar):
         self.tts.render(quit_event)
         while not quit_event.is_set():
             t = time.perf_counter()
-            for _ in range(2):  # 音频 50FPS，视频 25FPS，每帧跑 2 次 ASR
+            for _ in range(2):  # 音訊 50FPS，影片 25FPS，每幀跑 2 次 ASR
                 self.audio_stream.run_step()
             self.test_step(loop,audio_track,video_track)
             totaltime += (time.perf_counter() - t)

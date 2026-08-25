@@ -9,7 +9,7 @@ authors = [
 ]
 
 dependencies = [
-    # Wav2Lip 专用依赖
+    # Wav2Lip 專用依賴
     "imageio>=2.31.0",
     "av>=10.0.0",
     "torch==2.5.0",

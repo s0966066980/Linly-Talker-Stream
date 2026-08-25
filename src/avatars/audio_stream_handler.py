@@ -1,4 +1,4 @@
-"""音频流处理器基类 - 用于音频特征提取和缓冲管理"""
+"""音訊流處理器基類 - 用於音訊特徵提取和緩衝管理"""
 import time
 import numpy as np
 
@@ -10,10 +10,10 @@ from src.avatars.base import BaseAvatar
 
 
 class BaseAudioStreamHandler:
-    """音频流处理器基类
+    """音訊流處理器基類
     
-    负责音频缓冲管理、音频帧处理和特征提取的基础框架。
-    各 Avatar 模型应继承此类并实现 run_step() 方法。
+    負責音訊緩衝管理、音訊幀處理和特徵提取的基礎框架。
+    各 Avatar 模型應繼承此類並實現 run_step() 方法。
     """
     def __init__(self, config, parent: BaseAvatar = None):
         self.config = config
@@ -24,7 +24,7 @@ class BaseAudioStreamHandler:
         self.sample_rate = 16000
         self.chunk = self.sample_rate // self.fps
         self.queue = Queue()
-        # 渲染侧消费的音频输出队列
+        # 渲染側消費的音訊輸出佇列
         self.output_queue = mp.Queue()
 
         self.batch_size = config.model.batch_size
@@ -49,7 +49,7 @@ class BaseAudioStreamHandler:
             type = 0
             #print(f'[INFO] get frame {frame.shape}')
         except queue.Empty:
-            if self.parent and self.parent.curr_state > 1: #播放自定义音频
+            if self.parent and self.parent.curr_state > 1: #播放自定義音訊
                 frame = self.parent.get_audio_stream(self.parent.curr_state)
                 type = self.parent.curr_state
             else:
@@ -71,7 +71,7 @@ class BaseAudioStreamHandler:
             self.output_queue.get()
 
     def run_step(self):
-        """执行一步音频处理，子类需要实现此方法"""
+        """執行一步音訊處理，子類需要實現此方法"""
         pass
 
     def get_next_feat(self, block, timeout):        

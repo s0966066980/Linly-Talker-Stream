@@ -1,7 +1,7 @@
 # Linly-Talker-Stream (https://github.com/Kedreamix/Linly-Talker-Stream). Copyright [Linly-talker-stream@kedreamix]. Apache-2.0.
 # Based on LiveTalking (C) 2024 LiveTalking@lipku https://github.com/lipku/LiveTalking (Apache-2.0).
 
-"""Wav2Lip 音频流处理器 - 提取 Mel 频谱特征"""
+"""Wav2Lip 音訊流處理器 - 提取 Mel 頻譜特徵"""
 import time
 import torch
 import numpy as np
@@ -14,13 +14,13 @@ from src.avatars.wav2lip import audio
 
 
 class LipAudioStreamHandler(BaseAudioStreamHandler):
-    """Mel 频谱特征提取器
+    """Mel 頻譜特徵提取器
     
-    用于 Wav2Lip Avatar 模型，提取 Mel 频谱特征用于唇形同步。
+    用於 Wav2Lip Avatar 模型，提取 Mel 頻譜特徵用於唇形同步。
     """
 
     def run_step(self):
-        """执行一步音频特征提取"""
+        """執行一步音訊特徵提取"""
         ############################################## extract audio feature ##############################################
         # get a frame of audio
         for _ in range(self.batch_size * 2):

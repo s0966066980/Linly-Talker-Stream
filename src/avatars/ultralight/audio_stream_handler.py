@@ -1,7 +1,7 @@
 # Linly-Talker-Stream (https://github.com/Kedreamix/Linly-Talker-Stream). Copyright [Linly-talker-stream@kedreamix]. Apache-2.0.
 # Based on LiveTalking (C) 2024 LiveTalking@lipku https://github.com/lipku/LiveTalking (Apache-2.0).
 
-"""Ultralight 音频流处理器 - 使用 Hubert 提取音频特征"""
+"""Ultralight 音訊流處理器 - 使用 Hubert 提取音訊特徵"""
 import time
 import torch
 import numpy as np
@@ -10,24 +10,24 @@ from src.avatars.ultralight.audio2feature import Audio2Feature
 
 
 class HubertAudioStreamHandler(BaseAudioStreamHandler):
-    """Hubert 音频特征提取器
+    """Hubert 音訊特徵提取器
     
-    用于 Ultralight Avatar 模型，提取 Hubert 音频特征。
+    用於 Ultralight Avatar 模型，提取 Hubert 音訊特徵。
     """
     def __init__(self, config, parent, audio_processor: Audio2Feature, audio_feat_length=[8, 8]):
         """
         Args:
-            config: 配置对象
-            parent: 父对象 (BaseAvatar)
-            audio_processor: Audio2Feature 实例
-            audio_feat_length: 音频特征长度 [before, after]
+            config: 配置物件
+            parent: 父物件 (BaseAvatar)
+            audio_processor: Audio2Feature 例項
+            audio_feat_length: 音訊特徵長度 [before, after]
         """
         super().__init__(config, parent)
         self.audio_processor = audio_processor
         self.audio_feat_length = audio_feat_length
 
     def run_step(self):
-        """执行一步音频特征提取"""
+        """執行一步音訊特徵提取"""
         start_time = time.time()
         
         for _ in range(self.batch_size * 2):

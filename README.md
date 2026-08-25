@@ -10,7 +10,7 @@
 
 <img src="assets/linly_logo.png" /><br>
 
-[**English**](./README.md) | [**简体中文**](./README_zh.md)
+[**English**](./README.md) | [**簡體中文**](./README_zh.md)
 
 </div>
 
@@ -218,6 +218,24 @@ uv run mim install mmpose==1.3.2
 bash scripts/post_musetalk_install.sh
 ```
 
+### Optional Qwen3 speech engines
+
+Qwen3-ASR and Qwen3-TTS run locally and do not require an API key. Install their
+official inference packages, then choose them in **Settings → Voice**. The first
+apply downloads the selected model and runs a real warm-up/preview before saving.
+
+```bash
+bash scripts/setup-qwen-speech.sh
+```
+
+The script creates an isolated `.venv-qwen-speech` so Qwen's recent Transformers
+pins do not replace the versions used by the avatar stack. The 0.6B checkpoints
+are the recommended starting point. CUDA is strongly recommended; CPU inference
+is available but considerably slower.
+
+For Base voice cloning/reference-audio preprocessing, also install the system
+`sox` package if the setup script prints a warning.
+
 ## Startup Methods
 
 ### A. Start Backend and Frontend Separately
@@ -251,7 +269,7 @@ All configs are in `config/*.yaml`. Common fields:
 - `app.listenport`: backend port (default `8010`)
 - `app.ssl`: whether to enable HTTPS (recommended for remote recording)
 - `model.type`: avatar type (`wav2lip` / `musetalk` / `ernerf` / `talkinggaussian`)
-- `tts.type`: TTS engine (e.g. `edgetts`, `azuretts`, `gpt-sovits`, `cosyvoice`)
+- `tts.type`: keyless TTS engine (`edgetts`, `gpt-sovits`, `cosyvoice`, `fishtts`, `indextts2`, or `xtts`)
 - `asr.mode`: `browser` (recommended) / `server` / `auto`
 - `llm.*`: LLM config (defaults to Qwen-plus on DashScope)
 
@@ -331,7 +349,7 @@ See [FAQ.md](./FAQ.md).
 
 - WebRTC backend: [aiortc](https://github.com/aiortc/aiortc) + [aiohttp](https://github.com/aio-libs/aiohttp)
 - Frontend: [Vue 3](https://vuejs.org/) + [Vite](https://vitejs.dev/)
-- Speech: [Whisper](https://github.com/openai/whisper), [FunASR](https://github.com/alibaba-damo-academy/FunASR), [edge-tts](https://github.com/rany2/edge-tts)
+- Speech: [Whisper](https://github.com/openai/whisper), [FunASR](https://github.com/alibaba-damo-academy/FunASR), [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR), [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), [edge-tts](https://github.com/rany2/edge-tts)
 - Avatar driving: [Wav2Lip](https://github.com/Rudrabha/Wav2Lip), [MuseTalk](https://github.com/TMElyralab/MuseTalk), [ER-NeRF](https://github.com/Fictionarry/ER-NeRF), [TalkingGaussian](https://github.com/Fictionarry/TalkingGaussian)
 - Interactive systems: [Linly-Talker](https://github.com/Kedreamix/Linly-Talker), [LiveTalking](https://github.com/lipku/LiveTalking), [OpenAvatarChat](https://github.com/HumanAIGC-Engineering/OpenAvatarChat)
 

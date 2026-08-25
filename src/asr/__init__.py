@@ -1,4 +1,4 @@
-"""ASR 语音识别模块"""
+"""ASR 語音識別模組"""
 
 from .base import BaseASR
 from .engines import WhisperASR, FunASR

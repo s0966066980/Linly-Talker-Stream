@@ -2,21 +2,21 @@
   <div v-if="showDebug" class="debug-panel">
     <div class="debug-header" @click="toggleCollapse">
       <i class="bi" :class="collapsed ? 'bi-chevron-down' : 'bi-chevron-up'"></i>
-      调试信息
+      除錯資訊
     </div>
     <div v-show="!collapsed" class="debug-content">
       <div class="debug-item">
-        <strong>后端协议:</strong> 
-        <span class="text-success">✅ Native WebRTC</span>
+        <strong>後端協議:</strong>
+        <span class="text-success">即時影音</span>
       </div>
       <div class="debug-item">
-        <strong>连接状态:</strong> {{ connectionStatus }}
+        <strong>連線狀態:</strong> {{ connectionStatus }}
       </div>
       <div class="debug-item">
-        <strong>会话ID:</strong> {{ sessionId }}
+        <strong>會話ID:</strong> {{ sessionId }}
       </div>
       <div class="debug-item">
-        <strong>后端API:</strong> localhost:8010
+        <strong>後端API:</strong> localhost:8010
       </div>
       <div class="debug-item">
         <strong>Video元素:</strong> 
@@ -25,7 +25,7 @@
         </span>
       </div>
       <div class="debug-item">
-        <strong>浏览器:</strong> {{ userAgent }}
+        <strong>瀏覽器:</strong> {{ userAgent }}
       </div>
     </div>
   </div>

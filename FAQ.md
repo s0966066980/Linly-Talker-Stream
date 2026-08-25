@@ -1,22 +1,22 @@
-# 常见问题 (FAQ)
+# 常見問題 (FAQ)
 
-## 目录
+## 目錄
 
-- [环境安装](#环境安装)
-- [启动相关](#启动相关)
-- [麦克风与音频](#麦克风与音频)
-- [全双工与交互](#全双工与交互)
-- [其他问题](#其他问题)
+- [環境安裝](#環境安裝)
+- [啟動相關](#啟動相關)
+- [麥克風與音訊](#麥克風與音訊)
+- [全雙工與互動](#全雙工與互動)
+- [其他問題](#其他問題)
 
 ---
 
-## 环境安装
+## 環境安裝
 
-### Q：如何安装 uv？
+### Q：如何安裝 uv？
 
-**A：** uv 是一个超快的 Python 包管理工具，推荐使用以下方式安装：
+**A：** uv 是一個超快的 Python 包管理工具，推薦使用以下方式安裝：
 
-**官方独立安装程序（推荐）**
+**官方獨立安裝程式（推薦）**
 
 ```bash
 # Windows
@@ -26,35 +26,35 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-**PyPI 安装**
+**PyPI 安裝**
 
 ```bash
 # 使用 pip
 pip install uv
 
-# 使用 pipx（推荐）
+# 使用 pipx（推薦）
 pipx install uv
 ```
 
-**验证安装**
+**驗證安裝**
 
 ```bash
-uv --version  # 应显示版本号，如 0.1.0
+uv --version  # 應顯示版本號，如 0.1.0
 ```
 
-更多信息：[uv 官方文档](https://docs.astral.sh/uv/getting-started/installation/)
+更多資訊：[uv 官方檔案](https://docs.astral.sh/uv/getting-started/installation/)
 
-### Q：如何安装 Node.js？
+### Q：如何安裝 Node.js？
 
-**A：** Node.js 用于运行前端应用，推荐安装 16+ 版本：
+**A：** Node.js 用於執行前端應用，推薦安裝 16+ 版本：
 
-**官方安装包下载**
+**官方安裝包下載**
 
-访问 [nodejs.org](https://nodejs.org/) 下载对应平台的安装包：
-- **LTS（长期支持版）**：推荐用于生产环境，更稳定
+訪問 [nodejs.org](https://nodejs.org/) 下載對應平臺的安裝包：
+- **LTS（長期支援版）**：推薦用於生產環境，更穩定
 - **Current（最新版）**：包含最新特性
 
-**包管理器安装**
+**包管理器安裝**
 
 ```bash
 # macOS（使用 Homebrew）
@@ -72,36 +72,36 @@ curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo bash -
 sudo yum install -y nodejs
 ```
 
-**验证安装**
+**驗證安裝**
 
 ```bash
-node --version  # 应显示 v16.0.0 或更高版本
-npm --version   # npm 会随 Node.js 一起安装
+node --version  # 應顯示 v16.0.0 或更高版本
+npm --version   # npm 會隨 Node.js 一起安裝
 ```
 
-### Q：如何生成 HTTPS 证书？
+### Q：如何生成 HTTPS 證書？
 
-**A：** 远程访问时使用麦克风需要 HTTPS，可以使用以下命令生成自签名证书：
+**A：** 遠端訪問時使用麥克風需要 HTTPS，可以使用以下命令生成自簽名證書：
 
 ```bash
 bash scripts/create_ssl_certs.sh
 ```
 
-该脚本会在项目根目录生成 `cert.pem` 和 `key.pem` 文件。
+該指令碼會在專案根目錄生成 `cert.pem` 和 `key.pem` 檔案。
 
-**使用 HTTPS 启动：**
+**使用 HTTPS 啟動：**
 
-1. 在配置文件中设置 `app.ssl: true`
-2. 启动后使用 `https://localhost:3000` 访问
-3. 浏览器会提示证书不受信任，点击"高级"→"继续访问"即可
+1. 在配置檔案中設定 `app.ssl: true`
+2. 啟動後使用 `https://localhost:3000` 訪問
+3. 瀏覽器會提示證書不受信任，點選"高階"→"繼續訪問"即可
 
-**注意**：自签名证书仅用于开发测试，生产环境请使用正规 CA 签发的证书。
+**注意**：自簽名證書僅用於開發測試，生產環境請使用正規 CA 簽發的證書。
 
-### Q：如何激活虚拟环境？
+### Q：如何啟用虛擬環境？
 
-**A：** 使用 uv 创建虚拟环境后，可以选择激活或使用 `uv run`：
+**A：** 使用 uv 建立虛擬環境後，可以選擇啟用或使用 `uv run`：
 
-**方式一：激活虚拟环境**
+**方式一：啟用虛擬環境**
 
 ```bash
 # Linux / macOS
@@ -114,32 +114,32 @@ source .venv/bin/activate
 .venv\Scripts\activate.bat
 ```
 
-激活后，命令行提示符前会显示 `(.venv)`，此时可以直接运行 `python`、`pip` 等命令。
+啟用後，命令列提示符前會顯示 `(.venv)`，此時可以直接執行 `python`、`pip` 等命令。
 
-**方式二：使用 uv run（推荐）**
+**方式二：使用 uv run（推薦）**
 
 ```bash
-# 无需激活，直接在虚拟环境中运行命令
+# 無需啟用，直接在虛擬環境中執行命令
 uv run python src/server/app.py --config config/config_wav2lip.yaml
 uv run pip list
 ```
 
-**退出虚拟环境**
+**退出虛擬環境**
 
 ```bash
 deactivate
 ```
 
-### Q：不同 Avatar 模块的依赖有什么区别？
+### Q：不同 Avatar 模組的依賴有什麼區別？
 
-**A：** 不同的数字人引擎需要不同的依赖：
+**A：** 不同的數字人引擎需要不同的依賴：
 
-**Wav2Lip（最简单）**
+**Wav2Lip（最簡單）**
 ```bash
 uv pip install -e src/avatars/wav2lip/
 ```
 
-**TalkingGaussian（需要编译扩展）**
+**TalkingGaussian（需要編譯擴充套件）**
 ```bash
 uv pip install -e src/avatars/talkinggaussian/
 uv pip install -e src/avatars/talkinggaussian/submodules/diff-gaussian-rasterization/ --no-build-isolation
@@ -147,7 +147,7 @@ uv pip install -e src/avatars/talkinggaussian/submodules/simple-knn/ --no-build-
 uv pip install -e src/avatars/talkinggaussian/gridencoder/ --no-build-isolation
 ```
 
-**MuseTalk（最复杂，需要 mmcv 等）**
+**MuseTalk（最複雜，需要 mmcv 等）**
 ```bash
 uv pip install chumpy==0.70 --no-build-isolation
 uv pip install -e src/avatars/musetalk/
@@ -158,51 +158,51 @@ uv run mim install mmpose==1.3.2
 bash scripts/post_musetalk_install.sh
 ```
 
-**推荐**：使用一键安装脚本 `bash scripts/setup-env.sh [avatar_name]` 自动处理所有依赖。
+**推薦**：使用一鍵安裝指令碼 `bash scripts/setup-env.sh [avatar_name]` 自動處理所有依賴。
 
 ---
 
-## 模型与数据
+## 模型與資料
 
-### Q：项目的目录结构是怎样的？
+### Q：專案的目錄結構是怎樣的？
 
-**A：** 项目使用以下目录组织模型和数据文件：
+**A：** 專案使用以下目錄組織模型和資料檔案：
 
 ```
 Linly-Talker-Stream/
-├── models/                              # 模型权重目录
-│   ├── wav2lip.pth                      # Wav2Lip 模型文件
-│   ├── musetalk/                        # MuseTalk 模型目录
+├── models/                              # 模型權重目錄
+│   ├── wav2lip.pth                      # Wav2Lip 模型檔案
+│   ├── musetalk/                        # MuseTalk 模型目錄
 │   │   ├── musetalkV15/                 #    MuseTalk v1.5 模型
-│   │   ├── dwpose/                      #    DWPose 姿态检测模型
-│   │   ├── s3fd-619a316812/             #    人脸检测模型
+│   │   ├── dwpose/                      #    DWPose 姿態檢測模型
+│   │   ├── s3fd-619a316812/             #    人臉檢測模型
 │   │   └── whisper/                     #    Whisper ASR 模型
-│   ├── face-parse-bisent/               # 人脸解析模型
+│   ├── face-parse-bisent/               # 人臉解析模型
 │   └── sd-vae/                          # Stable Diffusion VAE 模型
 │
 ├── data/
-│   ├── avatars/                         # 数字人资源目录
-│   │   ├── wav2lip_avatar1/             # Wav2Lip 数字人素材（2D）
-│   │   │   ├── coords.pkl               #    面部坐标数据
-│   │   │   ├── face_imgs/               #    面部图像序列
-│   │   │   └── full_imgs/               #    完整图像序列
+│   ├── avatars/                         # 數字人資源目錄
+│   │   ├── wav2lip_avatar1/             # Wav2Lip 數字人素材（2D）
+│   │   │   ├── coords.pkl               #    面部座標資料
+│   │   │   ├── face_imgs/               #    面部影像序列
+│   │   │   └── full_imgs/               #    完整影像序列
 │   │   │
-│   │   ├── musetalk_avatar1/            # MuseTalk 数字人素材（2D）
-│   │   │   ├── coords.pkl               #    面部坐标数据
-│   │   │   ├── mask_coords.pkl          #    掩码坐标数据
-│   │   │   ├── latents.pt               #    潜在特征向量
-│   │   │   ├── avator_info.json         #    数字人配置信息
-│   │   │   ├── full_imgs/               #    完整图像序列
-│   │   │   └── mask/                    #    掩码图像序列
+│   │   ├── musetalk_avatar1/            # MuseTalk 數字人素材（2D）
+│   │   │   ├── coords.pkl               #    面部座標資料
+│   │   │   ├── mask_coords.pkl          #    掩碼座標資料
+│   │   │   ├── latents.pt               #    潛在特徵向量
+│   │   │   ├── avator_info.json         #    數字人配置資訊
+│   │   │   ├── full_imgs/               #    完整影像序列
+│   │   │   └── mask/                    #    掩碼影像序列
 │   │   │
 │   │   ├── talkinggaussian_obama/       # TalkingGaussian 3D 模型
-│   │   │   ├── source/                  #    源数据（训练用）
-│   │   │   │   ├── au.csv               #    动作单元数据
-│   │   │   │   ├── points3d.ply         #    3D 点云
-│   │   │   │   ├── torso_imgs/          #    躯干图像序列
+│   │   │   ├── source/                  #    源資料（訓練用）
+│   │   │   │   ├── au.csv               #    動作單後設資料
+│   │   │   │   ├── points3d.ply         #    3D 點雲
+│   │   │   │   ├── torso_imgs/          #    軀幹影像序列
 │   │   │   │   ├── transforms_train.json
 │   │   │   │   └── transforms_val.json
-│   │   │   └── model/                   #    训练好的高斯模型
+│   │   │   └── model/                   #    訓練好的高斯模型
 │   │   │       ├── cameras.json
 │   │   │       ├── cfg_args
 │   │   │       ├── chkpnt_fuse_latest.pth
@@ -213,12 +213,12 @@ Linly-Talker-Stream/
 │   │       ├── data_kf.json
 │   │       └── ngp_kf.pth
 │   │
-│   └── records/                         # 录制文件输出目录
+│   └── records/                         # 錄製檔案輸出目錄
 ```
 
-### Q：如何自定义 2D 数字人素材（Wav2Lip / MuseTalk）？
+### Q：如何自定義 2D 數字人素材（Wav2Lip / MuseTalk）？
 
-**A：** 可以使用项目提供的脚本从视频生成数字人素材：
+**A：** 可以使用專案提供的指令碼從影片生成數字人素材：
 
 **Wav2Lip 生成素材：**
 
@@ -237,57 +237,57 @@ uv run python src/avatars/musetalk/genavatar_musetalk.py \
     --file xxx.mp4
 ```
 
-> ⚠️ **注意**：输入视频需要使用闭嘴不说话的视频
+> ⚠️ **注意**：輸入影片需要使用閉嘴不說話的影片
 
-> 💡 **提示**：详细教程可参考 [LiveTalking 文档](https://livetalking-doc.readthedocs.io/zh-cn/latest/usage.html)
+> 💡 **提示**：詳細教程可參考 [LiveTalking 檔案](https://livetalking-doc.readthedocs.io/zh-cn/latest/usage.html)
 
-### Q：如何训练 3D 数字人模型（TalkingGaussian / ER-NeRF）？
+### Q：如何訓練 3D 數字人模型（TalkingGaussian / ER-NeRF）？
 
-**A：** 3D 数字人需要预先训练好的模型数据，文件结构如下：
+**A：** 3D 數字人需要預先訓練好的模型資料，檔案結構如下：
 
-**TalkingGaussian 文件结构：**
+**TalkingGaussian 檔案結構：**
 
 ```
 data/avatars/talkinggaussian_obama/
-├── source/                        # 源数据目录
-│   ├── au.csv                     # 动作单元（Action Units）数据
-│   ├── points3d.ply               # 3D 点云
-│   ├── torso_imgs/                # 躯干图像
-│   ├── transforms_train.json      # 训练集变换矩阵
-│   └── transforms_val.json        # 验证集变换矩阵
-└── model/                         # 训练好的高斯模型
-    ├── cameras.json               # 相机参数
-    ├── cfg_args                   # 配置参数
-    ├── chkpnt_fuse_latest.pth     # 模型权重
-    └── input.ply                  # 输入点云
+├── source/                        # 源資料目錄
+│   ├── au.csv                     # 動作單元（Action Units）資料
+│   ├── points3d.ply               # 3D 點雲
+│   ├── torso_imgs/                # 軀幹影像
+│   ├── transforms_train.json      # 訓練集變換矩陣
+│   └── transforms_val.json        # 驗證集變換矩陣
+└── model/                         # 訓練好的高斯模型
+    ├── cameras.json               # 相機引數
+    ├── cfg_args                   # 配置引數
+    ├── chkpnt_fuse_latest.pth     # 模型權重
+    └── input.ply                  # 輸入點雲
 ```
 
-**ER-NeRF 文件结构：**
+**ER-NeRF 檔案結構：**
 
 ```
 data/avatars/ernerf_obama/
-├── au.csv                     # 动作单元（Action Units）数据
-├── data_kf.json               # 关键帧数据配置
-└── ngp_kf.pth                 # NeRF 模型权重文件
+├── au.csv                     # 動作單元（Action Units）資料
+├── data_kf.json               # 關鍵幀資料配置
+└── ngp_kf.pth                 # NeRF 模型權重檔案
 ```
 
-**训练教程：**
+**訓練教程：**
 - **TalkingGaussian**：https://github.com/Fictionarry/TalkingGaussian
 - **ER-NeRF**：https://github.com/Fictionarry/ER-NeRF
 
-> **注意**：3D 数字人的训练流程较复杂，建议先使用预训练模型测试。
+> **注意**：3D 數字人的訓練流程較複雜，建議先使用預訓練模型測試。
 
-### Q：如何在配置文件中设置模型路径？
+### Q：如何在配置檔案中設定模型路徑？
 
-**A：** 所有路径配置集中在 `config/*.yaml` 文件中，根据你的 Avatar 类型调整：
+**A：** 所有路徑配置集中在 `config/*.yaml` 檔案中，根據你的 Avatar 型別調整：
 
 **Wav2Lip 示例：**
 
 ```yaml
 model:
   type: wav2lip
-  avatar_id: wav2lip_avatar1  # 对应 data/avatars/wav2lip_avatar1/
-  model_path: ./models         # 模型目录
+  avatar_id: wav2lip_avatar1  # 對應 data/avatars/wav2lip_avatar1/
+  model_path: ./models         # 模型目錄
 ```
 
 **TalkingGaussian 示例：**
@@ -313,37 +313,37 @@ model:
 
 ---
 
-## 启动相关
+## 啟動相關
 
-### Q：后端启动失败，提示找不到模型或配置文件？
+### Q：後端啟動失敗，提示找不到模型或配置檔案？
 
-**A：** 检查以下几点：
+**A：** 檢查以下幾點：
 
-- 确保已进入虚拟环境（如果使用 uv）：`source .venv/bin/activate`
-- 检查配置文件路径正确：`config/config_wav2lip.yaml` 等
-- 检查 `config/*.yaml` 中的 `models/` 和 `data/` 路径是否指向正确的目录
-- 确保必要的模型权重已下载到 `models/` 目录
+- 確保已進入虛擬環境（如果使用 uv）：`source .venv/bin/activate`
+- 檢查配置檔案路徑正確：`config/config_wav2lip.yaml` 等
+- 檢查 `config/*.yaml` 中的 `models/` 和 `data/` 路徑是否指向正確的目錄
+- 確保必要的模型權重已下載到 `models/` 目錄
 
-### Q：前端启动后访问 localhost:3000 是空白？
+### Q：前端啟動後訪問 localhost:3000 是空白？
 
-**A：** 检查以下几点：
+**A：** 檢查以下幾點：
 
-- 后端是否已成功启动（查看后端端口 8010）
-- 前端是否选用了相同的配置文件
-- 浏览器控制台（F12）是否有报错
-- 清除浏览器缓存后重试：Ctrl+Shift+Delete
+- 後端是否已成功啟動（檢視後端埠 8010）
+- 前端是否選用了相同的配置檔案
+- 瀏覽器控制台（F12）是否有報錯
+- 清除瀏覽器快取後重試：Ctrl+Shift+Delete
 
-### Q：后端与前端无法通信？
+### Q：後端與前端無法通訊？
 
-**A：** 确保以下配置正确：
+**A：** 確保以下配置正確：
 
-- 前端配置中 API 地址指向正确的后端地址（通常 `http://localhost:8010`）
-- 防火墙或网络代理没有阻挡 8010 端口
-- 如果使用 HTTPS 模式，检查证书配置是否正确
+- 前端配置中 API 地址指向正確的後端地址（通常 `http://localhost:8010`）
+- 防火牆或網路代理沒有阻擋 8010 埠
+- 如果使用 HTTPS 模式，檢查證書配置是否正確
 
-### Q：启动脚本提示权限不足？
+### Q：啟動指令碼提示許可權不足？
 
-**A：** 添加执行权限：
+**A：** 新增執行許可權：
 
 ```bash
 chmod +x scripts/start-backend.sh
@@ -352,89 +352,89 @@ chmod +x scripts/start-all.sh
 chmod +x scripts/create_ssl_certs.sh
 ```
 
-### Q：能否同时启动多个后端实例？
+### Q：能否同時啟動多個後端例項？
 
-**A：** 可以，但需要修改端口避免冲突：
+**A：** 可以，但需要修改埠避免衝突：
 
 ```bash
-# 终端 1：默认端口 8010
+# 終端 1：預設埠 8010
 bash scripts/start-backend.sh config/config_wav2lip.yaml
 
-# 终端 2：修改端口为 8011
-# 编辑 config/config_wav2lip.yaml，将 app.listenport 改为 8011
+# 終端 2：修改埠為 8011
+# 編輯 config/config_wav2lip.yaml，將 app.listenport 改為 8011
 bash scripts/start-backend.sh config/config_wav2lip.yaml
 ```
 
 ---
 
-## 麦克风与音频
+## 麥克風與音訊
 
-### Q：远程访问时麦克风不可用？
+### Q：遠端訪問時麥克風不可用？
 
-**A：** 浏览器通常会限制非 HTTPS 来源的麦克风权限。需要：
+**A：** 瀏覽器通常會限制非 HTTPS 來源的麥克風許可權。需要：
 
-1. 在配置文件中开启 `app.ssl: true`
-2. 确保已执行 `bash scripts/create_ssl_certs.sh` 生成证书
-3. 使用 HTTPS 访问前端（`https://localhost:3000`）
-4. 接受浏览器的自签名证书警告
+1. 在配置檔案中開啟 `app.ssl: true`
+2. 確保已執行 `bash scripts/create_ssl_certs.sh` 生成證書
+3. 使用 HTTPS 訪問前端（`https://localhost:3000`）
+4. 接受瀏覽器的自簽名證書警告
 
-### Q：没有声音输出？
+### Q：沒有聲音輸出？
 
-**A：** 检查以下几点：
+**A：** 檢查以下幾點：
 
-- TTS 服务是否已正确配置（配置文件中的 `tts.type`）
-- 检查 API Key 是否正确设置（如 `DASHSCOPE_API_KEY` 等）
-- 浏览器音量是否静音
-- 检查后端日志是否有 TTS 错误
+- TTS 服務是否已正確配置（配置檔案中的 `tts.type`）
+- 檢查 API Key 是否正確設定（如 `DASHSCOPE_API_KEY` 等）
+- 瀏覽器音量是否靜音
+- 檢查後端日誌是否有 TTS 錯誤
 
 ```bash
-# 查看环境变量是否已设置
+# 檢視環境變數是否已設定
 echo $DASHSCOPE_API_KEY
 ```
 
-### Q：麦克风输入没有反应？
+### Q：麥克風輸入沒有反應？
 
-**A：** 检查以下几点：
+**A：** 檢查以下幾點：
 
-- 浏览器是否已获得麦克风权限（检查地址栏旁边的权限图标）
-- 操作系统级别是否允许浏览器访问麦克风
-  - macOS：系统偏好设置 → 安全与隐私 → 麦克风
-  - Windows：设置 → 隐私和安全 → 麦克风
-- ASR 模式是否正确配置（`asr.mode: browser` 表示在浏览器中识别）
-
----
-
-## 全双工与交互
-
-### Q：如何实现全双工对话？
-
-**A：** Linly-Talker-Stream 支持真正的全双工实时交互，即数字人说话时你也可以随时打断对话。
-
-**启用方法：**
-
-在 Web 界面右上角点击 ⚙️ 设置按钮，在「语音识别设置」中开启 **「连续识别」** 和 **「持续监听语音输入」**，然后保存设置即可。
-
-开启后，系统会持续监听你的语音输入，检测到语音后会自动打断当前对话并开始新的回应，实现自然的实时交互体验
+- 瀏覽器是否已獲得麥克風許可權（檢查位址列旁邊的許可權圖示）
+- 作業系統級別是否允許瀏覽器訪問麥克風
+  - macOS：系統偏好設定 → 安全與隱私 → 麥克風
+  - Windows：設定 → 隱私和安全 → 麥克風
+- ASR 模式是否正確配置（`asr.mode: browser` 表示在瀏覽器中識別）
 
 ---
 
-## 其他问题
+## 全雙工與互動
 
-### Q：录制文件在哪里？
+### Q：如何實現全雙工對話？
 
-**A：** 录制的视频和音频会保存到 `data/records/` 目录，可通过 `/download/{filename}` 下载。
+**A：** Linly-Talker-Stream 支援真正的全雙工即時互動，即數字人說話時你也可以隨時打斷對話。
+
+**啟用方法：**
+
+在 Web 介面右上角點選 ⚙️ 設定按鈕，在「語音識別設定」中開啟 **「連續識別」** 和 **「持續監聽語音輸入」**，然後儲存設定即可。
+
+開啟後，系統會持續監聽你的語音輸入，檢測到語音後會自動打斷當前對話並開始新的回應，實現自然的即時互動體驗
+
+---
+
+## 其他問題
+
+### Q：錄製檔案在哪裡？
+
+**A：** 錄製的影片和音訊會儲存到 `data/records/` 目錄，可通過 `/download/{filename}` 下載。
 
 ```bash
-# 查看所有录制文件
+# 檢視所有錄製檔案
 ls -lh data/records/
 
-# 下载最新录制的文件
+# 下載最新錄製的檔案
 curl http://localhost:8010/download/latest_recording.mp4
 ```
 
-### Q：如何切换不同的数字人模型？
+### Q：如何切換不同的數字人模型？
 
-**A：** 使用不同的配置文件启动后端和前端：
+**A：** 使用不同的配置檔案啟動後端和前端：
 
 ```bash
 # 1. Wav2Lip（2D，快速）
@@ -445,7 +445,7 @@ bash scripts/start-frontend.sh config/config_wav2lip.yaml
 bash scripts/start-backend.sh config/config_musetalk.yaml
 bash scripts/start-frontend.sh config/config_musetalk.yaml
 
-# 3. ER-NeRF（3D，高质量）
+# 3. ER-NeRF（3D，高質量）
 bash scripts/start-backend.sh config/config_ernerf.yaml
 bash scripts/start-frontend.sh config/config_ernerf.yaml
 
@@ -454,46 +454,46 @@ bash scripts/start-backend.sh config/config_talkinggaussian.yaml
 bash scripts/start-frontend.sh config/config_talkinggaussian.yaml
 ```
 
-### Q：如何调试系统问题？
+### Q：如何除錯系統問題？
 
-**A：** 启用详细日志：
+**A：** 啟用詳細日誌：
 
 ```bash
-# 后端日志
+# 後端日誌
 bash scripts/start-backend.sh config/config_wav2lip.yaml --debug
 
-# 前端控制台（F12 打开开发者工具）
-# 查看 Console、Network、Performance 标签
+# 前端控制台（F12 開啟開發者工具）
+# 檢視 Console、Network、Performance 標籤
 ```
 
-### Q：如何提交问题或贡献代码？
+### Q：如何提交問題或貢獻程式碼？
 
 **A：** 
 
-- 🐛 报告 Bug：[GitHub Issues](https://github.com/Kedreamix/Linly-Talker-Stream/issues)
-- 💡 功能建议：[GitHub Discussions](https://github.com/Kedreamix/Linly-Talker-Stream/discussions)
-- 🤝 贡献代码：Fork → 修改 → Pull Request
+- 🐛 報告 Bug：[GitHub Issues](https://github.com/Kedreamix/Linly-Talker-Stream/issues)
+- 💡 功能建議：[GitHub Discussions](https://github.com/Kedreamix/Linly-Talker-Stream/discussions)
+- 🤝 貢獻程式碼：Fork → 修改 → Pull Request
 
-提交前请确保：
-- 提供清晰的问题描述和复现步骤
-- 附加错误日志和系统信息
-- 遵循项目的代码风格和贡献指南
+提交前請確保：
+- 提供清晰的問題描述和復現步驟
+- 附加錯誤日誌和系統資訊
+- 遵循專案的程式碼風格和貢獻指南
 
-### Q：该项目有其他资源或社区吗？
+### Q：該專案有其他資源或社群嗎？
 
 **A：** 
 
-- 📖 文档：[Linly-Talker](https://github.com/Kedreamix/Linly-Talker)
-- 🎬 视频教程：[Bilibili](https://www.bilibili.com/video/BV1rN4y1a76x/)
-- 💬 讨论社区：[GitHub Discussions](https://github.com/Kedreamix/Linly-Talker-Stream/discussions)
+- 📖 檔案：[Linly-Talker](https://github.com/Kedreamix/Linly-Talker)
+- 🎬 影片教程：[Bilibili](https://www.bilibili.com/video/BV1rN4y1a76x/)
+- 💬 討論社群：[GitHub Discussions](https://github.com/Kedreamix/Linly-Talker-Stream/discussions)
 
 ---
 
-## 还有问题？
+## 還有問題？
 
-如果以上内容没有解答你的问题，请：
+如果以上內容沒有解答你的問題，請：
 
-1. 检查 [README_zh.md](./README_zh.md) 中的配置说明
-2. 查看 [QUICKSTART_UV.md](./QUICKSTART_UV.md) 了解 uv 相关问题
-3. 在 GitHub Issues 中搜索是否已有类似问题
-4. 提交新的 Issue 或在 Discussions 中提问
+1. 檢查 [README_zh.md](./README_zh.md) 中的配置說明
+2. 檢視 [QUICKSTART_UV.md](./QUICKSTART_UV.md) 瞭解 uv 相關問題
+3. 在 GitHub Issues 中搜索是否已有類似問題
+4. 提交新的 Issue 或在 Discussions 中提問

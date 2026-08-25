@@ -1,9 +1,23 @@
-"""路由模块"""
+"""路由模組"""
 from .webrtc import offer
 from .chat import human, interrupt_talk, is_speaking, clear_history
 from .audio import humanaudio, asr
 from .video import set_audiotype, record, download_record
 from .health import health_check
+from .settings import (
+    get_settings,
+    get_vad_settings,
+    set_vad_settings,
+    get_speech_settings,
+    set_stt_settings,
+    set_tts_settings,
+    list_llm_models,
+    set_llm_model,
+    set_avatar,
+    avatar_preview,
+    import_avatar,
+    import_avatar_status,
+)
 
 __all__ = [
     'offer',
@@ -17,4 +31,16 @@ __all__ = [
     'record',
     'download_record',
     'health_check',
+    'get_settings',
+    'get_vad_settings',
+    'set_vad_settings',
+    'get_speech_settings',
+    'set_stt_settings',
+    'set_tts_settings',
+    'list_llm_models',
+    'set_llm_model',
+    'set_avatar',
+    'avatar_preview',
+    'import_avatar',
+    'import_avatar_status',
 ]

@@ -1,4 +1,4 @@
-"""MuseTalk 音频流处理器 - 使用 Whisper 提取音频特征"""
+"""MuseTalk 音訊流處理器 - 使用 Whisper 提取音訊特徵"""
 import time
 import numpy as np
 
@@ -9,16 +9,16 @@ from src.avatars.musetalk.whisper.audio2feature import Audio2Feature
 
 
 class MuseAudioStreamHandler(BaseAudioStreamHandler):
-    """Whisper 音频特征提取器
+    """Whisper 音訊特徵提取器
     
-    用于 MuseTalk Avatar 模型，提取 Whisper 音频特征。
+    用於 MuseTalk Avatar 模型，提取 Whisper 音訊特徵。
     """
     def __init__(self, config, parent, audio_processor: Audio2Feature):
         super().__init__(config, parent)
         self.audio_processor = audio_processor
 
     def run_step(self):
-        """执行一步音频特征提取"""
+        """執行一步音訊特徵提取"""
         start_time = time.time()
         for _ in range(self.batch_size * 2):
             audio_frame, type, eventpoint = self.get_audio_frame()

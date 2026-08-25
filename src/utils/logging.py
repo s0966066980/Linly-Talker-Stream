@@ -2,16 +2,16 @@ import logging
 import os
 from datetime import datetime
 
-# 配置日志器
+# 配置日誌器
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-# 确保 logs 文件夹存在
+# 確保 logs 資料夾存在
 log_dir = 'logs'
 os.makedirs(log_dir, exist_ok=True)
 
-# 日志文件名加上时间
+# 日誌檔名加上時間
 date_str = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 log_filename = f'linly-talker-stream_{date_str}.log'
 log_path = os.path.join(log_dir, log_filename)

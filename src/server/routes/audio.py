@@ -1,4 +1,4 @@
-"""音频相关路由"""
+"""音訊相關路由"""
 import json
 from aiohttp import web
 import asyncio
@@ -9,7 +9,7 @@ from src.server.state import state
 
 
 async def humanaudio(request):
-    """处理音频文件上传"""
+    """處理音訊檔案上傳"""
     try:
         form = await request.post()
         sessionid = int(form.get('sessionid', 0))
@@ -35,18 +35,34 @@ async def humanaudio(request):
 
 
 async def asr(request):
-    """ASR 语音识别接口：将音频转换为文本，然后调用 LLM 进行对话"""
+    """ASR 語音識別介面：將音訊轉換為文本，然後呼叫 LLM 進行對話"""
     try:
         form = await request.post()
         sessionid = int(form.get('sessionid', 0))
         fileobj = form["file"]
         filebytes = fileobj.file.read()
 
-        # ASR/LLM 调用在同一流程中，失败时返回可读错误
+        # ASR/LLM 呼叫在同一流程中，失敗時返回可讀錯誤
         from src.asr import get_asr_engine
-        
+        from src.vad import preprocess_audio_bytes
+
         try:
             asr_config = state.config.asr if state.config else None
+            vad_config = getattr(state.config, 'vad', None) if state.config else None
+
+            # 先過 VAD：全是靜音/噪聲就不用麻煩 ASR，有語音則裁掉前後靜音
+            loop = asyncio.get_event_loop()
+            vad_result = await loop.run_in_executor(
+                None, preprocess_audio_bytes, filebytes, vad_config, state.config
+            )
+            if not vad_result.has_speech:
+                return web.Response(
+                    content_type="application/json",
+                    text=json.dumps(
+                        {"code": -1, "msg": "未檢測到語音內容", "vad": vad_result.engine}
+                    ),
+                )
+            filebytes = vad_result.audio_bytes
             
             asr_engine = get_asr_engine(
                 asr_type=asr_config.type if asr_config else "whisper",
@@ -57,8 +73,7 @@ async def asr(request):
             language = asr_config.language if asr_config else "zh"
             asr_engine.set_language(language)
             
-            logger.info(f'[ASR] 开始识别音频，sessionid={sessionid}')
-            loop = asyncio.get_event_loop()
+            logger.info(f'[ASR] 開始識別音訊，sessionid={sessionid}')
             result = await loop.run_in_executor(None, asr_engine.transcribe, filebytes)
             text = result.get("text", "").strip()
             
@@ -66,11 +81,11 @@ async def asr(request):
                 return web.Response(
                     content_type="application/json",
                     text=json.dumps(
-                        {"code": -1, "msg": "未识别到语音内容"}
+                        {"code": -1, "msg": "未識別到語音內容"}
                     ),
                 )
             
-            logger.info(f'[ASR] 识别结果: {text}')
+            logger.info(f'[ASR] 識別結果: {text}')
             
             llm_config = state.config.llm if state.config else None
             logger.info(f'[ASR] LLM 配置: {llm_config}')
@@ -93,7 +108,7 @@ async def asr(request):
                 llm_config.base_url if llm_config else "https://dashscope.aliyuncs.com/compatible-mode/v1",
                 llm_config.model if llm_config else "qwen-plus",
             )
-            logger.info(f'[ASR] LLM 回复: {llm_text}')
+            logger.info(f'[ASR] LLM 回覆: {llm_text}')
             
             avatar_stream.put_msg_txt(llm_text)
             
@@ -105,16 +120,16 @@ async def asr(request):
             )
             
         except Exception as e:
-            logger.exception('[ASR] 语音识别失败:')
+            logger.exception('[ASR] 語音識別失敗:')
             return web.Response(
                 content_type="application/json",
                 text=json.dumps(
-                    {"code": -1, "msg": f"语音识别失败: {str(e)}"}
+                    {"code": -1, "msg": f"語音識別失敗: {str(e)}"}
                 ),
             )
             
     except Exception as e:
-        logger.exception('[ASR] ASR 接口异常:')
+        logger.exception('[ASR] ASR 介面異常:')
         return web.Response(
             content_type="application/json",
             text=json.dumps(

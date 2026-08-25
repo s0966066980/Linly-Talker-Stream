@@ -39,8 +39,10 @@ class Audio2Feature():
         selected_idx = []
         
         center_idx = int(vid_idx*50/fps) 
-        left_idx = center_idx; #-audio_feat_length[0]*2
-        right_idx = center_idx + (audio_feat_length[0]+audio_feat_length[1]+1)*2
+        # Keep the official MuseTalk window centered around the video frame.
+        # Using only future features makes the mouth lead the matching audio.
+        left_idx = center_idx - audio_feat_length[0] * 2
+        right_idx = center_idx + (audio_feat_length[1] + 1) * 2
         
         for idx in range(left_idx,right_idx):
             idx = max(0, idx)

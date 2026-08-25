@@ -25,6 +25,7 @@ MANIFEST
 
 # Virtual environments
 .venv
+.venv-qwen-speech/
 venv/
 ENV/
 env/
@@ -50,6 +51,7 @@ uv.lock
 models/
 data/
 logs/
+config/runtime_overrides.yaml
 outputs/
 *.pt
 *.pth
@@ -68,6 +70,9 @@ certs/
 *.tmp
 *.log
 .cache/
+
+# Local CUDA toolkit (used when system nvcc is missing)
+.cuda-toolkit/
 
 
 src/omni/

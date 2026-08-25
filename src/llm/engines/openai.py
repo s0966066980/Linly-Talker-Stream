@@ -1,4 +1,4 @@
-"""OpenAI 兼容的 LLM 引擎"""
+"""OpenAI 相容的 LLM 引擎"""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from src.utils.logging import logger
 
 
 class OpenAILLM(BaseLLM):
-    """OpenAI 兼容的 LLM 引擎，支持 OpenAI/DashScope/vLLM/Ollama 等"""
+    """OpenAI 相容的 LLM 引擎，支援 OpenAI/DashScope/vLLM/Ollama 等"""
     
     def __init__(
         self, 
@@ -21,7 +21,7 @@ class OpenAILLM(BaseLLM):
         api_key: str = None,
         base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
         model: str = "qwen-plus",
-        max_history: int = 10  # 最大保存的对话轮次
+        max_history: int = 10  # 最大儲存的對話輪次
     ):
         super().__init__(config, parent)
         
@@ -32,30 +32,44 @@ class OpenAILLM(BaseLLM):
         self.base_url = base_url
         self.model = model
         self.max_history = max_history
-        self.conversation_history = []  # 对话历史 [{'role': 'user/assistant', 'content': '...'}]
+        self.conversation_history = []  # 對話歷史 [{'role': 'user/assistant', 'content': '...'}]
         
-        logger.info(f"LLM initialized: model={self.model}, base_url={self.base_url}")
+        # 從配置讀取額外請求體引數（如 Ollama 的 reasoning_effort）
+        llm_cfg = getattr(config, "llm", None) if config is not None else None
+        extra = dict(getattr(llm_cfg, "extra_body", None) or {})
+        if getattr(llm_cfg, "provider", "") == "llamacpp":
+            extra.pop("reasoning_effort", None)
+            extra.pop("think", None)
+            extra.pop("keep_alive", None)
+            extra.pop("options", None)
+        self.extra_body = extra
+        self.max_tokens = int(getattr(llm_cfg, "max_tokens", 128) or 128)
+
+        logger.info(
+            f"LLM initialized: model={self.model}, base_url={self.base_url}"
+            + (f", extra_body={self.extra_body}" if self.extra_body else "")
+        )
         self._client: Optional[OpenAI] = None
     
     @property
     def client(self) -> OpenAI:
         if self._client is None:
-            # 延迟创建客户端，避免无效配置时提前报错
+            # 延遲建立客戶端，避免無效配置時提前報錯
             self._client = OpenAI(api_key=self.api_key, base_url=self.base_url)
         return self._client
     
     def add_to_history(self, role: str, content: str):
-        """添加消息到对话历史"""
+        """新增訊息到對話歷史"""
         self.conversation_history.append({'role': role, 'content': content})
         
-        # 保持历史记录在限制范围内（保留最近的 max_history 轮对话）
-        if len(self.conversation_history) > self.max_history * 2:  # *2 因为每轮有 user 和 assistant
+        # 保持歷史記錄在限制範圍內（保留最近的 max_history 輪對話）
+        if len(self.conversation_history) > self.max_history * 2:  # *2 因為每輪有 user 和 assistant
             self.conversation_history = self.conversation_history[-self.max_history * 2:]
         
         logger.debug(f"Added to history: {role}, history length: {len(self.conversation_history)}")
     
     def clear_history(self):
-        """清空对话历史"""
+        """清空對話歷史"""
         self.conversation_history = []
         logger.info("Conversation history cleared")
     
@@ -68,27 +82,29 @@ class OpenAILLM(BaseLLM):
         system_prompt = system_prompt or self.system_prompt
         
         try:
-            # 添加用户消息到历史
+            # 新增使用者訊息到歷史
             self.add_to_history('user', message)
             
-            # 构建完整的消息列表：system + 历史对话
+            # 構建完整的訊息列表：system + 歷史對話
             messages = [{'role': 'system', 'content': system_prompt}]
             messages.extend(self.conversation_history)
             
             logger.info(f"Sending {len(messages)} messages to LLM (including system prompt and history)")
             
-            # 采用 OpenAI 兼容流式接口，逐块返回内容
+            # 採用 OpenAI 相容流式介面，逐塊返回內容
             completion = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 stream=True,
-                stream_options={"include_usage": True}
+                max_tokens=self.max_tokens,
+                temperature=0.6,
+                extra_body=self.extra_body or None,
             )
             
             init_time = time.perf_counter()
             logger.info(f"LLM initialization time: {init_time - start_time:.3f}s")
             
-            # 收集完整的响应用于添加到历史
+            # 收集完整的響應用於新增到歷史
             full_response = ""
             for chunk in completion:
                 if chunk.choices and chunk.choices[0].delta.content:
@@ -96,7 +112,7 @@ class OpenAILLM(BaseLLM):
                     full_response += content
                     yield content
             
-            # 添加助手响应到历史
+            # 新增助手響應到歷史
             self.add_to_history('assistant', full_response)
             
         except OpenAIError as e:

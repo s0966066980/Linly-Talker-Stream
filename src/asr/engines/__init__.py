@@ -1,14 +1,16 @@
 """
-ASR 引擎实现集中入口
+ASR 引擎實現集中入口
 
-对外只需要从这里 import 对应的引擎类即可，例如：
+對外只需要從這裡 import 對應的引擎類即可，例如：
     from src.asr.engines import WhisperASR, FunASR
 """
 
-from .whisper import WhisperASR
 from .funasr import FunASR
+from .qwen3 import Qwen3ASR
+from .whisper import WhisperASR
 
 __all__ = [
     "WhisperASR",
     "FunASR",
+    "Qwen3ASR",
 ]

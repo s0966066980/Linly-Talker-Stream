@@ -31,6 +31,23 @@ from src.avatars.base import BaseAvatar
 from tqdm import tqdm
 from src.utils.logging import logger
 
+MIN_VIDEO_BUFFER_FRAMES = 5
+
+
+def should_wait_for_tts_audio(
+    tts_pending: bool,
+    queued_audio_frames: int,
+    required_audio_frames: int,
+    queued_video_frames: int,
+) -> bool:
+    """Hold prefetch briefly instead of baking silence ahead of pending TTS."""
+    return (
+        tts_pending
+        and queued_audio_frames < required_audio_frames
+        and queued_video_frames >= MIN_VIDEO_BUFFER_FRAMES
+    )
+
+
 def load_model():
     # load model weights
     vae, unet, pe = load_all_model()
@@ -56,11 +73,16 @@ def load_avatar(avatar_id):
     mask_out_path =f"{avatar_path}/mask"
     mask_coords_path =f"{avatar_path}/mask_coords.pkl"
     avatar_info_path = f"{avatar_path}/avator_info.json"
-    # self.avatar_info = {
-    #     "avatar_id":self.avatar_id,
-    #     "video_path":self.video_path,
-    #     "bbox_shift":self.bbox_shift   
-    # }
+    required = [latents_out_path, coords_path, mask_coords_path, full_imgs_path, mask_out_path]
+    missing = [p for p in required if not os.path.exists(p)]
+    if missing:
+        raise FileNotFoundError(
+            f"MuseTalk 數字人素材不完整: {avatar_path}\n"
+            f"缺少: {', '.join(missing)}\n"
+            "請先用閉嘴正面影片生成素材:\n"
+            f"  uv run python src/avatars/musetalk/genavatar_musetalk.py "
+            f"--avatar_id {avatar_id} --file /path/to/silent_video.mp4"
+        )
 
     input_latent_list_cycle = torch.load(latents_out_path)  #,weights_only=True
     with open(coords_path, 'rb') as f:
@@ -77,7 +99,7 @@ def load_avatar(avatar_id):
 
 @torch.no_grad()
 def warm_up(batch_size,model):
-    # 预热函数
+    # 預熱函式
     logger.info('warmup model...')
     vae, unet, pe, timesteps, audio_processor = model
     #batch_size = 16
@@ -289,6 +311,16 @@ class MuseTalkAvatar(BaseAvatar):
         while not quit_event.is_set(): #todo
             # update texture every frame
             # audio stream thread...
+            video_queue_size = video_track._queue.qsize() if video_track else 0
+            if should_wait_for_tts_audio(
+                self.tts.has_pending_work(),
+                self.audio_stream.queue.qsize(),
+                self.batch_size * 2,
+                video_queue_size,
+            ):
+                time.sleep(0.01)
+                continue
+
             t = time.perf_counter()
             self.audio_stream.run_step()
             #self.test_step(loop,audio_track,video_track)
@@ -298,7 +330,7 @@ class MuseTalkAvatar(BaseAvatar):
             #     print(f"------actual avg infer fps:{count/totaltime:.4f}")
             #     count=0
             #     totaltime=0
-            if video_track and video_track._queue.qsize()>=1.5*self.config.model.batch_size:
+            if video_track and video_track._queue.qsize() >= MIN_VIDEO_BUFFER_FRAMES:
                 logger.debug('sleep qsize=%d',video_track._queue.qsize())
                 time.sleep(0.04*video_track._queue.qsize()*0.8)
             # if video_track._queue.qsize()>=5:

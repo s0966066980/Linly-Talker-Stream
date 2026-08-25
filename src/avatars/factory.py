@@ -1,4 +1,4 @@
-"""Avatar 工厂类"""
+"""Avatar 工廠類"""
 from typing import Any
 from copy import deepcopy
 from .base import BaseAvatar
@@ -6,23 +6,23 @@ from .base import BaseAvatar
 
 def create_avatar(config: Any, model: Any, avatar: Any, sessionid: int) -> BaseAvatar:
     """
-    根据配置创建对应的 Avatar 实例
+    根據配置建立對應的 Avatar 例項
     
     Args:
-        config: 配置对象
-        model: 加载的模型
-        avatar: avatar 数据(帧列表、坐标等)
-        sessionid: 会话 ID
+        config: 配置物件
+        model: 載入的模型
+        avatar: avatar 資料(幀列表、座標等)
+        sessionid: 會話 ID
     
     Returns:
-        BaseAvatar: Avatar 实例
+        BaseAvatar: Avatar 例項
     """
     model_type = config.model.type
-    # 每个 session 使用独立 config，避免并发会话互相污染（sessionid / customopt 等）
+    # 每個 session 使用獨立 config，避免併發會話互相汙染（sessionid / customopt 等）
     session_config = deepcopy(config)
     session_config.sessionid = sessionid
     
-    # 延迟导入，避免启动时加载全部模型依赖
+    # 延遲匯入，避免啟動時載入全部模型依賴
     if model_type == 'wav2lip':
         from .wav2lip.avatar import Wav2LipAvatar
         return Wav2LipAvatar(session_config, model, avatar)
@@ -44,13 +44,13 @@ def create_avatar(config: Any, model: Any, avatar: Any, sessionid: int) -> BaseA
 
 def prepare_avatar_model(config: Any):
     """
-    预加载 Avatar 模型
+    預載入 Avatar 模型
     
     Args:
-        config: 配置对象
+        config: 配置物件
     
     Returns:
-        tuple: (model, avatar) 模型和 avatar 数据
+        tuple: (model, avatar) 模型和 avatar 資料
     """
     model_type = config.model.type
     
@@ -62,7 +62,13 @@ def prepare_avatar_model(config: Any):
         return model, avatar
     elif model_type == 'wav2lip':
         from .wav2lip.avatar import load_model, load_avatar, warm_up
-        model = load_model("./models/wav2lip.pth")
+        from .catalog import resolve_wav2lip_weights
+        ckpt = resolve_wav2lip_weights()
+        if ckpt is None:
+            raise FileNotFoundError(
+                "缺少 Wav2Lip 權重，請放置 models/wav2lip.pth 或 models/wav2lip256.pth"
+            )
+        model = load_model(str(ckpt))
         avatar = load_avatar(config.model.avatar_id)
         warm_up(config.model.batch_size, model, 256)
         return model, avatar
@@ -84,3 +90,26 @@ def prepare_avatar_model(config: Any):
         return model, avatar
     else:
         raise ValueError(f"Unknown model type: {model_type}")
+
+
+def load_avatar_data(config: Any):
+    """只過載角色素材，不重新載入引擎權重。"""
+    model_type = config.model.type
+    avatar_id = config.model.avatar_id
+
+    if model_type == "musetalk":
+        from .musetalk.avatar import load_avatar
+        return load_avatar(avatar_id)
+    if model_type == "wav2lip":
+        from .wav2lip.avatar import load_avatar
+        return load_avatar(avatar_id)
+    if model_type == "ultralight":
+        from .ultralight.avatar import load_avatar
+        return load_avatar(avatar_id)
+    if model_type == "ernerf":
+        from .ernerf.avatar import load_avatar
+        return load_avatar(config)
+    if model_type == "talkinggaussian":
+        from .talkinggaussian.avatar import load_avatar
+        return load_avatar(config)
+    raise ValueError(f"Unknown model type: {model_type}")

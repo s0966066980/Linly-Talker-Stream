@@ -1,4 +1,4 @@
-"""LLM 服务模块"""
+"""LLM 服務模組"""
 
 from typing import Optional
 
@@ -15,14 +15,23 @@ def llm_response(
     avatar_stream: BaseAvatar,
     api_key: str = os.getenv("DASHSCOPE_API_KEY"),
     base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    model: str = "qwen-plus"
+    model: str = "qwen-plus",
+    *,
+    stream_to_avatar: bool = True,
 ) -> str:
-    """调用 LLM 并将响应流式推送到 avatar"""
+    """呼叫 LLM 並將響應流式推送到 avatar"""
     try:
-        config = getattr(avatar_stream, 'config', None)
+        from src.server.state import state as server_state
+
+        config = getattr(avatar_stream, 'config', None) or server_state.config
+        _ensure_llamacpp_if_needed(config)
+        if config is not None and getattr(config, "llm", None) is not None:
+            base_url = config.llm.base_url or base_url
+            model = config.llm.model or model
+            api_key = config.llm.api_key or api_key
         sessionid = getattr(avatar_stream, 'sessionid', 0)
         
-        # 为每个 session 维护独立的 LLM 实例(保留对话历史)
+        # 為每個 session 維護獨立的 LLM 例項(保留對話歷史)
         if sessionid not in _session_llm_instances:
             logger.info(f"Creating new LLM instance for session {sessionid}")
             _session_llm_instances[sessionid] = OpenAILLM(
@@ -31,29 +40,99 @@ def llm_response(
                 api_key=api_key,
                 base_url=base_url,
                 model=model,
-                max_history=10  # 保留最近10轮对话
+                max_history=10  # 保留最近10輪對話
             )
         
         llm = _session_llm_instances[sessionid]
-        return llm.generate_response(message, avatar_stream)
+        llm.base_url = base_url
+        llm.model = model
+        if api_key:
+            llm.api_key = api_key
+        return llm.generate_response(
+            message,
+            avatar_stream,
+            stream_to_avatar=stream_to_avatar,
+        )
         
     except Exception as e:
         logger.error(f"Error in llm_response: {e}")
         raise
 
 
+def _ensure_llamacpp_if_needed(config) -> None:
+    if config is None or getattr(config, "llm", None) is None:
+        return
+    if getattr(config.llm, "provider", "") != "llamacpp":
+        return
+    from src.llm.llamacpp import ensure_server, server_status
+
+    host = getattr(config.llm, "llamacpp_host", "127.0.0.1") or "127.0.0.1"
+    port = int(getattr(config.llm, "llamacpp_port", 8080) or 8080)
+    if server_status(host, port)["running"]:
+        return
+    logger.warning("llama-server 未在執行，正在自動啟動...")
+    base_url = ensure_server(
+        config.llm.model,
+        extra_dir=getattr(config.llm, "llamacpp_dir", "") or "",
+        host=host,
+        port=port,
+        ctx=int(getattr(config.llm, "llamacpp_ctx", 2048) or 2048),
+        threads=int(getattr(config.llm, "llamacpp_threads", 0) or 0),
+    )
+    config.llm.base_url = base_url
+
+
 def clear_session_history(sessionid: int):
-    """清空指定会话的对话历史"""
+    """清空指定會話的對話歷史"""
     if sessionid in _session_llm_instances:
         _session_llm_instances[sessionid].clear_history()
         logger.info(f"Cleared history for session {sessionid}")
 
 
 def remove_session(sessionid: int):
-    """删除指定会话的 LLM 实例"""
+    """刪除指定會話的 LLM 例項"""
     if sessionid in _session_llm_instances:
         del _session_llm_instances[sessionid]
         logger.info(f"Removed LLM instance for session {sessionid}")
 
 
-__all__ = ["llm_response", "clear_session_history", "remove_session"]
+def switch_llm_model(model: str):
+    """更新已有會話的 LLM 模型名，保留對話歷史。"""
+    switch_llm_endpoint(model=model)
+
+
+def switch_llm_endpoint(
+    model: str,
+    base_url: str = None,
+    extra_body=None,
+    api_key: str = None,
+    max_tokens: int = None,
+    system_prompt: str = None,
+):
+    """更新已有會話的模型與介面，base_url 變化時重建客戶端。"""
+    for sessionid, llm in _session_llm_instances.items():
+        llm.model = model
+        if base_url:
+            llm.base_url = base_url
+            llm._client = None
+        if extra_body is not None:
+            llm.extra_body = dict(extra_body)
+        if api_key:
+            llm.api_key = api_key
+            llm._client = None
+        if max_tokens is not None:
+            llm.max_tokens = int(max_tokens)
+        if system_prompt is not None:
+            llm.system_prompt = system_prompt
+        logger.info(
+            f"Updated LLM for session {sessionid}: model={llm.model}, base_url={llm.base_url}"
+        )
+
+
+__all__ = [
+    "llm_response",
+    "clear_session_history",
+    "remove_session",
+    "switch_llm_model",
+    "switch_llm_endpoint",
+]

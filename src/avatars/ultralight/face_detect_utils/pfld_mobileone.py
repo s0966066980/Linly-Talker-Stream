@@ -86,7 +86,7 @@ class PFLD_GhostOne(Module):
         self.avg_pool2 = AvgPool2d(input_size // 4)
         self.avg_pool3 = AvgPool2d(input_size // 8)
         self.avg_pool4 = AvgPool2d(input_size // 16)
-        self.conv_out = nn.Conv2d(int(512*width_factor), landmark_number*2, 1, 1, 0)  # 这个大小需要改
+        self.conv_out = nn.Conv2d(int(512*width_factor), landmark_number*2, 1, 1, 0)  # 這個大小需要改
         self.localization = nn.Sequential(
             nn.Conv2d(1, 8, kernel_size=7),
             nn.MaxPool2d(2, stride=2),
@@ -210,7 +210,7 @@ class PFLD_GhostOne_WithSTN(Module):
         self.avg_pool2 = AvgPool2d(input_size // 4)
         self.avg_pool3 = AvgPool2d(input_size // 8)
         self.avg_pool4 = AvgPool2d(input_size // 16)
-        self.conv_out = nn.Conv2d(int(512*width_factor), landmark_number*2, 1, 1, 0)  # 这个大小需要改
+        self.conv_out = nn.Conv2d(int(512*width_factor), landmark_number*2, 1, 1, 0)  # 這個大小需要改
 
 
     def forward(self, x):

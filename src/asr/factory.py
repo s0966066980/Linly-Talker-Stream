@@ -1,18 +1,19 @@
 """
-ASR 工厂类
+ASR 工廠類
 
-统一根据字符串类型创建不同的 ASR 引擎实例
+統一根據字串型別建立不同的 ASR 引擎例項
 """
 
 from typing import Type, Optional
 
 from src.asr.base import BaseASR
-from src.asr.engines import WhisperASR, FunASR
+from src.asr.engines import FunASR, Qwen3ASR, WhisperASR
 
 
 _ENGINE_MAP: dict[str, Type[BaseASR]] = {
     "whisper": WhisperASR,
     "funasr": FunASR,
+    "qwen3-asr": Qwen3ASR,
 }
 
 
@@ -25,17 +26,18 @@ def create_asr_engine(
     engine_cls = _ENGINE_MAP.get(asr_type)
     if engine_cls is None:
         raise ValueError(
-            f"未知的 ASR 类型: {asr_type!r}\n"
-            f"支持的类型: {list(_ENGINE_MAP.keys())}"
+            f"未知的 ASR 型別: {asr_type!r}\n"
+            f"支援的型別: {list(_ENGINE_MAP.keys())}"
         )
     
-    # 根据不同引擎传递参数
-    if asr_type == "whisper":
+    # 根據不同引擎傳遞引數
+    if asr_type in {"whisper", "qwen3-asr"}:
         return engine_cls(config=config, model_size=model_size)
     else:
         return engine_cls(config=config, **kwargs)
 
 _asr_instance: Optional[BaseASR] = None
+_asr_instance_key = None
 
 
 def get_asr_engine(
@@ -45,23 +47,53 @@ def get_asr_engine(
     force_new: bool = False,
     **kwargs
 ) -> BaseASR:
-    global _asr_instance
+    global _asr_instance, _asr_instance_key
+    device = getattr(getattr(config, "asr", None), "device", "auto")
+    language = getattr(getattr(config, "asr", None), "language", "zh")
+    key = (asr_type, model_size, device, language)
     
-    # 单例复用，避免重复加载模型
-    if _asr_instance is None or force_new:
+    # 單例複用，避免重複載入模型
+    if _asr_instance is None or force_new or _asr_instance_key != key:
         _asr_instance = create_asr_engine(
             asr_type=asr_type,
             config=config,
             model_size=model_size,
             **kwargs
         )
+        _asr_instance.set_language(language)
+        _asr_instance_key = key
     
     return _asr_instance
 
 
 def release_asr_engine():
-    global _asr_instance
+    global _asr_instance, _asr_instance_key
     if _asr_instance is not None:
         from src.utils.logging import logger
         logger.info('[ASR] release ASR engine resources')
+        worker = getattr(_asr_instance, "worker", None)
+        if worker is not None:
+            worker.close()
         _asr_instance = None
+        _asr_instance_key = None
+
+
+def activate_asr_engine(
+    engine: BaseASR,
+    *,
+    asr_type: str,
+    model_size: str,
+    config=None,
+) -> BaseASR:
+    """Install an already-prewarmed candidate without loading the model twice."""
+    global _asr_instance, _asr_instance_key
+    device = getattr(getattr(config, "asr", None), "device", "auto")
+    language = getattr(getattr(config, "asr", None), "language", "zh")
+    previous = _asr_instance
+    if previous is not None and previous is not engine:
+        worker = getattr(previous, "worker", None)
+        if worker is not None:
+            worker.close()
+    _asr_instance = engine
+    _asr_instance_key = (asr_type, model_size, device, language)
+    return engine

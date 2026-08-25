@@ -9,7 +9,7 @@
             @click="activeTab = 'chat'"
             type="button"
           >
-            对话模式
+            對話模式
           </button>
         </li>
         <li class="nav-item" role="presentation">
@@ -19,14 +19,14 @@
             @click="activeTab = 'tts'"
             type="button"
           >
-            朗读模式
+            朗讀模式
           </button>
         </li>
       </ul>
     </div>
     
     <div class="card-body">
-      <!-- 对话模式 -->
+      <!-- 對話模式 -->
       <div v-if="activeTab === 'chat'" class="chat-panel">
         <div class="asr-container mb-3" ref="chatMessagesRef">
           <div 
@@ -35,7 +35,7 @@
             class="asr-text"
             :class="msg.type === 'user' ? 'user-message' : 'system-message'"
           >
-            {{ msg.type === 'user' ? '您' : '数字人' }}: {{ msg.text }}
+            {{ msg.type === 'user' ? '您' : '數字人' }}: {{ msg.text }}
           </div>
         </div>
         
@@ -45,11 +45,11 @@
               class="form-control" 
               v-model="chatInput"
               rows="3" 
-              placeholder="输入您想对数字人说的话..."
+              placeholder="輸入您想對數字人說的話..."
             ></textarea>
           </div>
           <button class="btn btn-primary w-100 mb-3" type="submit">
-            <i class="bi bi-send"></i> 发送消息
+            <i class="bi bi-send"></i> 傳送訊息
           </button>
         </form>
         
@@ -60,21 +60,21 @@
         />
       </div>
       
-      <!-- 朗读模式 -->
+      <!-- 朗讀模式 -->
       <div v-if="activeTab === 'tts'" class="tts-panel">
         <form @submit.prevent="sendTTSMessage">
           <div class="mb-3">
-            <label for="tts-message" class="form-label">输入要朗读的文本</label>
+            <label for="tts-message" class="form-label">輸入要朗讀的文本</label>
             <textarea 
               class="form-control" 
               id="tts-message"
               v-model="ttsInput"
               rows="8" 
-              placeholder="输入您想让数字人朗读的文字..."
+              placeholder="輸入您想讓數字人朗讀的文字..."
             ></textarea>
           </div>
           <button type="submit" class="btn btn-primary w-100">
-            <i class="bi bi-volume-up"></i> 朗读文本
+            <i class="bi bi-volume-up"></i> 朗讀文本
           </button>
         </form>
       </div>
@@ -99,7 +99,7 @@ const activeTab = ref('chat')
 const chatInput = ref('')
 const ttsInput = ref('')
 const chatMessages = ref([
-  { type: 'system', text: '欢迎使用Linly-Talker-Stream，请点击"开始连接"按钮开始对话。' }
+  { type: 'system', text: '歡迎使用Linly-Talker-Stream，請點選"開始連線"按鈕開始對話。' }
 ])
 const chatMessagesRef = ref(null)
 
@@ -136,7 +136,7 @@ const sendTTSMessage = () => {
     type: 'echo'
   })
   
-  addChatMessage(`已发送朗读请求: "${message}"`, 'system')
+  addChatMessage(`已傳送朗讀請求: "${message}"`, 'system')
   ttsInput.value = ''
 }
 
