@@ -28,17 +28,53 @@ async def offer(request):
         )
 
     params = await request.json()
+    client_role = str(params.get("client_role", "console")).strip().lower()
+    if client_role not in {"console", "stage"}:
+        client_role = "console"
+
+    max_sessions = max(1, int(getattr(state.config.app, "max_session", 1)))
+    if state.count_sessions(client_role) >= max_sessions:
+        return web.Response(
+            status=429,
+            content_type="application/json",
+            text=json.dumps(
+                {
+                    "code": -1,
+                    "msg": f"{client_role} WebRTC 會話數已達上限，請先關閉同類頁面",
+                }
+            ),
+        )
+
     offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
-    
+
+    # No await between this second check and reservation: concurrent offers
+    # cannot both pass max_session while avatar creation is in an executor.
+    if state.count_sessions(client_role) >= max_sessions:
+        return web.Response(
+            status=429,
+            content_type="application/json",
+            text=json.dumps(
+                {
+                    "code": -1,
+                    "msg": f"{client_role} WebRTC 會話數已達上限，請稍後再試",
+                }
+            ),
+        )
     sessionid = randN(6)
-    state.add_session(sessionid, None)
-    logger.info('sessionid=%d, session num=%d', sessionid, len(state.avatar_streams))
+    state.add_session(sessionid, None, role=client_role)
+    logger.info(
+        'sessionid=%d, role=%s, role sessions=%d, total sessions=%d',
+        sessionid,
+        client_role,
+        state.count_sessions(client_role),
+        len(state.avatar_streams),
+    )
     
     # 建立 avatar 可能耗時，放執行緒池
     avatar_stream = await asyncio.get_event_loop().run_in_executor(
         None, create_avatar, state.config, state.model, state.avatar, sessionid
     )
-    state.add_session(sessionid, avatar_stream)
+    state.add_session(sessionid, avatar_stream, role=client_role)
 
     voice_session = VoiceTurnSession(sessionid, state.config, avatar_stream)
     state.voice_sessions[sessionid] = voice_session

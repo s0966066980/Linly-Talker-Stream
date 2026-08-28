@@ -130,6 +130,7 @@ class BaseLLM(ABC):
         avatar_stream: Optional["BaseAvatar"] = None,
         *,
         stream_to_avatar: bool = True,
+        datainfo: Optional[dict] = None,
     ) -> str:
         """生成完整響應並推送到 avatar"""
         start_time = time.perf_counter()
@@ -141,7 +142,7 @@ class BaseLLM(ABC):
         def send_to_avatar(text: str) -> None:
             if target_avatar:
                 logger.info(f"Sending to avatar: {text}")
-                target_avatar.put_msg_txt(text)
+                target_avatar.put_msg_txt(text, dict(datainfo or {}))
         
         try:
             # 記錄首包延遲，方便定位 LLM 響應瓶頸

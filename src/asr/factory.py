@@ -4,6 +4,7 @@ ASR 工廠類
 統一根據字串型別建立不同的 ASR 引擎例項
 """
 
+from threading import RLock
 from typing import Type, Optional
 
 from src.asr.base import BaseASR
@@ -38,6 +39,7 @@ def create_asr_engine(
 
 _asr_instance: Optional[BaseASR] = None
 _asr_instance_key = None
+_asr_lock = RLock()
 
 
 def get_asr_engine(
@@ -52,30 +54,32 @@ def get_asr_engine(
     language = getattr(getattr(config, "asr", None), "language", "zh")
     key = (asr_type, model_size, device, language)
     
-    # 單例複用，避免重複載入模型
-    if _asr_instance is None or force_new or _asr_instance_key != key:
-        _asr_instance = create_asr_engine(
-            asr_type=asr_type,
-            config=config,
-            model_size=model_size,
-            **kwargs
-        )
-        _asr_instance.set_language(language)
-        _asr_instance_key = key
-    
-    return _asr_instance
+    # Multiple /offer preparations run in executor threads.  Serialize the
+    # check-and-create transition so they cannot each load a GPU model.
+    with _asr_lock:
+        if _asr_instance is None or force_new or _asr_instance_key != key:
+            _asr_instance = create_asr_engine(
+                asr_type=asr_type,
+                config=config,
+                model_size=model_size,
+                **kwargs
+            )
+            _asr_instance.set_language(language)
+            _asr_instance_key = key
+        return _asr_instance
 
 
 def release_asr_engine():
     global _asr_instance, _asr_instance_key
-    if _asr_instance is not None:
-        from src.utils.logging import logger
-        logger.info('[ASR] release ASR engine resources')
-        worker = getattr(_asr_instance, "worker", None)
-        if worker is not None:
-            worker.close()
-        _asr_instance = None
-        _asr_instance_key = None
+    with _asr_lock:
+        if _asr_instance is not None:
+            from src.utils.logging import logger
+            logger.info('[ASR] release ASR engine resources')
+            worker = getattr(_asr_instance, "worker", None)
+            if worker is not None:
+                worker.close()
+            _asr_instance = None
+            _asr_instance_key = None
 
 
 def activate_asr_engine(
@@ -89,11 +93,12 @@ def activate_asr_engine(
     global _asr_instance, _asr_instance_key
     device = getattr(getattr(config, "asr", None), "device", "auto")
     language = getattr(getattr(config, "asr", None), "language", "zh")
-    previous = _asr_instance
-    if previous is not None and previous is not engine:
-        worker = getattr(previous, "worker", None)
-        if worker is not None:
-            worker.close()
-    _asr_instance = engine
-    _asr_instance_key = (asr_type, model_size, device, language)
-    return engine
+    with _asr_lock:
+        previous = _asr_instance
+        if previous is not None and previous is not engine:
+            worker = getattr(previous, "worker", None)
+            if worker is not None:
+                worker.close()
+        _asr_instance = engine
+        _asr_instance_key = (asr_type, model_size, device, language)
+        return engine

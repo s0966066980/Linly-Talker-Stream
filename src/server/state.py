@@ -11,6 +11,7 @@ class ServerState:
         # 會話管理
         self.avatar_streams: Dict[int, BaseAvatar] = {}  # sessionid -> BaseAvatar
         self.voice_sessions: Dict[int, Any] = {}
+        self.session_roles: Dict[int, str] = {}
         
         # WebRTC 連線管理
         self.pcs: Set[RTCPeerConnection] = set()
@@ -26,15 +27,30 @@ class ServerState:
         self.model_ready = False
         self.switching = False
     
-    def add_session(self, sessionid: int, avatar_stream: BaseAvatar = None):
+    def add_session(
+        self,
+        sessionid: int,
+        avatar_stream: BaseAvatar = None,
+        role: str = "console",
+    ):
         """新增會話"""
         self.avatar_streams[sessionid] = avatar_stream
+        self.session_roles[sessionid] = role
     
     def remove_session(self, sessionid: int):
         """移除會話"""
         if sessionid in self.avatar_streams:
             del self.avatar_streams[sessionid]
         self.voice_sessions.pop(sessionid, None)
+        self.session_roles.pop(sessionid, None)
+
+    def count_sessions(self, role: str) -> int:
+        """計算指定頁面角色的會話；舊會話預設視為控制台。"""
+        return sum(
+            1
+            for sessionid in self.avatar_streams
+            if self.session_roles.get(sessionid, "console") == role
+        )
     
     def get_session(self, sessionid: int) -> BaseAvatar:
         """獲取會話"""

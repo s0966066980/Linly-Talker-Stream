@@ -62,13 +62,30 @@ class BaseAudioStreamHandler:
     def get_audio_out(self): 
         return self.output_queue.get()
     
+    def av_offset_frames(self) -> int:
+        """把 av_offset_ms 換算成音訊幀數，並夾在不會讓輸出佇列見底的範圍內。"""
+        offset_ms = int(getattr(self.config.audio, "av_offset_ms", 0) or 0)
+        frames = int(round(offset_ms * self.fps / 1000.0))
+        # 正值吃的是 warm_up 推進去的 right stride。留 2 幀不動：把積壓抽到 0
+        # 會讓音訊軌在 run_step 之間餓死，而餓死的軌會永久落後真實時間。
+        return max(-self.stride_left_size, min(frames, max(0, self.stride_right_size - 2)))
+
     def warm_up(self):
+        offset = self.av_offset_frames()
+        primed = []
         for _ in range(self.stride_left_size + self.stride_right_size):
             audio_frame, type, eventpoint = self.get_audio_frame()
             self.frames.append(audio_frame)
-            self.output_queue.put((audio_frame, type, eventpoint))
-        for _ in range(self.stride_left_size):
-            self.output_queue.get()
+            primed.append((audio_frame, type, eventpoint))
+
+        # output_queue 是 FIFO，要讓音訊晚出現就得把靜音墊在最前面
+        for _ in range(max(0, -offset)):
+            self.output_queue.put((np.zeros(self.chunk, dtype=np.float32), 1, None))
+
+        # 丟掉開頭 stride_left 幀是原本就有的對齊；正的 offset 再多丟幾幀，
+        # 等於把整條音軌往前拉，用來補償嘴型領先聲音。
+        for item in primed[self.stride_left_size + max(0, offset):]:
+            self.output_queue.put(item)
 
     def run_step(self):
         """執行一步音訊處理，子類需要實現此方法"""

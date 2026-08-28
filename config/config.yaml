@@ -17,7 +17,8 @@ model:
   # 啟動時若該角色素材齊全會預載；否則服務仍會啟動，到設定裡再選
   type: musetalk  # wav2lip | musetalk | ultralight | ernerf | talkinggaussian
   avatar_id: musetalk_avatar1
-  batch_size: 16
+  # Low-latency conversation: 8 frames = 320ms at 25fps (was 640ms at 16).
+  batch_size: 8
   model_path: ./models
   
   # ERNeRF 配置資訊參考
@@ -94,6 +95,12 @@ vad:
 audio:
   fps: 50
   sample_rate: 16000
+  # 音影像對齊補償（毫秒）。嘴型由一段 200ms 的 mel 視窗生成，而視窗是從配對的
+  # 音訊幀往後取，等效中心在 +100ms，所以嘴型會領先聲音。正值把音訊往前拉，
+  # 用來治「聲音比嘴型慢」；覺得補過頭就往下調，0 = 完全不補償。
+  # 有效範圍 -200 ~ 160（受 l=10 / r=10 限制），超過會被夾住。
+  # 註：實測 100 對「聲音比嘴慢」無改善，已調回 0；該症狀另有原因。
+  av_offset_ms: 0
 
 # Video配置資訊，運用於ERNeRF和TalkingGaussian
 video:

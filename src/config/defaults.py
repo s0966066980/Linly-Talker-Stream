@@ -36,7 +36,8 @@ def get_default_config() -> Config:
             sample_rate=16000,
             l=10,
             m=8,
-            r=10
+            r=10,
+            av_offset_ms=0
         ),
         video=VideoConfig(
             width=450,

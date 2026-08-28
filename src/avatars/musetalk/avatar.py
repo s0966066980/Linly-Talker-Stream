@@ -32,6 +32,18 @@ from tqdm import tqdm
 from src.utils.logging import logger
 
 MIN_VIDEO_BUFFER_FRAMES = 5
+MOUTH_ACTIVITY_THRESHOLD = 1e-4
+
+
+def put_result_frame(result_queue, item, quit_event) -> bool:
+    """Bounded put that lets MuseTalk inference stop even when playback is gone."""
+    while not quit_event.is_set():
+        try:
+            result_queue.put(item, block=True, timeout=0.1)
+            return True
+        except queue.Full:
+            continue
+    return False
 
 
 def should_wait_for_tts_audio(
@@ -40,11 +52,24 @@ def should_wait_for_tts_audio(
     required_audio_frames: int,
     queued_video_frames: int,
 ) -> bool:
-    """Hold prefetch briefly instead of baking silence ahead of pending TTS."""
+    """Keep incomplete speech batches from being padded with mid-sentence silence."""
     return (
         tts_pending
         and queued_audio_frames < required_audio_frames
-        and queued_video_frames >= MIN_VIDEO_BUFFER_FRAMES
+        and (
+            queued_audio_frames > 0
+            or queued_video_frames >= MIN_VIDEO_BUFFER_FRAMES
+        )
+    )
+
+
+def is_audible_speech_frame(frame: np.ndarray, frame_type: int) -> bool:
+    """Return whether one PCM frame should drive a generated mouth pose."""
+    samples = np.asarray(frame)
+    return (
+        frame_type == 0
+        and samples.size > 0
+        and float(np.max(np.abs(samples))) > MOUTH_ACTIVITY_THRESHOLD
     )
 
 
@@ -158,13 +183,20 @@ def inference(quit_event,batch_size,input_latent_list_cycle,audio_feat_queue,aud
         is_all_silence=True
         audio_frames = []
         for _ in range(batch_size*2):
-            frame,type,eventpoint = audio_out_queue.get()
-            audio_frames.append((frame,type,eventpoint))
-            if type==0:
+            frame,frame_type,eventpoint = audio_out_queue.get()
+            if frame_type == 0 and not is_audible_speech_frame(frame, frame_type):
+                frame_type = 1
+            audio_frames.append((frame,frame_type,eventpoint))
+            if frame_type==0:
                 is_all_silence=False
         if is_all_silence:
             for i in range(batch_size):
-                res_frame_queue.put((None,__mirror_index(length,index),audio_frames[i*2:i*2+2]))
+                if not put_result_frame(
+                    res_frame_queue,
+                    (None,__mirror_index(length,index),audio_frames[i*2:i*2+2]),
+                    quit_event,
+                ):
+                    break
                 index = index + 1
         else:
             # print('infer=======')
@@ -208,7 +240,18 @@ def inference(quit_event,batch_size,input_latent_list_cycle,audio_feat_queue,aud
                 counttime=0
             for i,res_frame in enumerate(recon):
                 #self.__pushmedia(res_frame,loop,audio_track,video_track)
-                res_frame_queue.put((res_frame,__mirror_index(length,index),audio_frames[i*2:i*2+2]))
+                paired_audio = audio_frames[i*2:i*2+2]
+                output_frame = (
+                    res_frame
+                    if any(frame_type == 0 for _, frame_type, _ in paired_audio)
+                    else None
+                )
+                if not put_result_frame(
+                    res_frame_queue,
+                    (output_frame,__mirror_index(length,index),paired_audio),
+                    quit_event,
+                ):
+                    break
                 index = index + 1
             #print('total batch time:',time.perf_counter()-starttime)            
     logger.info('musereal inference processor stop')
@@ -343,8 +386,8 @@ class MuseTalkAvatar(BaseAvatar):
         logger.info('musereal thread stop')
 
         infer_quit_event.set()
+        process_quit_event.set()
         infer_thread.join()
 
-        process_quit_event.set()
         process_thread.join()
             

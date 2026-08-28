@@ -220,6 +220,10 @@ class AudioConfig:
     l: int = 10  # left length
     m: int = 8   # middle length
     r: int = 10  # right length
+    # 音影像對齊補償（毫秒）。嘴型是用一段 200ms 的 mel 視窗生成的，而該視窗
+    # 從配對的音訊幀「開始」往後取，等效中心落在 +100ms，因此嘴型會領先聲音。
+    # 正值把音訊輸出往前推（治「聲音比嘴慢」），負值往後延。0 = 不補償。
+    av_offset_ms: int = 0
 
 
 @dataclass

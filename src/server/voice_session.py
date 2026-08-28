@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from typing import Callable, Optional
 from uuid import uuid4
@@ -46,9 +47,17 @@ class VoiceTurnSession:
         self._track_task: Optional[asyncio.Task] = None
         self._turn_task: Optional[asyncio.Task] = None
         self._tail_task: Optional[asyncio.Task] = None
+        self._finalize_task: Optional[asyncio.Task] = None
         self._output_active = False
         self._silent_output_frames = 0
+        self._segmenter_reset_pending = True
         self._resampler = AudioResampler(format="s16", layout="mono", rate=16000)
+        # Silero/PyTorch must never run on aiohttp/aiortc's media event loop.
+        # One worker preserves the segmenter's stateful frame ordering.
+        self._voice_executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix=f"voice-input-{sessionid}",
+        )
 
     async def prepare(self) -> None:
         """Prewarm Silero and STT before the session may announce listening."""
@@ -96,24 +105,23 @@ class VoiceTurnSession:
         kind = message.get("type")
         if kind == "capture":
             enabled = bool(message.get("enabled"))
-            if not enabled and bool(message.get("finalize")) and self._segmenter is not None:
-                segments = list(self._segmenter.flush())
-                if segments and self._gate_open:
-                    self._close_gate()
-                    if self._turn_id is None:
-                        self._turn_id = uuid4().hex
-                    generation = self._generation
-                    segment = segments[0]
-                    self._turn_task = asyncio.create_task(
-                        self._process_turn(
-                            segment.audio,
-                            segment.sample_rate,
-                            self._turn_id,
-                            generation,
-                        )
-                    )
+            finalize = (
+                not enabled
+                and bool(message.get("finalize"))
+                and self._segmenter is not None
+                and self._gate_open
+            )
             self._capture_requested = enabled
             self._manual_pause = not enabled
+            if finalize:
+                # Preserve the current segment until flush runs in the same
+                # ordered worker as resampling/VAD.
+                self._gate_open = False
+                self._emit("state", state="paused")
+                self._finalize_task = asyncio.create_task(
+                    self._finalize_capture()
+                )
+                return
             if enabled and self._output_active:
                 return
             self._refresh_gate()
@@ -129,8 +137,13 @@ class VoiceTurnSession:
         try:
             while not self._closed:
                 frame = await track.recv()
-                for converted in self._resampler.resample(frame):
-                    pcm = converted.to_ndarray().reshape(-1).astype(np.int16, copy=False)
+                loop = asyncio.get_running_loop()
+                pcm_chunks = await loop.run_in_executor(
+                    self._voice_executor,
+                    self._resample_frame_sync,
+                    frame,
+                )
+                for pcm in pcm_chunks:
                     await self.feed_pcm(pcm)
         except asyncio.CancelledError:
             raise
@@ -140,13 +153,25 @@ class VoiceTurnSession:
                 self._emit("state", state="reconnecting", error="microphone_track_lost")
                 self._close_gate()
 
+    def _resample_frame_sync(self, frame) -> list[np.ndarray]:
+        return [
+            converted.to_ndarray().reshape(-1).astype(np.int16, copy=False)
+            for converted in self._resampler.resample(frame)
+        ]
+
     async def feed_pcm(self, pcm: np.ndarray) -> None:
         """Feed mono 16 kHz int16 PCM; intentionally a small testable seam."""
         if not self._gate_open or self._closed or self._segmenter is None:
             return
-        was_speaking = self._segmenter.is_speaking
-        segments = list(self._segmenter.process(pcm))
-        if not was_speaking and self._segmenter.is_speaking:
+        loop = asyncio.get_running_loop()
+        was_speaking, is_speaking, segments = await loop.run_in_executor(
+            self._voice_executor,
+            self._segment_pcm_sync,
+            pcm,
+        )
+        if self._closed:
+            return
+        if not was_speaking and is_speaking:
             self._turn_id = uuid4().hex
             self._emit("state", state="speech_detected")
         if not segments:
@@ -160,6 +185,50 @@ class VoiceTurnSession:
         self._turn_task = asyncio.create_task(
             self._process_turn(segment.audio, segment.sample_rate, self._turn_id, generation)
         )
+
+    def _segment_pcm_sync(self, pcm: np.ndarray):
+        if self._segmenter_reset_pending:
+            self._segmenter.reset()
+            self._segmenter_reset_pending = False
+        was_speaking = self._segmenter.is_speaking
+        segments = list(self._segmenter.process(pcm))
+        return was_speaking, self._segmenter.is_speaking, segments
+
+    async def _finalize_capture(self) -> None:
+        loop = asyncio.get_running_loop()
+        try:
+            segments = await loop.run_in_executor(
+                self._voice_executor,
+                lambda: list(self._segmenter.flush()),
+            )
+            self._segmenter_reset_pending = True
+            if self._closed:
+                return
+            if not segments:
+                return
+            self._close_gate()
+            if self._turn_id is None:
+                self._turn_id = uuid4().hex
+            generation = self._generation
+            segment = segments[0]
+            self._turn_task = asyncio.create_task(
+                self._process_turn(
+                    segment.audio,
+                    segment.sample_rate,
+                    self._turn_id,
+                    generation,
+                )
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            if not self._closed:
+                logger.exception("Voice capture finalize failed")
+                self._emit("state", state="error", error=str(exc))
+        finally:
+            self._finalize_task = None
+            if not self._closed and self._turn_task is None:
+                self._refresh_gate()
 
     async def _process_turn(
         self, audio: np.ndarray, sample_rate: int, turn_id: str, generation: int
@@ -179,9 +248,18 @@ class VoiceTurnSession:
                 return
             self._emit("user_transcript", text=text, turn_id=turn_id)
             self._emit("state", state="llm", turn_id=turn_id)
+            # 逐句推進 TTS。等整段 120 字回覆生成完再一次合成，會讓 Edge TTS
+            # 的往返從 ~0.3s 拉長到 1-2s，數字人因此晚開口；文字訊息路徑一直
+            # 都是逐句的，這裡對齊它。被插話時由 interrupt() 的 flush_talk()
+            # 清掉已排進佇列的句子。
             response = await loop.run_in_executor(
                 None,
-                lambda: llm_response(text, self.avatar, stream_to_avatar=False),
+                lambda: llm_response(
+                    text,
+                    self.avatar,
+                    stream_to_avatar=True,
+                    datainfo={"turn_id": turn_id},
+                ),
             )
             if not self._is_current(turn_id, generation):
                 return
@@ -193,7 +271,6 @@ class VoiceTurnSession:
                 self._turn_task = None
                 self._refresh_gate()
                 return
-            self.avatar.put_msg_txt(response, {"turn_id": turn_id})
             self._turn_task = None
         except asyncio.CancelledError:
             raise
@@ -262,11 +339,17 @@ class VoiceTurnSession:
         self._closed = True
         self._generation += 1
         self._close_gate()
-        for task in (self._track_task, self._turn_task, self._tail_task):
+        for task in (
+            self._track_task,
+            self._turn_task,
+            self._tail_task,
+            self._finalize_task,
+        ):
             if task:
                 task.cancel()
         self.avatar.flush_talk()
         self._event_sink = None
+        self._voice_executor.shutdown(wait=False, cancel_futures=True)
 
     def _is_current(self, turn_id: str, generation: int) -> bool:
         return (
@@ -277,10 +360,10 @@ class VoiceTurnSession:
 
     def _close_gate(self) -> None:
         self._gate_open = False
-        if self._segmenter is not None:
-            self._segmenter.reset()
+        self._segmenter_reset_pending = True
 
     def _refresh_gate(self) -> None:
+        was_open = self._gate_open
         allowed = (
             not self._closed
             and not self._prepare_error
@@ -289,11 +372,12 @@ class VoiceTurnSession:
             and not self._manual_pause
             and not self._output_active
             and self._turn_task is None
+            and self._finalize_task is None
             and self._turn_id is None
         )
         self._gate_open = allowed
-        if self._segmenter is not None:
-            self._segmenter.reset()
+        if allowed and not was_open:
+            self._segmenter_reset_pending = True
         self._emit("state", state="listening" if allowed else "paused")
 
     def _emit(self, event_type: str, *, turn_id: Optional[str] = None, **payload) -> None:

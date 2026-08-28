@@ -385,7 +385,11 @@ const chatMessages = ref([
 ])
 
 const isConnected = computed(() => connectionStatus.value === 'connected')
-const canConnect = computed(() => backendReady.value && modelReady.value)
+const canConnect = computed(() => (
+  backendReady.value
+  && modelReady.value
+  && connectionStatus.value !== 'connecting'
+))
 const connectButtonLabel = computed(() => {
   if (!backendReady.value) return t('video.backendStarting')
   if (!modelReady.value) return t('video.selectAvatarFirst')
@@ -611,6 +615,7 @@ const onAvatarReady = async () => {
 
 const handleStartConnection = async () => {
   console.log('🚀 使用者點選"開始連線"按鈕')
+  if (connectionStatus.value === 'connecting') return
   
   // 再次確認後端是否就緒
   if (!backendReady.value) {

@@ -21,7 +21,6 @@ BACKEND_PGID=""
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}🚀 Linly-Talker-Stream - 全棧服務啟動${NC}"
-echo -e "${BLUE}   與 start-backend + start-frontend 相同${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
@@ -80,8 +79,6 @@ if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
 fi
 
 echo -e "${GREEN}✓${NC} 配置檔案: $CONFIG_FILE"
-echo -e "${GREEN}✓${NC} uv: $(uv --version)"
-echo -e "${GREEN}✓${NC} Node.js: $(node --version)"
 
 cd "$FRONTEND_DIR"
 if [ ! -d node_modules ]; then
@@ -110,6 +107,11 @@ clear_port 3000
 PROTOCOL=$(read_protocol "$CONFIG_FILE")
 BACKEND_URL="${PROTOCOL}://localhost:8010"
 FRONTEND_URL="${PROTOCOL}://localhost:3000"
+NETWORK_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+if [ -z "$NETWORK_IP" ]; then
+    NETWORK_IP="localhost"
+fi
+NETWORK_FRONTEND_URL="${PROTOCOL}://${NETWORK_IP}:3000"
 mkdir -p "$PROJECT_ROOT/logs"
 BACKEND_LOG="$PROJECT_ROOT/logs/start-all-backend.log"
 
@@ -141,13 +143,16 @@ fi
 
 echo -e "${GREEN}✓${NC} 後端已就緒: $BACKEND_URL"
 echo ""
-echo -e "${GREEN}📡 後端: ${NC}$BACKEND_URL"
-echo -e "${GREEN}🌐 前端: ${NC}$FRONTEND_URL"
-echo -e "${YELLOW}請開啟前端地址（不是 8010）。按 Ctrl+C 停止全部服務${NC}"
+echo -e "${GREEN}🌐 控制台 Local: ${NC}$FRONTEND_URL"
+echo -e "${GREEN}🌐 控制台 Network: ${NC}$NETWORK_FRONTEND_URL"
+echo -e "${GREEN}🎭 數字人舞台 Local: ${NC}$FRONTEND_URL/stage.html"
+echo -e "${GREEN}🎭 數字人舞台 Network: ${NC}$NETWORK_FRONTEND_URL/stage.html"
+echo -e "${YELLOW}控制台與舞台已分流，可同時連線；設定仍在控制台。按 Ctrl+C 停止全部服務${NC}"
 echo ""
 
 cd "$FRONTEND_DIR"
 CONFIG_BASENAME=$(basename "$CONFIG_FILE" .yaml)
 export CONFIG_FILE="$CONFIG_BASENAME.yaml"
-npm run dev
+export VITE_CONFIG_QUIET=1
+npm --silent run dev -- --logLevel warn
 cleanup

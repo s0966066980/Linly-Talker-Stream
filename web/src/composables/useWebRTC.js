@@ -9,6 +9,7 @@ export function useWebRTC(options = {}) {
   let reconnectTimer = null
   let shouldReconnect = false
   let lastStunServer = null
+  let startPromise = null
   const { onNotification, onVoiceEvent, onConnectionState, onSessionId } = options
 
   const notifyConnection = (state) => {
@@ -74,7 +75,7 @@ export function useWebRTC(options = {}) {
     return sendControl({ type: 'interrupt' })
   }
 
-  const startPlay = async (stunServer = null, initialCapture = true) => {
+  const startPlayOnce = async (stunServer = null, initialCapture = true) => {
     disposeConnection(false)
     shouldReconnect = true
     lastStunServer = stunServer
@@ -149,6 +150,7 @@ export function useWebRTC(options = {}) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          client_role: 'console',
           sdp: pc.localDescription.sdp,
           type: pc.localDescription.type
         })
@@ -178,6 +180,17 @@ export function useWebRTC(options = {}) {
       stopPlay()
       throw error
     }
+  }
+
+  const startPlay = (stunServer = null, initialCapture = true) => {
+    if (startPromise) return startPromise
+    const pending = startPlayOnce(stunServer, initialCapture)
+    startPromise = pending
+    const clearPending = () => {
+      if (startPromise === pending) startPromise = null
+    }
+    pending.then(clearPending, clearPending)
+    return pending
   }
 
   function disposeConnection(manual = true) {

@@ -18,6 +18,7 @@ def llm_response(
     model: str = "qwen-plus",
     *,
     stream_to_avatar: bool = True,
+    datainfo: Optional[dict] = None,
 ) -> str:
     """呼叫 LLM 並將響應流式推送到 avatar"""
     try:
@@ -52,6 +53,7 @@ def llm_response(
             message,
             avatar_stream,
             stream_to_avatar=stream_to_avatar,
+            datainfo=datainfo,
         )
         
     except Exception as e:

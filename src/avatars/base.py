@@ -20,6 +20,7 @@ from io import BytesIO
 import soundfile as sf
 
 import asyncio
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from av import AudioFrame, VideoFrame
 
 import av
@@ -29,6 +30,32 @@ from src.tts.factory import create_tts_engine
 from src.utils.logging import logger
 
 from tqdm import tqdm
+
+
+def wait_media_coroutine(coroutine, loop, quit_event) -> bool:
+    future = asyncio.run_coroutine_threadsafe(coroutine, loop)
+    while not quit_event.is_set():
+        try:
+            future.result(timeout=0.1)
+            return True
+        except FutureTimeoutError:
+            continue
+        except Exception as exc:
+            logger.warning("media queue stopped: %s", exc)
+            return False
+    future.cancel()
+    return False
+
+
+def enqueue_media_frame(track, frame, eventpoint, loop, quit_event) -> bool:
+    """Queue one frame from the renderer thread while honoring WebRTC backpressure."""
+    enqueue = getattr(track, "enqueue", None)
+    coroutine = (
+        enqueue(frame, eventpoint)
+        if callable(enqueue)
+        else track._queue.put((frame, eventpoint))
+    )
+    return wait_media_coroutine(coroutine, loop, quit_event)
 
 
 def read_imgs(img_list):
@@ -244,10 +271,27 @@ class BaseAvatar:
            
             image = combine_frame
             new_frame = VideoFrame.from_ndarray(image, format="bgr24")
+            speech_starts = any(
+                isinstance(audio_frame[2], dict)
+                and audio_frame[2].get("status") == "start"
+                for audio_frame in audio_frames
+            )
+            prepare_speech_start = getattr(
+                audio_track, "prepare_speech_start", None
+            )
+            if speech_starts and callable(prepare_speech_start):
+                if not wait_media_coroutine(
+                    prepare_speech_start(), loop, quit_event
+                ):
+                    break
             # 子執行緒推送到 WebRTC 佇列
-            asyncio.run_coroutine_threadsafe(video_track._queue.put((new_frame,None)), loop)
+            if not enqueue_media_frame(
+                video_track, new_frame, None, loop, quit_event
+            ):
+                break
             self.record_video_data(combine_frame)
 
+            audio_enqueue_failed = False
             for audio_frame in audio_frames:
                 frame,type,eventpoint = audio_frame
                 frame = (frame * 32767).astype(np.int16)
@@ -256,8 +300,14 @@ class BaseAvatar:
                 new_frame.planes[0].update(frame.tobytes())
                 new_frame.sample_rate=16000
                 # 子執行緒推送到 WebRTC 佇列
-                asyncio.run_coroutine_threadsafe(audio_track._queue.put((new_frame,eventpoint)), loop)
+                if not enqueue_media_frame(
+                    audio_track, new_frame, eventpoint, loop, quit_event
+                ):
+                    audio_enqueue_failed = True
+                    break
                 self.record_audio_data(frame)
+            if audio_enqueue_failed:
+                break
         logger.info('basereal process_frames thread stop') 
 
 

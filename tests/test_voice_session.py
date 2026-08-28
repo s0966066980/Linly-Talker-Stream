@@ -1,6 +1,8 @@
 import asyncio
 import json
+import time
 import unittest
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -66,7 +68,15 @@ class VoiceTurnSessionTests(unittest.IsolatedAsyncioTestCase):
             sample_rate=16000,
         )
         session, avatar, events = self.make_session(segment)
-        with patch("src.server.voice_session.llm_response", return_value="您好"):
+
+        # 逐句串流後，推送 TTS 的責任在 llm_response 內部，輪次只負責把
+        # turn_id 交下去。用 side_effect 模擬它逐句回推。
+        def fake_llm(text, avatar_stream, *, stream_to_avatar=True, datainfo=None):
+            self.assertTrue(stream_to_avatar)
+            avatar_stream.put_msg_txt("您好", dict(datainfo or {}))
+            return "您好"
+
+        with patch("src.server.voice_session.llm_response", side_effect=fake_llm):
             await session.feed_pcm(np.ones(512, dtype=np.int16))
             task = session._turn_task
             self.assertIsNotNone(task)
@@ -77,6 +87,92 @@ class VoiceTurnSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(transcript["turn_id"], answer["turn_id"])
         self.assertEqual(avatar.messages, [("您好", {"turn_id": answer["turn_id"]})])
         self.assertEqual([item["seq"] for item in events], sorted(item["seq"] for item in events))
+        await session.close()
+
+    async def test_streaming_vad_does_not_block_the_media_event_loop(self):
+        started = Event()
+        release = Event()
+
+        class SlowSegmenter(FakeSegmenter):
+            def process(self, _pcm):
+                started.set()
+                release.wait(timeout=0.15)
+                return []
+
+        session, _, _ = self.make_session()
+        session._segmenter = SlowSegmenter()
+
+        started_at = time.monotonic()
+        feed_task = asyncio.create_task(
+            session.feed_pcm(np.ones(512, dtype=np.int16))
+        )
+        await asyncio.sleep(0)
+        heartbeat_delay = time.monotonic() - started_at
+        release.set()
+        await feed_task
+
+        self.assertTrue(started.is_set())
+        self.assertLess(heartbeat_delay, 0.05)
+        await session.close()
+
+    async def test_microphone_resampling_does_not_block_the_media_event_loop(self):
+        started = Event()
+        release = Event()
+        keep_track_open = asyncio.Event()
+
+        class SlowResampler:
+            def resample(self, _frame):
+                started.set()
+                release.wait(timeout=0.15)
+                return []
+
+        class OneFrameTrack:
+            def __init__(self):
+                self.calls = 0
+
+            async def recv(self):
+                self.calls += 1
+                if self.calls == 1:
+                    return object()
+                await keep_track_open.wait()
+
+        session, _, _ = self.make_session()
+        session._resampler = SlowResampler()
+
+        started_at = time.monotonic()
+        session.start_track(OneFrameTrack())
+        await asyncio.sleep(0)
+        heartbeat_delay = time.monotonic() - started_at
+        release.set()
+
+        self.assertTrue(started.is_set())
+        self.assertLess(heartbeat_delay, 0.05)
+        await session.close()
+
+    async def test_push_to_talk_finalize_does_not_block_the_media_event_loop(self):
+        started = Event()
+        release = Event()
+
+        class SlowFlushSegmenter(FakeSegmenter):
+            def flush(self):
+                started.set()
+                release.wait(timeout=0.15)
+                return []
+
+        session, _, _ = self.make_session()
+        session._segmenter = SlowFlushSegmenter()
+
+        started_at = time.monotonic()
+        session.handle_control(
+            json.dumps({"type": "capture", "enabled": False, "finalize": True})
+        )
+        control_delay = time.monotonic() - started_at
+        await asyncio.sleep(0)
+        heartbeat_delay = time.monotonic() - started_at
+        release.set()
+
+        self.assertLess(control_delay, 0.05)
+        self.assertLess(heartbeat_delay, 0.05)
         await session.close()
 
     async def test_outbound_audio_closes_gate_and_emits_speaking_edges(self):
@@ -101,6 +197,61 @@ class VoiceTurnSessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(session._gate_open)
         self.assertTrue(any(item["type"] == "turn_cancelled" for item in events))
         await session.close()
+
+
+class WebRTCOfferCapacityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_offer_rejects_before_loading_when_session_capacity_is_full(self):
+        from src.server.routes.webrtc import offer
+        from src.server.state import state
+
+        request = AsyncMock()
+        request.json.return_value = {
+            "client_role": "console",
+            "sdp": "offer",
+            "type": "offer",
+        }
+        config = SimpleNamespace(app=SimpleNamespace(max_session=1))
+        with (
+            patch.object(state, "model_ready", True),
+            patch.object(state, "model", object()),
+            patch.object(state, "avatar", object()),
+            patch.object(state, "config", config),
+            patch.object(state, "avatar_streams", {1: object()}),
+            patch.object(state, "session_roles", {1: "console"}, create=True),
+        ):
+            response = await offer(request)
+
+        self.assertEqual(response.status, 429)
+        request.json.assert_awaited_once()
+
+    async def test_console_and_stage_have_independent_capacity(self):
+        from src.server.routes.webrtc import offer
+        from src.server.state import state
+
+        class ReachedOfferParsing(Exception):
+            pass
+
+        request = AsyncMock()
+        request.json.return_value = {
+            "client_role": "console",
+            "sdp": "offer",
+            "type": "offer",
+        }
+        config = SimpleNamespace(app=SimpleNamespace(max_session=1))
+        with (
+            patch.object(state, "model_ready", True),
+            patch.object(state, "model", object()),
+            patch.object(state, "avatar", object()),
+            patch.object(state, "config", config),
+            patch.object(state, "avatar_streams", {1: object()}),
+            patch.object(state, "session_roles", {1: "stage"}, create=True),
+            patch(
+                "src.server.routes.webrtc.RTCSessionDescription",
+                side_effect=ReachedOfferParsing,
+            ),
+        ):
+            with self.assertRaises(ReachedOfferParsing):
+                await offer(request)
 
 
 if __name__ == "__main__":
