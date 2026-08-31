@@ -15,6 +15,7 @@ from src.llm.base import (
     with_response_length_instruction,
 )
 from src.utils.logging import logger
+from src.llm.history import HistoryTransaction, TransactionalHistory
 
 
 class OpenAILLM(BaseLLM):
@@ -38,7 +39,7 @@ class OpenAILLM(BaseLLM):
         self.base_url = base_url
         self.model = model
         self.max_history = max_history
-        self.conversation_history = []  # 對話歷史 [{'role': 'user/assistant', 'content': '...'}]
+        self._history = TransactionalHistory(max_turns=max_history)
         
         # 從配置讀取額外請求體引數（如 Ollama 的 reasoning_effort）
         llm_cfg = getattr(config, "llm", None) if config is not None else None
@@ -69,23 +70,54 @@ class OpenAILLM(BaseLLM):
     
     def add_to_history(self, role: str, content: str):
         """新增訊息到對話歷史"""
-        self.conversation_history.append({'role': role, 'content': content})
-        
-        # 保持歷史記錄在限制範圍內（保留最近的 max_history 輪對話）
-        if len(self.conversation_history) > self.max_history * 2:  # *2 因為每輪有 user 和 assistant
-            self.conversation_history = self.conversation_history[-self.max_history * 2:]
+        self._history.append_message(role, content)
         
         logger.debug(f"Added to history: {role}, history length: {len(self.conversation_history)}")
+
+    @property
+    def conversation_history(self) -> list[dict[str, str]]:
+        return self._history.snapshot()
+
+    def begin_history_turn(self, message: str, *, turn_id: str) -> HistoryTransaction:
+        return self._history.begin(message, turn_id=turn_id)
+
+    def commit_history_turn(
+        self,
+        transaction: HistoryTransaction,
+        *,
+        assistant_text: str,
+        terminal_reason: str,
+    ) -> None:
+        self._history.commit(
+            transaction,
+            assistant_text=assistant_text,
+            terminal_reason=terminal_reason,
+        )
+
+    def commit_pending_history_turn(
+        self,
+        turn_id: str,
+        *,
+        assistant_text: str,
+        terminal_reason: str,
+    ) -> bool:
+        return self._history.commit_pending(
+            turn_id,
+            assistant_text=assistant_text,
+            terminal_reason=terminal_reason,
+        )
     
     def clear_history(self):
         """清空對話歷史"""
-        self.conversation_history = []
+        self._history.clear()
         logger.info("Conversation history cleared")
     
     def chat_stream(
         self,
         message: str,
-        system_prompt: Optional[str] = None
+        system_prompt: Optional[str] = None,
+        *,
+        history_transaction: Optional[HistoryTransaction] = None,
     ) -> Generator[str, None, None]:
         start_time = time.perf_counter()
         system_prompt = with_response_length_instruction(
@@ -94,12 +126,12 @@ class OpenAILLM(BaseLLM):
         )
         
         try:
-            # 新增使用者訊息到歷史
-            self.add_to_history('user', message)
-            
             # 構建完整的訊息列表：system + 歷史對話
             messages = [{'role': 'system', 'content': system_prompt}]
-            messages.extend(self.conversation_history)
+            if history_transaction is None:
+                messages.extend(self._history.preview_messages(message))
+            else:
+                messages.extend(self._history.request_messages(history_transaction))
             
             logger.info(f"Sending {len(messages)} messages to LLM (including system prompt and history)")
             
@@ -116,20 +148,14 @@ class OpenAILLM(BaseLLM):
             init_time = time.perf_counter()
             logger.info(f"LLM initialization time: {init_time - start_time:.3f}s")
             
-            # 收集完整的響應用於新增到歷史
-            full_response = ""
             for chunk in completion:
                 if chunk.choices and chunk.choices[0].delta.content:
                     content = chunk.choices[0].delta.content
-                    full_response += content
                     yield content
             
-            # 新增助手響應到歷史
-            self.add_to_history('assistant', full_response)
-            
         except OpenAIError as e:
-            logger.error(f"LLM API error: {e}")
+            logger.error("LLM API failed: %s", type(e).__name__)
             raise
         except Exception as e:
-            logger.error(f"Unexpected error in LLM: {e}")
+            logger.error("Unexpected LLM failure: %s", type(e).__name__)
             raise

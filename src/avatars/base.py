@@ -15,7 +15,7 @@ from datetime import datetime
 
 import queue
 from queue import Queue
-from threading import Thread, Event
+from threading import Thread, Event, RLock
 from io import BytesIO
 import soundfile as sf
 
@@ -27,6 +27,7 @@ import av
 from fractions import Fraction
 
 from src.tts.factory import create_tts_engine
+from src.tts.base import sanitize_speech_text
 from src.utils.logging import logger
 
 from tqdm import tqdm
@@ -56,6 +57,23 @@ def enqueue_media_frame(track, frame, eventpoint, loop, quit_event) -> bool:
         else track._queue.put((frame, eventpoint))
     )
     return wait_media_coroutine(coroutine, loop, quit_event)
+
+
+def drain_media_queue(target) -> None:
+    mutex = getattr(target, "mutex", None)
+    storage = getattr(target, "queue", None)
+    if mutex is not None and storage is not None:
+        with mutex:
+            storage.clear()
+            not_full = getattr(target, "not_full", None)
+            if not_full is not None:
+                not_full.notify_all()
+        return
+    while True:
+        try:
+            target.get_nowait()
+        except queue.Empty:
+            return
 
 
 def read_imgs(img_list):
@@ -107,15 +125,69 @@ class BaseAvatar:
         self.custom_audio_index = {}
         self.custom_index = {}
         self.custom_opt = {}
+        self._media_guard = None
+        self._on_stale_drop = None
+        self._on_fragment_queued = None
+        self._media_sequence_lock = RLock()
+        self._media_sequences = {}
         self.__loadcustom()
 
     def put_msg_txt(self,msg,datainfo:dict={}):
         # 文本訊息交給 TTS 處理
-        self.tts.put_msg_txt(msg,datainfo)
+        msg = sanitize_speech_text(msg)
+        if not msg:
+            return
+        eventpoint = dict(datainfo or {})
+        if self._on_fragment_queued is not None and eventpoint.get("turn_id"):
+            self._on_fragment_queued(msg, eventpoint)
+        self.tts.put_msg_txt(msg,eventpoint)
     
+    def configure_media_fence(
+        self,
+        *,
+        media_guard,
+        on_stale_drop,
+        on_fragment_queued=None,
+    ):
+        """Attach the voice session's generation authority to media boundaries."""
+        self._media_guard = media_guard
+        self._on_stale_drop = on_stale_drop
+        self._on_fragment_queued = on_fragment_queued
+        if not hasattr(self, "_media_sequence_lock"):
+            self._media_sequence_lock = RLock()
+            self._media_sequences = {}
+
+    def accepts_media(self, eventpoint, stage: str) -> bool:
+        if not (isinstance(eventpoint, dict) and eventpoint.get("turn_id")):
+            return True
+        if self._media_guard is None:
+            return True
+        return bool(self._media_guard(eventpoint, stage))
+
+    def record_stale_drop(self, stage: str, reason: str) -> None:
+        if self._on_stale_drop is not None:
+            self._on_stale_drop(stage, reason)
+
     def put_audio_frame(self,audio_chunk,datainfo:dict={}): #16khz 20ms pcm
         # 直接把音訊塊推給音訊流（用於 WebRTC / 錄製）
-        self.audio_stream.put_audio_frame(audio_chunk,datainfo)
+        eventpoint = dict(datainfo or {})
+        if not self.accepts_media(eventpoint, "avatar_audio_enqueue"):
+            self.record_stale_drop("avatar_audio_enqueue", "stale_generation")
+            return False
+        if (
+            eventpoint.get("turn_id")
+            and eventpoint.get("generation") is not None
+            and eventpoint.get("fragment_sequence") is not None
+        ):
+            key = (eventpoint["turn_id"], int(eventpoint["generation"]))
+            with self._media_sequence_lock:
+                sequence = self._media_sequences.get(key, 0)
+                self._media_sequences[key] = sequence + 1
+            eventpoint["fragment_media_sequence"] = int(
+                eventpoint.get("media_sequence", 0)
+            )
+            eventpoint["media_sequence"] = sequence
+        return self.audio_stream.put_audio_frame(audio_chunk,eventpoint)
 
     def put_audio_file(self,filebyte,datainfo:dict={}): 
         # 檔案音訊按 chunk 切片後送入音訊流
@@ -147,6 +219,11 @@ class BaseAvatar:
         # 清空 TTS 和音訊流佇列，快速打斷當前發聲
         self.tts.flush_talk()
         self.audio_stream.flush_talk()
+        result_queue = getattr(self, "res_frame_queue", None)
+        if result_queue is not None:
+            drain_media_queue(result_queue)
+        with self._media_sequence_lock:
+            self._media_sequences.clear()
 
     def is_speaking(self)->bool:
         return self.speaking
@@ -171,7 +248,23 @@ class BaseAvatar:
             self.custom_index[key]=0
 
     def notify(self,eventpoint):
-        logger.info("notify:%s",eventpoint)
+        if not isinstance(eventpoint, dict):
+            return
+        if not (
+            eventpoint.get("status")
+            or eventpoint.get("fragment_start")
+            or eventpoint.get("fragment_end")
+        ):
+            return
+        logger.info(
+            "media boundary status=%s generation=%s fragment=%s media=%s start=%s end=%s",
+            eventpoint.get("status"),
+            eventpoint.get("generation"),
+            eventpoint.get("fragment_sequence"),
+            eventpoint.get("media_sequence"),
+            bool(eventpoint.get("fragment_start")),
+            bool(eventpoint.get("fragment_end")),
+        )
 
     def mirror_index(self,size, index):
         # 通過映象索引實現正反往返播放
@@ -218,6 +311,21 @@ class BaseAvatar:
                 res_frame,idx,audio_frames = self.res_frame_queue.get(block=True, timeout=1)
             except queue.Empty:
                 continue
+            turn_events = [
+                eventpoint
+                for _frame, _frame_type, eventpoint in audio_frames
+                if isinstance(eventpoint, dict) and eventpoint.get("turn_id")
+            ]
+            if turn_events and not all(
+                self.accepts_media(eventpoint, "musetalk_result_consume")
+                for eventpoint in turn_events
+            ):
+                self.record_stale_drop(
+                    "musetalk_result_consume",
+                    "stale_generation",
+                )
+                continue
+            video_eventpoint = dict(turn_events[0]) if turn_events else None
             
             if enable_transition:
                 # 檢測狀態變化
@@ -286,7 +394,7 @@ class BaseAvatar:
                     break
             # 子執行緒推送到 WebRTC 佇列
             if not enqueue_media_frame(
-                video_track, new_frame, None, loop, quit_event
+                video_track, new_frame, video_eventpoint, loop, quit_event
             ):
                 break
             self.record_video_data(combine_frame)

@@ -1,9 +1,8 @@
 """聊天相關路由"""
 import json
 from aiohttp import web
-import asyncio
 
-from src.llm.service import clear_session_history, llm_response
+from src.llm.service import clear_session_history
 from src.utils.logging import logger
 from src.server.state import state
 
@@ -13,33 +12,42 @@ async def human(request):
     try:
         params = await request.json()
         sessionid = params.get('sessionid', 0)
-        
-        if params.get('interrupt'):
-            state.avatar_streams[sessionid].flush_talk()
+        avatar_stream = state.avatar_streams.get(sessionid)
 
         if params['type'] == 'echo':
-            state.avatar_streams[sessionid].put_msg_txt(params['text'])
+            if avatar_stream is None:
+                raise KeyError(sessionid)
+            avatar_stream.put_msg_txt(params['text'])
             response_text = params['text']
+            response_payload = {
+                "code": 0,
+                "msg": "ok",
+                "response": response_text,
+            }
         elif params['type'] == 'chat':
-            # 放到執行緒池，避免阻塞事件迴圈
-            llm_config = state.config.llm if state.config else None
-            logger.info(f'[CHAT] LLM 配置: {llm_config}')
-            response_text = await asyncio.get_event_loop().run_in_executor(
-                None,
-                llm_response,
+            voice_session = state.voice_sessions.get(sessionid)
+            if voice_session is None or avatar_stream is None:
+                raise web.HTTPConflict(text="語音工作階段尚未連線")
+            if not getattr(voice_session, "event_sink_ready", True):
+                raise web.HTTPConflict(text="回覆事件通道尚未就緒，請稍後再試")
+            started = await voice_session.start_text_turn(
                 params['text'],
-                state.avatar_streams[sessionid],
-                llm_config.api_key if llm_config else None,
-                llm_config.base_url if llm_config else "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                llm_config.model if llm_config else "qwen-plus"
+                interrupt=bool(params.get('interrupt')),
             )
+            response_payload = {
+                "code": 0,
+                "msg": "accepted",
+                **started,
+            }
+        else:
+            raise web.HTTPBadRequest(text="不支援的訊息類型")
 
         return web.Response(
             content_type="application/json",
-            text=json.dumps(
-                {"code": 0, "msg": "ok", "response": response_text}
-            ),
+            text=json.dumps(response_payload),
         )
+    except web.HTTPException:
+        raise
     except Exception as e:
         logger.exception('exception:')
         return web.Response(
@@ -55,7 +63,11 @@ async def interrupt_talk(request):
     try:
         params = await request.json()
         sessionid = params.get('sessionid', 0)
-        state.avatar_streams[sessionid].flush_talk()
+        voice_session = state.voice_sessions.get(sessionid)
+        if voice_session is not None:
+            await voice_session.interrupt()
+        else:
+            state.avatar_streams[sessionid].flush_talk()
         
         return web.Response(
             content_type="application/json",

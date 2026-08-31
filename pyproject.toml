@@ -19,6 +19,7 @@ dependencies = [
     "onnxruntime>=1.16,<1.24",
     "librosa",
     "omegaconf",
+    "opencc>=1.1.9",
     "openai",
     "numpy<2",
     "opencv-python-headless<4.12",

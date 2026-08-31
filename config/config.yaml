@@ -55,6 +55,7 @@ asr:
   type: whisper  # whisper | funasr | qwen3-asr
   model_size: base  # Qwen 示例：Qwen/Qwen3-ASR-0.6B
   language: zh  # zh | en | auto
+  output_script: traditional-tw  # FunASR: traditional-tw | simplified
   device: auto  # auto | cpu | cuda
 
 # LLM：Ollama 或 llama.cpp，也可在網頁設定裡切換
@@ -72,6 +73,10 @@ llm:
   response_max_chars: 120     # 數位人每次回答的約略字數，實際結果會依模型略有差異
   extra_body:
     reasoning_effort: "none"  # 僅 Ollama：關閉思考鏈，降低首字延遲
+
+# 回覆語音串流仍在分階段實作，默認保留現有路徑。
+reply_streaming:
+  enabled: false
 
 # VAD 服務端語音端點檢測：固定使用 Silero；WebRTC 負責傳輸，不負責判定語音
 vad:

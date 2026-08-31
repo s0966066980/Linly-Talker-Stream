@@ -34,6 +34,8 @@ def create_asr_engine(
     # 根據不同引擎傳遞引數
     if asr_type in {"whisper", "qwen3-asr"}:
         return engine_cls(config=config, model_size=model_size)
+    elif asr_type == "funasr":
+        return engine_cls(config=config, model_name=model_size, **kwargs)
     else:
         return engine_cls(config=config, **kwargs)
 

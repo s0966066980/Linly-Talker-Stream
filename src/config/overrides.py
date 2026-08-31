@@ -38,6 +38,11 @@ def persist_runtime_overrides(config) -> None:
             "type": config.model.type,
             "avatar_id": config.model.avatar_id,
         },
+        "reply_streaming": {
+            "enabled": bool(
+                getattr(getattr(config, "reply_streaming", None), "enabled", False)
+            ),
+        },
     }
 
     vad = getattr(config, "vad", None)
@@ -59,6 +64,7 @@ def persist_runtime_overrides(config) -> None:
             "type": asr.type,
             "model_size": asr.model_size,
             "language": asr.language,
+            "output_script": getattr(asr, "output_script", "traditional-tw"),
             "device": asr.device,
         }
     tts = getattr(config, "tts", None)
@@ -77,7 +83,7 @@ def persist_runtime_overrides(config) -> None:
     RUNTIME_OVERRIDES_FILE.parent.mkdir(parents=True, exist_ok=True)
     header = (
         "# 由設定面板自動生成，請勿手改關鍵結構。\n"
-        "# 會在啟動時覆蓋主配置中的 llm / model / vad / asr / tts。\n"
+        "# 會在啟動時覆蓋主配置中的 llm / model / reply_streaming / vad / asr / tts。\n"
     )
     text = yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
     RUNTIME_OVERRIDES_FILE.write_text(header + text, encoding="utf-8")

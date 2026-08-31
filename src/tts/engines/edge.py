@@ -3,16 +3,21 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
+from typing import Callable, Optional
 
 import av
 import edge_tts
 import numpy as np
 
 from src.tts.base import BaseTTS, State
+from src.server.reply_streaming.channel import PlayableFragment
+from src.server.reply_streaming.retry import RetryBudget
 from src.utils.logging import logger
 
 
-EDGE_STREAM_TIMEOUT_SECONDS = 2.0
+# Keep the first retry budget bounded so a transient websocket stall does not
+# consume the entire first-audio SLO before the fallback attempt starts.
+EDGE_STREAM_TIMEOUT_SECONDS = 1.5
 EDGE_MAX_ATTEMPTS = 2
 
 
@@ -141,6 +146,8 @@ class _EdgePCMEmitter:
         *,
         skip_samples: int = 0,
         start_event_sent: bool = False,
+        start_media_sequence: int = 0,
+        chunk_guard: Optional[Callable[[int], bool]] = None,
     ):
         self.owner = owner
         self.text = text
@@ -158,6 +165,9 @@ class _EdgePCMEmitter:
         self.emitted_samples = 0
         self.skip_samples = max(0, skip_samples)
         self.start_event_sent = start_event_sent
+        self.media_sequence = start_media_sequence
+        self.chunk_guard = chunk_guard
+        self.cancelled = False
 
     @property
     def emitted(self) -> bool:
@@ -166,17 +176,32 @@ class _EdgePCMEmitter:
     def _emit(self, samples: np.ndarray, *, final: bool = False) -> None:
         if self.owner.state != State.RUNNING:
             return
-        eventpoint = {}
+        if self.chunk_guard is not None and not self.chunk_guard(self.media_sequence):
+            self.cancelled = True
+            return
+        turn_aware = {
+            "turn_id",
+            "generation",
+            "fragment_sequence",
+        }.issubset(self.textevent)
+        eventpoint = dict(self.textevent) if turn_aware else {}
+        if turn_aware:
+            eventpoint["media_sequence"] = self.media_sequence
+            eventpoint["fragment_start"] = not self.start_event_sent
+            eventpoint["fragment_end"] = final
         if not self.start_event_sent:
-            eventpoint = {"status": "start", "text": self.text}
-            eventpoint.update(self.textevent)
+            eventpoint.update({"status": "start"})
+            if not turn_aware:
+                eventpoint.update({"text": self.text, **self.textevent})
             self.start_event_sent = True
         elif final:
-            eventpoint = {"status": "end", "text": self.text}
-            eventpoint.update(self.textevent)
+            eventpoint.update({"status": "end"})
+            if not turn_aware:
+                eventpoint.update({"text": self.text, **self.textevent})
         self.owner.parent.put_audio_frame(samples, eventpoint)
         self.emitted_chunks += 1
         self.emitted_samples += samples.size
+        self.media_sequence += 1
 
     def _queue_samples(self, samples: np.ndarray) -> None:
         if not samples.size:
@@ -257,17 +282,50 @@ class EdgeTTS(BaseTTS):
                 time.perf_counter() - started_at,
             )
 
+    def synthesize_fragment(
+        self,
+        fragment: PlayableFragment,
+        *,
+        chunk_guard: Callable[[int], bool],
+        retry_budget: Optional[RetryBudget] = None,
+    ) -> None:
+        """Synchronously synthesize one fenced fragment into 20ms PCM frames."""
+        envelope = fragment.envelope
+        textevent = {
+            "turn_id": envelope.turn_id,
+            "generation": envelope.generation,
+            "fragment_sequence": envelope.sequence,
+        }
+        started_at = time.perf_counter()
+        try:
+            asyncio.run(
+                self._stream_with_retry(
+                    self.config.tts.ref_file,
+                    fragment.text,
+                    textevent,
+                    started_at,
+                    chunk_guard=chunk_guard,
+                    retry_budget=retry_budget,
+                )
+            )
+        except Exception:
+            logger.exception("Edge TTS fragment streaming failed")
+
     async def _stream_with_retry(
         self,
         voicename: str,
         text: str,
         textevent: dict,
         started_at: float,
+        *,
+        chunk_guard: Optional[Callable[[int], bool]] = None,
+        retry_budget: Optional[RetryBudget] = None,
     ) -> None:
         last_error = None
         emitted_samples = 0
         start_event_sent = False
         first_audio_logged = False
+        retry_timeout_seconds = EDGE_STREAM_TIMEOUT_SECONDS
         for attempt in range(1, EDGE_MAX_ATTEMPTS + 1):
             emitter = _EdgePCMEmitter(
                 self,
@@ -275,6 +333,8 @@ class EdgeTTS(BaseTTS):
                 textevent,
                 skip_samples=emitted_samples,
                 start_event_sent=start_event_sent,
+                start_media_sequence=emitted_samples // self.chunk,
+                chunk_guard=chunk_guard,
             )
 
             def log_first_audio() -> None:
@@ -294,15 +354,23 @@ class EdgeTTS(BaseTTS):
                     try:
                         item = await asyncio.wait_for(
                             iterator.__anext__(),
-                            timeout=EDGE_STREAM_TIMEOUT_SECONDS,
+                            timeout=(
+                                EDGE_STREAM_TIMEOUT_SECONDS
+                                if attempt == 1
+                                else retry_timeout_seconds
+                            ),
                         )
                     except StopAsyncIteration:
                         break
                     if item.get("type") == "audio":
                         emitter.feed_mp3(item["data"])
                         log_first_audio()
+                        if emitter.cancelled:
+                            return
                 emitter.finish()
                 log_first_audio()
+                if emitter.cancelled:
+                    return
                 emitted_samples += emitter.emitted_samples
                 start_event_sent = emitter.start_event_sent
                 if emitted_samples or self.state != State.RUNNING:
@@ -314,7 +382,13 @@ class EdgeTTS(BaseTTS):
                 start_event_sent = emitter.start_event_sent
                 if self.state != State.RUNNING:
                     return
-                if emitted_samples and attempt < EDGE_MAX_ATTEMPTS:
+                can_retry = attempt < EDGE_MAX_ATTEMPTS
+                if can_retry and retry_budget is not None:
+                    permit = retry_budget.claim_retry()
+                    can_retry = permit is not None
+                    if permit is not None:
+                        retry_timeout_seconds = permit.max_wait_seconds
+                if emitted_samples and can_retry:
                     log_first_audio()
                     logger.warning(
                         "Edge TTS stream interrupted after %d samples; "
@@ -345,6 +419,8 @@ class EdgeTTS(BaseTTS):
                     EDGE_MAX_ATTEMPTS,
                     exc,
                 )
+                if not can_retry:
+                    break
             finally:
                 aclose = getattr(iterator, "aclose", None)
                 if callable(aclose):

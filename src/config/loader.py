@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from .schema import (
     Config, AppConfig, ModelConfig, TTSConfig, ASRConfig, VADConfig, LLMConfig,
-    AudioConfig, VideoConfig, CustomVideoConfig, ERNeRfConfig, TalkingGaussianConfig
+    AudioConfig, VideoConfig, CustomVideoConfig, ERNeRfConfig, TalkingGaussianConfig,
+    ReplyStreamingConfig,
 )
 
 
@@ -97,6 +98,7 @@ def dict_to_config(config_dict: Dict) -> Config:
     audio_config = AudioConfig(**config_dict.get('audio', {}))
     video_config = VideoConfig(**config_dict.get('video', {}))
     custom_video_config = CustomVideoConfig(**config_dict.get('custom_video', {}))
+    reply_streaming_config = ReplyStreamingConfig(**config_dict.get('reply_streaming', {}))
 
     return Config(
         app=app_config,
@@ -108,6 +110,7 @@ def dict_to_config(config_dict: Dict) -> Config:
         audio=audio_config,
         video=video_config,
         custom_video=custom_video_config,
+        reply_streaming=reply_streaming_config,
     )
 
 
@@ -151,6 +154,20 @@ def load_config(
     overrides = load_runtime_overrides()
     if overrides:
         config_dict = _merge_dicts(config_dict, overrides)
+
+    # Process-scoped rollout switch for an isolated soak/canary.  The checked-in
+    # default remains off until the real-hardware gate passes.
+    reply_streaming_env = os.getenv("LINLY_REPLY_STREAMING_ENABLED")
+    if reply_streaming_env is not None:
+        normalized = reply_streaming_env.strip().lower()
+        if normalized not in {"0", "1", "false", "true"}:
+            raise ValueError(
+                "LINLY_REPLY_STREAMING_ENABLED must be 0, 1, false, or true"
+            )
+        config_dict = _merge_dicts(
+            config_dict,
+            {"reply_streaming": {"enabled": normalized in {"1", "true"}}},
+        )
 
     # 5. 轉換為 Config 物件
     config = dict_to_config(config_dict)

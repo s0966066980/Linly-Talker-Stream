@@ -34,13 +34,26 @@ test('整合啟動使用精簡前端輸出，避免重複顯示網址與配置',
   assert.match(viteConfig, /process\.env\.VITE_CONFIG_QUIET/)
 })
 
-test('舞台字幕會取消分段語音之間的舊淡出計時', () => {
+test('舞台字幕只接受播放提交事件並取消舊淡出計時', () => {
+  assert.doesNotMatch(stage, /ev\.type === 'assistant_text'/)
+  assert.match(stage, /ev\.type === 'assistant_fragment'/)
   assert.match(
     stage,
-    /if\(ev\.type === 'speaking_start'\)\{[\s\S]*?clearTimeout\(replyTimer\);[\s\S]*?return;/
+    /function showReply\(text, turnId\)\{[\s\S]*?clearTimeout\(replyTimer\);[\s\S]*?replyRevision\+\+;/
   )
   assert.match(
     stage,
-    /if\(ev\.type === 'speaking_end'\)\{[\s\S]*?fadeReply\(\);[\s\S]*?return;/
+    /function fadeReply\(turnId=replyTurnId\)\{[\s\S]*?revision === replyRevision[\s\S]*?turnId === replyTurnId/
   )
+  assert.match(
+    stage,
+    /if\(ev\.type === 'turn_cancelled'\)\{[\s\S]*?clearReply\(\);[\s\S]*?\}/
+  )
+})
+
+test('控制台對話只從已播放片段累積助手文字', () => {
+  const app = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+  assert.doesNotMatch(app, /event\.type === 'assistant_text'/)
+  assert.match(app, /event\.type === 'assistant_fragment'/)
+  assert.match(app, /lastMessage\.voiceTurnId === event\.turn_id/)
 })

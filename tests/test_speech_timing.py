@@ -12,7 +12,43 @@ from src.llm.base import TextStreamProcessor
 from src.tts.base import BaseTTS
 
 
+class TTSSpeechTextTests(unittest.TestCase):
+    def test_tts_queue_removes_markdown_markers_and_emoji_before_synthesis(self):
+        config = SimpleNamespace(audio=SimpleNamespace(fps=50))
+        tts = BaseTTS(config, SimpleNamespace())
+
+        tts.put_msg_txt("**這很重要**，請確認。😊")
+
+        text, metadata = tts.msgqueue.get_nowait()
+        self.assertEqual(text, "這很重要，請確認。")
+        self.assertEqual(metadata, {})
+
+
 class WebRTCPacingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_player_reports_media_debt_and_av_offset_without_frames(self):
+        from src.utils.webrtc import HumanPlayer
+
+        observations = []
+        player = HumanPlayer(
+            None,
+            on_media_timing=lambda **values: observations.append(values),
+        )
+        await player.audio.enqueue(object())
+        await player.video.enqueue(object())
+
+        player.notify_media_timing("audio", 0.10)
+        player.notify_media_timing("video", 0.14)
+
+        self.assertEqual(
+            observations[-1],
+            {
+                "media_debt_seconds": 0.02,
+                "av_offset_seconds": 0.04,
+            },
+        )
+        player.audio.stop()
+        player.video.stop()
+
     async def test_speech_start_discards_only_paired_idle_runway(self):
         from src.utils.webrtc import HumanPlayer, VIDEO_PTIME
 
@@ -90,7 +126,7 @@ class WebRTCPacingTests(unittest.IsolatedAsyncioTestCase):
         audio.stop()
         video.stop()
 
-    async def test_rebases_after_stall_instead_of_bursting_packets(self):
+    async def test_audio_rebases_and_video_skips_after_stall_without_bursting(self):
         from src.utils.webrtc import (
             AUDIO_PTIME,
             SAMPLE_RATE,
@@ -126,10 +162,12 @@ class WebRTCPacingTests(unittest.IsolatedAsyncioTestCase):
                     sleeper.await_args.args[0], packet_time, places=6
                 )
                 packet_ticks = int(packet_time * clock_rate)
-                self.assertEqual(
-                    [first_pts, second_pts, third_pts],
-                    [0, packet_ticks, packet_ticks * 2],
+                expected = (
+                    [0, packet_ticks, packet_ticks * 2]
+                    if kind == "audio"
+                    else [0, clock_rate, clock_rate + packet_ticks]
                 )
+                self.assertEqual([first_pts, second_pts, third_pts], expected)
                 track.stop()
 
 
@@ -518,6 +556,101 @@ class EdgeTTSStreamingTests(unittest.TestCase):
         )
         events = [event for _, event in resumed_parent.frames if event]
         self.assertEqual([event["status"] for event in events], ["start", "end"])
+
+    def test_turn_aware_frames_are_fenced_and_keep_20ms_media_sequences(self):
+        from src.server.reply_streaming.channel import PlayableFragment
+        from src.server.reply_streaming.turn import TurnContext
+
+        class Parent:
+            def __init__(self):
+                self.frames = []
+
+            def put_audio_frame(self, frame, eventpoint):
+                self.frames.append((frame.copy(), dict(eventpoint)))
+
+        payload = self._mp3_fixture()
+
+        class WorkingCommunicate:
+            async def stream(self):
+                yield {"type": "audio", "data": payload}
+
+        turn = TurnContext(turn_id="turn-1", generation=7)
+        fragment = PlayableFragment(
+            envelope=turn.envelope(stage="tts_fragment", sequence=3),
+            text="測試輪次音訊。",
+            estimated_seconds=0.5,
+        )
+        parent = Parent()
+        tts = self._make_tts(parent)
+
+        with patch(
+            "src.tts.engines.edge.edge_tts.Communicate",
+            side_effect=lambda *_args: WorkingCommunicate(),
+        ):
+            tts.synthesize_fragment(
+                fragment,
+                chunk_guard=lambda media_sequence: media_sequence < 2,
+            )
+
+        self.assertEqual(len(parent.frames), 2)
+        self.assertTrue(all(frame.shape == (320,) for frame, _ in parent.frames))
+        self.assertEqual(
+            [event["media_sequence"] for _, event in parent.frames],
+            [0, 1],
+        )
+        self.assertTrue(
+            all(
+                event["turn_id"] == "turn-1"
+                and event["generation"] == 7
+                and event["fragment_sequence"] == 3
+                for _, event in parent.frames
+            )
+        )
+
+    def test_fragment_retry_uses_the_shared_one_second_budget(self):
+        from src.server.reply_streaming.channel import PlayableFragment
+        from src.server.reply_streaming.retry import RetryBudget
+        from src.server.reply_streaming.turn import TurnContext
+
+        class Parent:
+            def put_audio_frame(self, _frame, _eventpoint):
+                raise AssertionError("timed out attempts must not emit audio")
+
+        class HangingCommunicate:
+            async def stream(self):
+                await asyncio.Event().wait()
+                if False:
+                    yield None
+
+        timeouts = []
+
+        async def immediate_timeout(awaitable, *, timeout):
+            timeouts.append(timeout)
+            awaitable.close()
+            raise asyncio.TimeoutError
+
+        turn = TurnContext(turn_id="turn-1", generation=1)
+        fragment = PlayableFragment(
+            envelope=turn.envelope(stage="tts_fragment", sequence=0),
+            text="測試重試預算。",
+            estimated_seconds=0.5,
+        )
+        tts = self._make_tts(Parent())
+
+        with (
+            patch(
+                "src.tts.engines.edge.edge_tts.Communicate",
+                side_effect=lambda *_args: HangingCommunicate(),
+            ),
+            patch("src.tts.engines.edge.asyncio.wait_for", new=immediate_timeout),
+        ):
+            tts.synthesize_fragment(
+                fragment,
+                chunk_guard=lambda _sequence: True,
+                retry_budget=RetryBudget(max_retries=1, extra_wait_seconds=1.0),
+            )
+
+        self.assertEqual(timeouts, [1.5, 1.0])
 
 
 if __name__ == "__main__":

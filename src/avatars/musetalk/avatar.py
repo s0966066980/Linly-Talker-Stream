@@ -23,7 +23,10 @@ from src.avatars.musetalk.myutil import get_image_blending
 from src.avatars.musetalk.utils.utils import load_all_model
 from src.avatars.musetalk.whisper.audio2feature import Audio2Feature
 
-from src.avatars.musetalk.audio_stream_handler import MuseAudioStreamHandler
+from src.avatars.musetalk.audio_stream_handler import (
+    MuseAudioStreamHandler,
+    MuseInferenceBatch,
+)
 import asyncio
 from av import AudioFrame, VideoFrame
 from src.avatars.base import BaseAvatar
@@ -70,6 +73,19 @@ def is_audible_speech_frame(frame: np.ndarray, frame_type: int) -> bool:
         frame_type == 0
         and samples.size > 0
         and float(np.max(np.abs(samples))) > MOUTH_ACTIVITY_THRESHOLD
+    )
+
+
+def _media_batch_is_current(audio_frames, media_guard, stage: str) -> bool:
+    if media_guard is None:
+        return True
+    turn_events = [
+        eventpoint
+        for _frame, _frame_type, eventpoint in audio_frames
+        if isinstance(eventpoint, dict) and eventpoint.get("turn_id")
+    ]
+    return not turn_events or all(
+        media_guard(eventpoint, stage) for eventpoint in turn_events
     )
 
 
@@ -160,7 +176,7 @@ def __mirror_index(size, index):
 
 @torch.no_grad()
 def inference(quit_event,batch_size,input_latent_list_cycle,audio_feat_queue,audio_out_queue,res_frame_queue,
-              vae, unet, pe,timesteps): #vae, unet, pe,timesteps
+              vae, unet, pe,timesteps, media_guard=None, on_stale_drop=None): #vae, unet, pe,timesteps
     
     # vae, unet, pe = load_diffusion_model()
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -177,23 +193,48 @@ def inference(quit_event,batch_size,input_latent_list_cycle,audio_feat_queue,aud
     while not quit_event.is_set():
         starttime=time.perf_counter()
         try:
-            whisper_chunks = audio_feat_queue.get(block=True, timeout=1)
+            feature_item = audio_feat_queue.get(block=True, timeout=1)
         except queue.Empty:
             continue
+        if isinstance(feature_item, MuseInferenceBatch):
+            whisper_chunks = feature_item.features
+            audio_frames = list(feature_item.audio_frames)
+            if not _media_batch_is_current(
+                audio_frames,
+                media_guard,
+                "musetalk_batch",
+            ):
+                if on_stale_drop is not None:
+                    on_stale_drop("musetalk_batch", "stale_generation")
+                continue
+        else:
+            whisper_chunks = feature_item
+            audio_frames = []
         is_all_silence=True
-        audio_frames = []
-        for _ in range(batch_size*2):
-            frame,frame_type,eventpoint = audio_out_queue.get()
+        for _ in range(len(audio_frames), batch_size*2):
+            audio_frames.append(audio_out_queue.get())
+        normalized_audio_frames = []
+        for frame,frame_type,eventpoint in audio_frames:
             if frame_type == 0 and not is_audible_speech_frame(frame, frame_type):
                 frame_type = 1
-            audio_frames.append((frame,frame_type,eventpoint))
+            normalized_audio_frames.append((frame,frame_type,eventpoint))
             if frame_type==0:
                 is_all_silence=False
+        audio_frames = normalized_audio_frames
         if is_all_silence:
             for i in range(batch_size):
+                paired_audio = audio_frames[i*2:i*2+2]
+                if not _media_batch_is_current(
+                    paired_audio,
+                    media_guard,
+                    "musetalk_result",
+                ):
+                    if on_stale_drop is not None:
+                        on_stale_drop("musetalk_result", "stale_generation")
+                    break
                 if not put_result_frame(
                     res_frame_queue,
-                    (None,__mirror_index(length,index),audio_frames[i*2:i*2+2]),
+                    (None,__mirror_index(length,index),paired_audio),
                     quit_event,
                 ):
                     break
@@ -241,6 +282,14 @@ def inference(quit_event,batch_size,input_latent_list_cycle,audio_feat_queue,aud
             for i,res_frame in enumerate(recon):
                 #self.__pushmedia(res_frame,loop,audio_track,video_track)
                 paired_audio = audio_frames[i*2:i*2+2]
+                if not _media_batch_is_current(
+                    paired_audio,
+                    media_guard,
+                    "musetalk_result",
+                ):
+                    if on_stale_drop is not None:
+                        on_stale_drop("musetalk_result", "stale_generation")
+                    break
                 output_frame = (
                     res_frame
                     if any(frame_type == 0 for _, frame_type, _ in paired_audio)
@@ -339,7 +388,8 @@ class MuseTalkAvatar(BaseAvatar):
         infer_quit_event = Event()
         infer_thread = Thread(target=inference, args=(infer_quit_event,self.batch_size,self.input_latent_list_cycle,
                                            self.audio_stream.feat_queue,self.audio_stream.output_queue,self.res_frame_queue,
-                                           self.vae, self.unet, self.pe,self.timesteps)) #mp.Process
+                                           self.vae, self.unet, self.pe,self.timesteps,
+                                           self.accepts_media,self.record_stale_drop)) #mp.Process
         infer_thread.start()
         
         process_quit_event = Event()

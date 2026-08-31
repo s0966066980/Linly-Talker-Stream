@@ -7,6 +7,7 @@ TTS 基類模組
 from __future__ import annotations
 
 import queue
+import re
 from enum import Enum
 from queue import Queue
 from threading import Event, Thread
@@ -16,6 +17,31 @@ from src.utils.logging import logger
 
 if TYPE_CHECKING:
     from src.avatars.base import BaseAvatar
+
+
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F1E6-\U0001F1FF"
+    "\U0001F300-\U0001FAFF"
+    "\U00002600-\U000027BF"
+    "\U0000FE0F"
+    "\U0000200D"
+    "]+"
+)
+
+
+def sanitize_speech_text(text: str) -> str:
+    """Remove visual Markdown/emoji that speech engines may pronounce aloud."""
+    value = str(text or "")
+    value = re.sub(r"!\[([^]]*)\]\([^)]*\)", r"\1", value)
+    value = re.sub(r"\[([^]]+)\]\([^)]*\)", r"\1", value)
+    value = re.sub(r"(?m)^\s{0,3}(?:#{1,6}|>|[-+*])\s+", "", value)
+    value = re.sub(r"```(?:\w+)?|`", "", value)
+    value = re.sub(r"[*_~]+", "", value)
+    value = _EMOJI_RE.sub("", value)
+    value = re.sub(r"[ \t]+", " ", value)
+    value = re.sub(r" *\n+ *", "，", value)
+    return value.strip(" ，")
 
 
 class State(Enum):
@@ -56,8 +82,9 @@ class BaseTTS:
         """外部入口：放入一條待合成的文本訊息。"""
         if datainfo is None:
             datainfo = {}
-        if len(msg) > 0:
-            self.msgqueue.put((msg, datainfo))
+        speech_text = sanitize_speech_text(msg)
+        if speech_text:
+            self.msgqueue.put((speech_text, datainfo))
 
     def has_pending_work(self) -> bool:
         """Return whether text is queued or an engine is currently synthesizing it."""

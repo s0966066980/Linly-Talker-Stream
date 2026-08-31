@@ -123,6 +123,26 @@
 
             <div class="setting-item setting-item-stack">
               <div class="setting-label">
+                <label for="llm-reply-mode">{{ t('settings.llm.replyMode') }}</label>
+                <span id="llm-reply-mode-hint" class="setting-desc">
+                  {{ selectedReplyMode === 'legacy' ? t('settings.llm.legacyModeDesc') : t('settings.llm.streamingModeDesc') }}
+                </span>
+              </div>
+              <div class="setting-control setting-control-grow">
+                <select
+                  id="llm-reply-mode"
+                  v-model="selectedReplyMode"
+                  :disabled="applyingLlm || loadingSettings"
+                  aria-describedby="llm-reply-mode-hint"
+                >
+                  <option value="legacy">{{ t('settings.llm.legacyMode') }}</option>
+                  <option value="streaming">{{ t('settings.llm.streamingMode') }}</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="setting-item setting-item-stack">
+              <div class="setting-label">
                 <label for="llm-model">{{ t('settings.llm.model') }}</label>
                 <span class="setting-desc">{{ selectedProvider === 'llamacpp' ? t('settings.llm.llamacppModelDesc') : t('settings.llm.modelDesc') }}</span>
               </div>
@@ -597,6 +617,23 @@
                 </div>
               </div>
 
+              <div v-if="sttDraft.type === 'funasr'" class="setting-item">
+                <div class="setting-label">
+                  <label for="stt-output-script">{{ t('settings.speech.outputScript') }}</label>
+                  <span class="setting-desc">{{ t('settings.speech.outputScriptDesc') }}</span>
+                </div>
+                <div class="setting-control">
+                  <select
+                    id="stt-output-script"
+                    v-model="sttDraft.output_script"
+                    :disabled="applyingStt"
+                  >
+                    <option value="traditional-tw">{{ t('settings.speech.traditionalTw') }}</option>
+                    <option value="simplified">{{ t('settings.speech.simplified') }}</option>
+                  </select>
+                </div>
+              </div>
+
               <div class="setting-item">
                 <div class="setting-label"><label for="stt-device">{{ t('settings.speech.device') }}</label></div>
                 <div class="setting-control">
@@ -609,6 +646,26 @@
               </div>
 
               <p v-if="speechError" class="inline-error" role="alert">{{ speechError }}</p>
+              <div
+                v-if="applyingStt"
+                class="stt-prewarm-progress"
+                role="status"
+                aria-live="polite"
+              >
+                <div
+                  class="progress-track"
+                  role="progressbar"
+                  :aria-label="t('settings.speech.prewarmProgressLabel')"
+                  :aria-valuetext="t('settings.speech.prewarming')"
+                >
+                  <div class="progress-fill progress-fill-indeterminate"></div>
+                </div>
+                <p>
+                  {{ speech.stt.local_model_ready && sttDraft.type === 'funasr'
+                    ? t('settings.speech.localPrewarmProgressHint')
+                    : t('settings.speech.prewarmProgressHint') }}
+                </p>
+              </div>
               <button
                 class="btn-apply"
                 type="button"
@@ -959,6 +1016,7 @@ const {
   selectedLlm,
   selectedSystemPrompt,
   selectedResponseMaxChars,
+  selectedReplyMode,
   responseLengthError,
   filteredCharacters,
   llmDirty,
@@ -2282,6 +2340,24 @@ input:checked + .slider:before {
   color: var(--text-secondary);
 }
 
+.stt-prewarm-progress {
+  margin: 0 0 0.75rem;
+}
+
+.stt-prewarm-progress p {
+  margin: 0.5rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.progress-fill-indeterminate {
+  width: 42%;
+  animation: prewarm-progress 1.35s ease-in-out infinite;
+  transform: translateX(-110%);
+  will-change: transform;
+}
+
 .skeleton-card {
   min-height: 88px;
   border-radius: 10px;
@@ -2303,6 +2379,12 @@ input:checked + .slider:before {
   to { transform: rotate(360deg); }
 }
 
+@keyframes prewarm-progress {
+  0% { transform: translateX(-110%); }
+  50% { transform: translateX(135%); }
+  100% { transform: translateX(265%); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .engine-card,
   .character-card,
@@ -2319,8 +2401,14 @@ input:checked + .slider:before {
 
   .skeleton-card,
   .spin,
-  .settings-tab-panel {
+  .settings-tab-panel,
+  .progress-fill-indeterminate {
     animation: none;
+  }
+
+  .progress-fill-indeterminate {
+    width: 100%;
+    transform: none;
   }
 }
 

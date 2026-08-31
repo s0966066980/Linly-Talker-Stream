@@ -33,6 +33,7 @@ from src.llm.llamacpp import (
 )
 from src.llm.service import switch_llm_endpoint
 from src.asr.factory import activate_asr_engine, create_asr_engine
+from src.asr.engines.funasr import local_funasr_model_ready
 from src.utils.logging import logger
 
 _SWITCH_LOCK = threading.Lock()
@@ -104,6 +105,11 @@ def current_snapshot(config) -> Dict[str, Any]:
             "system_prompt": load_system_prompt(config),
             "response_max_chars": int(
                 getattr(llm, "response_max_chars", DEFAULT_RESPONSE_MAX_CHARS)
+            ),
+            "reply_mode": (
+                "streaming"
+                if bool(getattr(config.reply_streaming, "enabled", False))
+                else "legacy"
             ),
         },
         "avatar": {
@@ -206,6 +212,7 @@ def apply_llm_model(
     provider: str = "",
     system_prompt: Optional[str] = None,
     response_max_chars: Optional[int] = None,
+    reply_mode: Optional[str] = None,
 ) -> Dict[str, Any]:
     model = (model or "").strip()
     if not model:
@@ -227,6 +234,11 @@ def apply_llm_model(
     except ValueError as exc:
         raise SettingsError(str(exc)) from exc
     next_max_tokens = response_token_budget(next_response_max_chars)
+    next_reply_mode = (
+        "streaming" if bool(config.reply_streaming.enabled) else "legacy"
+    ) if reply_mode is None else str(reply_mode).strip().lower()
+    if next_reply_mode not in {"legacy", "streaming"}:
+        raise SettingsError("回覆模式必須是 legacy 或 streaming")
 
     previous = f"{resolve_provider(config)}/{config.llm.model}"
     if provider == "llamacpp":
@@ -276,6 +288,7 @@ def apply_llm_model(
     config.llm.response_max_chars = next_response_max_chars
     config.llm.system_prompt = next_system_prompt
     config.llm.extra_body = extra_body
+    config.reply_streaming.enabled = next_reply_mode == "streaming"
     switch_llm_endpoint(
         model=model,
         base_url=base_url,
@@ -293,6 +306,7 @@ def apply_llm_model(
         "base_url": base_url,
         "system_prompt": next_system_prompt,
         "response_max_chars": next_response_max_chars,
+        "reply_mode": next_reply_mode,
     }
 
 
@@ -599,6 +613,7 @@ STT_ENGINE_META = {
         "setup": "首次套用會下載模型；不影響數字人相依環境",
     },
 }
+STT_OUTPUT_SCRIPTS = ("traditional-tw", "simplified")
 
 TTS_ENGINE_META = {
     "edgetts": {
@@ -719,8 +734,10 @@ def speech_snapshot(config) -> Dict[str, Any]:
             "type": asr.type,
             "model_size": asr.model_size,
             "language": asr.language,
+            "output_script": getattr(asr, "output_script", "traditional-tw"),
             "device": asr.device,
             "mode": "server",
+            "local_model_ready": local_funasr_model_ready(),
             "engines": _catalog(STT_ENGINE_META),
             "model_sizes": list(STT_MODEL_SIZES),
             "models_by_engine": {
@@ -766,6 +783,12 @@ def apply_stt_settings(config, params: Dict[str, Any], *, session_count: int) ->
     engine = str(params.get("type", config.asr.type)).strip().lower()
     model_size = str(params.get("model_size", config.asr.model_size)).strip()
     language = str(params.get("language", config.asr.language)).strip().lower()
+    output_script = str(
+        params.get(
+            "output_script",
+            getattr(config.asr, "output_script", "traditional-tw"),
+        )
+    ).strip().lower()
     device = str(params.get("device", config.asr.device)).strip().lower()
     if engine not in STT_ENGINE_META:
         raise SettingsError(f"不支援的 STT 引擎: {engine}")
@@ -782,6 +805,8 @@ def apply_stt_settings(config, params: Dict[str, Any], *, session_count: int) ->
         raise SettingsError(f"不支援的 Qwen3-ASR 模型或本地路徑: {model_size}")
     if language not in STT_LANGUAGES:
         raise SettingsError(f"不支援的識別語言: {language}")
+    if output_script not in STT_OUTPUT_SCRIPTS:
+        raise SettingsError(f"不支援的 FunASR 輸出文字: {output_script}")
     if device not in STT_DEVICES:
         raise SettingsError(f"不支援的運算裝置: {device}")
 
@@ -790,6 +815,7 @@ def apply_stt_settings(config, params: Dict[str, Any], *, session_count: int) ->
     pending.asr.type = engine
     pending.asr.model_size = model_size
     pending.asr.language = language
+    pending.asr.output_script = output_script
     pending.asr.device = device
     candidate = create_asr_engine(engine, config=pending, model_size=model_size)
     candidate.set_language(language)
@@ -802,6 +828,7 @@ def apply_stt_settings(config, params: Dict[str, Any], *, session_count: int) ->
     config.asr.type = engine
     config.asr.model_size = model_size
     config.asr.language = language
+    config.asr.output_script = output_script
     config.asr.device = device
     candidate.config = config
     activate_asr_engine(

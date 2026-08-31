@@ -259,6 +259,7 @@
   let speaking=false;        // 數字人正在說話
   let live=false;
   let replyTimer=null, saidTimer=null;
+  let replyTurnId=null, replyRevision=0;
 
   // ── 舞台狀態 ────────────────────────────────
   // 後端 12 種 state 壓成 4 種視覺語言，異常態走覆蓋層
@@ -286,15 +287,30 @@
       : '按鍵收音';
   }
 
-  function showReply(text){
+  function showReply(text, turnId){
     clearTimeout(replyTimer);
-    reply.textContent = text;
+    const sameTurn = Boolean(turnId) && turnId === replyTurnId;
+    reply.textContent = sameTurn ? reply.textContent + text : text;
+    replyTurnId = turnId || null;
+    replyRevision++;
     reply.classList.add('on');
     reply.scrollTop = 0;
   }
-  function fadeReply(){
+  function fadeReply(turnId=replyTurnId){
     clearTimeout(replyTimer);
-    replyTimer = setTimeout(() => reply.classList.remove('on'), 3000);
+    const revision = replyRevision;
+    replyTimer = setTimeout(() => {
+      if(revision === replyRevision && turnId === replyTurnId){
+        reply.classList.remove('on');
+      }
+    }, 3000);
+  }
+  function clearReply(){
+    clearTimeout(replyTimer);
+    replyRevision++;
+    replyTurnId = null;
+    reply.textContent = '';
+    reply.classList.remove('on');
   }
   function showSaid(text){
     clearTimeout(saidTimer);
@@ -352,7 +368,7 @@
   function onVoiceEvent(ev){
     if(ev.type === 'state'){
       if(ev.state === 'error' || ev.state === 'degraded'){
-        if(ev.error) showReply(String(ev.error));
+        if(ev.error) showReply(String(ev.error), null);
         fadeReply();
       }
       const v = VISUAL[ev.state];
@@ -362,7 +378,12 @@
       return;
     }
     if(ev.type === 'user_transcript' && ev.text){ showSaid(ev.text); return; }
-    if(ev.type === 'assistant_text' && ev.text){ showReply(ev.text); return; }
+    if(ev.type === 'assistant_fragment' && ev.text){
+      showReply(ev.text, ev.turn_id); return;
+    }
+    if(ev.type === 'assistant_fragment_end'){
+      fadeReply(ev.turn_id); return;
+    }
     if(ev.type === 'speaking_start'){
       clearTimeout(replyTimer);
       if(reply.textContent) reply.classList.add('on');
@@ -374,7 +395,7 @@
       refreshAffordance(); return;
     }
     if(ev.type === 'turn_cancelled'){
-      speaking = false; fadeReply(); refreshAffordance();
+      speaking = false; clearReply(); refreshAffordance();
     }
   }
 
@@ -460,6 +481,7 @@
 
   function teardown(){
     live = false; speaking = false; holding = false; lastSeq = 0;
+    clearReply();
     if(chan){ chan.onclose=null; chan.onerror=null; try{chan.close();}catch(_){} }
     chan = null;
     if(pc){ try{pc.close();}catch(_){} }

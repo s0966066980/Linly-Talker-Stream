@@ -166,6 +166,7 @@ class ASRConfig:
     type: str = "whisper"  # whisper (faster-whisper) | funasr | qwen3-asr
     model_size: str = "base"  # engine-specific model name or Hugging Face/local path
     language: str = "zh"  # zh | en | auto
+    output_script: str = "traditional-tw"  # FunASR: traditional-tw | simplified
     device: str = "auto"  # auto | cpu | cuda
 
 
@@ -241,6 +242,12 @@ class CustomVideoConfig:
 
 
 @dataclass
+class ReplyStreamingConfig:
+    """回覆語音串流配置"""
+    enabled: bool = False
+
+
+@dataclass
 class Config:
     """全域性配置"""
     app: AppConfig = field(default_factory=AppConfig)
@@ -252,6 +259,7 @@ class Config:
     audio: AudioConfig = field(default_factory=AudioConfig)
     video: VideoConfig = field(default_factory=VideoConfig)
     custom_video: CustomVideoConfig = field(default_factory=CustomVideoConfig)
+    reply_streaming: ReplyStreamingConfig = field(default_factory=ReplyStreamingConfig)
     
     # 其他動態配置
     sessionid: int = 0

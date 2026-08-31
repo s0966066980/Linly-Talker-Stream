@@ -1,0 +1,559 @@
+import unittest
+import asyncio
+import json
+import subprocess
+import sys
+import os
+from types import SimpleNamespace
+from unittest.mock import Mock
+from unittest.mock import patch
+from pathlib import Path
+
+import yaml
+
+from src.config.schema import Config
+from src.config.loader import dict_to_config
+from src.server.reply_streaming.metrics import TurnMetrics
+from src.server.reply_streaming.media_debt import MediaDebtBudget
+from src.server.reply_streaming.turn import TurnContext, TurnState
+from src.llm.base import BaseLLM
+from src.llm.engines.openai import OpenAILLM
+from src.server.reply_streaming.fragmenter import SemanticFragmenter
+from src.server.reply_streaming.channel import (
+    BackpressureTruncated,
+    BoundedFragmentChannel,
+    PlayableFragment,
+)
+from src.server.reply_streaming.producer import ProducerResult, ReplyFragmentProducer
+from src.server.reply_streaming.soak import build_soak_report
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
+
+
+class ReplyStreamingConfigTests(unittest.TestCase):
+    def test_reply_streaming_is_disabled_by_default(self):
+        config = Config()
+
+        self.assertFalse(config.reply_streaming.enabled)
+
+    def test_reply_streaming_can_be_enabled_from_config_dict(self):
+        config = dict_to_config({"reply_streaming": {"enabled": True}})
+
+        self.assertTrue(config.reply_streaming.enabled)
+
+    def test_main_yaml_explicitly_keeps_reply_streaming_disabled(self):
+        config_path = Path(__file__).resolve().parents[1] / "config" / "config.yaml"
+        config_dict = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(config_dict["reply_streaming"], {"enabled": False})
+
+    def test_process_scoped_environment_can_enable_soak_without_changing_yaml(self):
+        from src.config.loader import load_config
+
+        config_path = Path(__file__).resolve().parents[1] / "config" / "config.yaml"
+        with patch.dict(os.environ, {"LINLY_REPLY_STREAMING_ENABLED": "1"}):
+            config = load_config(str(config_path))
+
+        self.assertTrue(config.reply_streaming.enabled)
+
+
+class SoakHarnessEventBrokerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_wait_for_preserves_unmatched_events_for_later_waiters(self):
+        from scripts.run_voice_soak import EventBroker
+
+        broker = EventBroker()
+        broker.receive(json.dumps({"type": "state", "state": "llm"}))
+        broker.receive(json.dumps({"type": "user_transcript", "turn_id": "turn-1"}))
+
+        transcript = await broker.wait_for(
+            lambda event: event.get("type") == "user_transcript",
+            timeout=0.1,
+        )
+        state = await broker.wait_for(
+            lambda event: event.get("type") == "state",
+            timeout=0.1,
+        )
+
+        self.assertEqual(transcript["turn_id"], "turn-1")
+        self.assertEqual(state["state"], "llm")
+
+
+class TurnMetricsTests(unittest.TestCase):
+    def test_snapshot_reports_only_structured_turn_measurements(self):
+        clock = FakeClock()
+        metrics = TurnMetrics("anonymous-turn", clock=clock)
+
+        metrics.mark_speech_end()
+        metrics.observe_media_debt(0.5)
+        metrics.observe_media_debt(1.6)
+        clock.advance(0.8)
+        metrics.mark_first_audio()
+        metrics.observe_av_offset(-0.04)
+        metrics.observe_av_offset(0.07)
+        clock.advance(1.0)
+        metrics.mark_interrupt()
+        clock.advance(0.15)
+        metrics.mark_output_stopped()
+        clock.advance(0.25)
+        metrics.mark_listening_resumed()
+        metrics.record_stale_drop("audio", "cancelled")
+
+        self.assertEqual(
+            metrics.snapshot(),
+            {
+                "turn_id": "anonymous-turn",
+                "first_audio_seconds": 0.8,
+                "interrupt_stop_seconds": 0.15,
+                "listening_resume_seconds": 0.4,
+                "max_media_debt_seconds": 1.6,
+                "max_abs_av_offset_seconds": 0.07,
+                "stale_drops": {"audio:cancelled": 1},
+            },
+        )
+
+    def test_output_stop_is_ignored_until_interrupt_begins(self):
+        clock = FakeClock()
+        metrics = TurnMetrics("anonymous-turn", clock=clock)
+
+        metrics.mark_output_stopped()
+        clock.advance(1.0)
+        metrics.mark_interrupt()
+        clock.advance(0.1)
+        metrics.mark_output_stopped()
+
+        self.assertEqual(metrics.snapshot()["interrupt_stop_seconds"], 0.1)
+
+
+class MediaDebtBudgetTests(unittest.TestCase):
+    def test_estimates_are_replaced_by_audio_and_hysteresis_requires_low_watermark(self):
+        budget = MediaDebtBudget(high_watermark_seconds=2.0, low_watermark_seconds=1.0)
+
+        budget.reserve("fragment-1", estimated_seconds=1.2)
+        budget.reserve("fragment-2", estimated_seconds=1.0)
+        self.assertEqual(budget.seconds, 2.2)
+        self.assertTrue(budget.backpressured)
+
+        budget.resolve("fragment-1", actual_seconds=0.8)
+        budget.consume(0.3)
+        self.assertEqual(budget.seconds, 1.5)
+        self.assertTrue(budget.backpressured)
+
+        budget.consume(0.5)
+        self.assertEqual(budget.seconds, 1.0)
+        self.assertFalse(budget.backpressured)
+
+    def test_three_seconds_at_high_watermark_requests_boundary_truncation(self):
+        clock = FakeClock()
+        budget = MediaDebtBudget(
+            high_watermark_seconds=2.0,
+            low_watermark_seconds=1.0,
+            backpressure_timeout_seconds=3.0,
+            clock=clock,
+        )
+
+        budget.reserve("fragment-1", estimated_seconds=2.0)
+        clock.advance(2.99)
+        self.assertFalse(budget.truncation_requested)
+        clock.advance(0.01)
+        self.assertTrue(budget.truncation_requested)
+
+        budget.consume(1.0)
+        self.assertFalse(budget.backpressured)
+        self.assertFalse(budget.truncation_requested)
+
+
+class BoundedFragmentChannelTests(unittest.IsolatedAsyncioTestCase):
+    async def test_producer_blocks_until_media_debt_reaches_low_watermark(self):
+        channel = BoundedFragmentChannel()
+        turn = TurnContext(turn_id="turn-1", generation=1)
+
+        def fragment(sequence, seconds):
+            return PlayableFragment(
+                envelope=turn.envelope(stage="tts_fragment", sequence=sequence),
+                text=f"fragment-{sequence}",
+                estimated_seconds=seconds,
+            )
+
+        await channel.put(fragment(1, 1.2))
+        await channel.put(fragment(2, 1.0))
+        blocked_put = asyncio.create_task(channel.put(fragment(3, 0.5)))
+        await asyncio.sleep(0)
+        self.assertFalse(blocked_put.done())
+
+        await channel.resolve("turn-1:1", actual_seconds=0.8)
+        await channel.consume(0.3)
+        self.assertFalse(blocked_put.done())
+        await channel.consume(0.5)
+        await asyncio.wait_for(blocked_put, timeout=0.1)
+
+        self.assertEqual(
+            [(await channel.get()).text for _ in range(3)],
+            ["fragment-1", "fragment-2", "fragment-3"],
+        )
+
+    async def test_producer_truncates_only_when_next_fragment_reaches_channel(self):
+        clock = FakeClock()
+        budget = MediaDebtBudget(clock=clock)
+        channel = BoundedFragmentChannel(budget)
+        turn = TurnContext(turn_id="turn-1", generation=1)
+        first = PlayableFragment(
+            envelope=turn.envelope(stage="tts_fragment", sequence=1),
+            text="first",
+            estimated_seconds=2.0,
+        )
+        next_fragment = PlayableFragment(
+            envelope=turn.envelope(stage="tts_fragment", sequence=2),
+            text="next boundary",
+            estimated_seconds=0.5,
+        )
+
+        await channel.put(first)
+        clock.advance(3.0)
+
+        with self.assertRaises(BackpressureTruncated):
+            await asyncio.wait_for(channel.put(next_fragment), timeout=0.1)
+        self.assertEqual(channel.qsize, 1)
+
+
+class ReplyFragmentProducerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cancelled_turn_stops_before_later_tokens_enter_channel(self):
+        turn = TurnContext(turn_id="turn-1", generation=1)
+        turn.transition(TurnState.LLM_STREAMING)
+        channel = BoundedFragmentChannel()
+        producer = ReplyFragmentProducer(
+            turn,
+            channel,
+            estimate_seconds=lambda _text: 0.2,
+        )
+
+        async def tokens():
+            yield "第一句。"
+            turn.cancel("interrupt")
+            yield "第二句。"
+
+        result = await producer.run(tokens())
+
+        self.assertEqual(result, ProducerResult.CANCELLED)
+        self.assertEqual(channel.qsize, 1)
+        self.assertEqual((await channel.get()).text, "第一句。")
+
+
+class BaselineReplayHarnessTests(unittest.TestCase):
+    def test_fake_replay_is_reproducible_content_free_and_judges_slos(self):
+        project_root = Path(__file__).resolve().parents[1]
+        command = [sys.executable, "scripts/replay_voice_baseline.py"]
+
+        first = subprocess.check_output(command, cwd=project_root, text=True)
+        second = subprocess.check_output(command, cwd=project_root, text=True)
+        report = json.loads(first)
+
+        self.assertEqual(first, second)
+        self.assertEqual(report["mode"], "deterministic_fake_legacy")
+        self.assertEqual(report["turns"], 5)
+        self.assertTrue(report["slo_pass"])
+        self.assertNotIn("你好", first)
+        self.assertNotIn("assistant", first)
+
+    def test_real_soak_report_is_content_free_and_applies_all_slos(self):
+        metrics = []
+        for index in range(50):
+            metrics.append(
+                {
+                    "turn_id": f"turn-{index}",
+                    "first_audio_seconds": 1.0,
+                    "interrupt_stop_seconds": 0.18 if index % 10 == 0 else None,
+                    "listening_resume_seconds": 0.45 if index % 10 == 0 else None,
+                    "max_media_debt_seconds": 1.8,
+                    "max_abs_av_offset_seconds": 0.07,
+                    "stale_drops": {},
+                }
+            )
+
+        report = build_soak_report(
+            metrics,
+            scenario_counts={"normal": 45, "interrupt": 5},
+            stale_events=0,
+            environment={"gpu": "RTX 4090", "llm": "llama.cpp"},
+        )
+
+        self.assertTrue(report["slo_pass"])
+        self.assertEqual(report["turns"], 50)
+        serialized = json.dumps(report, ensure_ascii=False)
+        self.assertNotIn("transcript", serialized)
+        self.assertNotIn("assistant_text", serialized)
+
+
+class TurnContextTests(unittest.TestCase):
+    def test_terminal_turn_rejects_stale_envelopes_and_cannot_move_forward(self):
+        turn = TurnContext(turn_id="turn-1", generation=3)
+        envelope = turn.envelope(stage="llm_token", sequence=1)
+
+        turn.transition(TurnState.LLM_STREAMING)
+        self.assertTrue(turn.accepts(envelope))
+
+        turn.cancel("interrupt")
+        turn.cancel("disconnect")
+        self.assertTrue(turn.cancelled.is_set())
+        self.assertEqual(turn.state, TurnState.CANCELLED)
+        self.assertEqual(turn.terminal_reason, "interrupt")
+        self.assertFalse(turn.accepts(envelope))
+        self.assertFalse(
+            TurnContext(turn_id="turn-1", generation=4).accepts(envelope)
+        )
+        with self.assertRaises(RuntimeError):
+            turn.transition(TurnState.SYNTHESIZING)
+
+    def test_normal_turn_completes_only_after_draining(self):
+        turn = TurnContext(turn_id="turn-1", generation=1)
+
+        for state in (
+            TurnState.LLM_STREAMING,
+            TurnState.SYNTHESIZING,
+            TurnState.SPEAKING,
+            TurnState.DRAINING,
+        ):
+            turn.transition(state)
+        turn.complete("played")
+
+        self.assertEqual(turn.state, TurnState.COMPLETED)
+        self.assertEqual(turn.terminal_reason, "played")
+        self.assertFalse(turn.cancelled.is_set())
+
+
+class LLMGenerationFenceTests(unittest.TestCase):
+    def test_rejected_token_never_reaches_text_processor_or_avatar(self):
+        class FakeLLM(BaseLLM):
+            def chat_stream(self, message, system_prompt=None):
+                del message, system_prompt
+                yield "這是第一個仍然有效而且長度足夠送出的語音回覆片段。"
+                yield "這是舊輪次不應該送出的第二個語音回覆片段。"
+
+        class FakeAvatar:
+            def __init__(self):
+                self.fragments = []
+
+            def put_msg_txt(self, text, data):
+                self.fragments.append((text, data))
+
+        llm = FakeLLM(Config())
+        avatar = FakeAvatar()
+
+        response = llm.generate_response(
+            "fixture",
+            avatar,
+            datainfo={"turn_id": "turn-1", "generation": 5},
+            chunk_guard=lambda sequence: sequence == 0,
+        )
+
+        self.assertEqual(
+            response,
+            "這是第一個仍然有效而且長度足夠送出的語音回覆片段。",
+        )
+        self.assertEqual(
+            avatar.fragments,
+            [
+                (
+                    response,
+                    {
+                        "turn_id": "turn-1",
+                        "generation": 5,
+                        "fragment_sequence": 0,
+                    },
+                )
+            ],
+        )
+
+
+class LLMHistoryTransactionTests(unittest.TestCase):
+    def test_deferred_voice_history_commits_only_played_text_by_turn_id(self):
+        llm = OpenAILLM(config=Config(), api_key="fixture")
+        completion = [
+            SimpleNamespace(
+                choices=[SimpleNamespace(delta=SimpleNamespace(content="generated reply"))]
+            )
+        ]
+        llm._client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=Mock(return_value=completion))
+            )
+        )
+
+        response = llm.generate_response(
+            "user fixture",
+            stream_to_avatar=False,
+            datainfo={"turn_id": "voice-turn"},
+            defer_history_commit=True,
+        )
+
+        self.assertEqual(response, "generated reply")
+        self.assertEqual(llm.conversation_history, [])
+        self.assertTrue(
+            llm.commit_pending_history_turn(
+                "voice-turn",
+                assistant_text="played only",
+                terminal_reason="interrupted",
+            )
+        )
+        self.assertEqual(
+            llm.conversation_history,
+            [
+                {"role": "user", "content": "user fixture"},
+                {"role": "assistant", "content": "played only"},
+            ],
+        )
+        self.assertFalse(
+            llm.commit_pending_history_turn(
+                "voice-turn",
+                assistant_text="duplicate",
+                terminal_reason="interrupted",
+            )
+        )
+
+    def test_generator_does_not_commit_unplayed_text(self):
+        llm = OpenAILLM(config=Config(), api_key="fixture")
+        completion = [
+            SimpleNamespace(
+                choices=[SimpleNamespace(delta=SimpleNamespace(content="已產生但尚未播放"))]
+            )
+        ]
+        create = Mock(return_value=completion)
+        llm._client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+        )
+        transaction = llm.begin_history_turn("user fixture", turn_id="turn-1")
+
+        generated = "".join(
+            llm.chat_stream(
+                "user fixture",
+                history_transaction=transaction,
+            )
+        )
+
+        self.assertEqual(generated, "已產生但尚未播放")
+        self.assertEqual(llm.conversation_history, [])
+        llm.commit_history_turn(
+            transaction,
+            assistant_text="已播放",
+            terminal_reason="interrupted",
+        )
+        self.assertEqual(
+            llm.conversation_history,
+            [
+                {"role": "user", "content": "user fixture"},
+                {"role": "assistant", "content": "已播放"},
+            ],
+        )
+
+    def test_llm_error_commits_user_but_not_partial_generated_text(self):
+        class BrokenCompletion:
+            def __iter__(self):
+                yield SimpleNamespace(
+                    choices=[SimpleNamespace(delta=SimpleNamespace(content="partial"))]
+                )
+                raise RuntimeError("fixture failure")
+
+        llm = OpenAILLM(config=Config(), api_key="fixture")
+        llm._client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=Mock(return_value=BrokenCompletion()))
+            )
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "fixture failure"):
+            llm.generate_response(
+                "user fixture",
+                stream_to_avatar=False,
+                datainfo={"turn_id": "failed-turn"},
+            )
+
+        self.assertEqual(
+            llm.conversation_history,
+            [{"role": "user", "content": "user fixture"}],
+        )
+
+    def test_legacy_generate_response_commits_after_stream_completes(self):
+        llm = OpenAILLM(config=Config(), api_key="fixture")
+        completion = [
+            SimpleNamespace(
+                choices=[SimpleNamespace(delta=SimpleNamespace(content="full reply"))]
+            )
+        ]
+        llm._client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=Mock(return_value=completion))
+            )
+        )
+
+        response = llm.generate_response(
+            "user fixture",
+            stream_to_avatar=False,
+            datainfo={"turn_id": "legacy-turn"},
+        )
+
+        self.assertEqual(response, "full reply")
+        self.assertEqual(
+            llm.conversation_history,
+            [
+                {"role": "user", "content": "user fixture"},
+                {"role": "assistant", "content": "full reply"},
+            ],
+        )
+
+
+class SemanticFragmenterTests(unittest.TestCase):
+    def test_strong_and_weak_punctuation_follow_exact_thresholds_across_tokens(self):
+        fragmenter = SemanticFragmenter()
+
+        self.assertEqual(fragmenter.feed("好"), [])
+        self.assertEqual(fragmenter.feed("。"), ["好。"])
+        self.assertEqual(fragmenter.feed("一二三四五六七八九十甲，"), [])
+        self.assertEqual(fragmenter.feed("乙，"), ["一二三四五六七八九十甲，乙，"])
+
+    def test_unpunctuated_text_splits_at_safe_boundaries_without_breaking_words(self):
+        chinese = "一二三四五六七八九十" * 4
+        fragmenter = SemanticFragmenter()
+
+        self.assertEqual(fragmenter.feed(chinese), [chinese[:24]])
+        self.assertEqual(fragmenter.flush(), [chinese[24:]])
+
+        fragmenter = SemanticFragmenter()
+        self.assertEqual(
+            fragmenter.feed("alpha bravo charlie delta echo foxtrot golf"),
+            ["alpha bravo charlie delta echo"],
+        )
+        self.assertEqual(fragmenter.flush(), ["foxtrot golf"])
+
+    def test_number_sequences_and_decimal_points_stay_intact(self):
+        fragmenter = SemanticFragmenter()
+        number = "12345678901234567890123456789012"
+
+        fragments = fragmenter.feed(f"版本號碼 {number} 還有後續")
+
+        self.assertEqual(fragments, [f"版本號碼 {number}"])
+        self.assertEqual(fragmenter.flush(), ["還有後續"])
+        self.assertEqual(SemanticFragmenter().feed("價格是 3.14 元。"), ["價格是 3.14 元。"])
+
+    def test_fragmentation_is_independent_of_llm_token_boundaries(self):
+        text = "alpha bravo charlie delta echo foxtrot golf 完成。"
+        whole = SemanticFragmenter()
+        expected = whole.feed(text) + whole.flush()
+        incremental = SemanticFragmenter()
+        actual = []
+        for character in text:
+            actual.extend(incremental.feed(character))
+        actual.extend(incremental.flush())
+
+        self.assertEqual(actual, expected)
+
+
+if __name__ == "__main__":
+    unittest.main()

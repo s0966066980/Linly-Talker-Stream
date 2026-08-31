@@ -3,10 +3,53 @@ FunASR 引擎實現
 阿里達摩院的 FunASR，專注中文識別
 """
 
+from functools import lru_cache
+from pathlib import Path
 from typing import Dict, Any
 
 from src.utils.logging import logger
 from src.asr.base import BaseASR
+
+
+LOCAL_MODEL_DIR = Path(__file__).resolve().parents[3] / "models" / "funasr" / "paraformer-zh"
+REQUIRED_MODEL_FILES = frozenset({
+    "am.mvn",
+    "config.yaml",
+    "configuration.json",
+    "model.pt",
+    "seg_dict",
+    "tokens.json",
+})
+FUNASR_OUTPUT_SCRIPTS = frozenset({"traditional-tw", "simplified"})
+
+
+@lru_cache(maxsize=1)
+def _taiwan_traditional_converter():
+    from opencc import OpenCC
+
+    return OpenCC("s2twp")
+
+
+def convert_funasr_text(text: str, output_script: str) -> str:
+    """Convert Paraformer simplified output to the configured Chinese script."""
+    if output_script == "simplified" or not text:
+        return text
+    if output_script != "traditional-tw":
+        raise ValueError(f"不支援的 FunASR 輸出文字: {output_script}")
+    return _taiwan_traditional_converter().convert(text)
+
+
+def local_funasr_model_ready(model_dir: Path = LOCAL_MODEL_DIR) -> bool:
+    """Return whether a complete browser-downloaded Paraformer model is present."""
+    return model_dir.is_dir() and all((model_dir / name).is_file() for name in REQUIRED_MODEL_FILES)
+
+
+def resolve_funasr_model(model_name: str) -> str:
+    """Prefer the bundled local Paraformer checkpoint over the remote alias."""
+    requested = str(model_name or "paraformer-zh").strip()
+    if requested == "paraformer-zh" and local_funasr_model_ready(LOCAL_MODEL_DIR):
+        return str(LOCAL_MODEL_DIR)
+    return str(Path(requested).expanduser()) if Path(requested).expanduser().is_dir() else requested
 
 
 class FunASR(BaseASR):
@@ -26,7 +69,12 @@ class FunASR(BaseASR):
         """
         super().__init__(config)
         
-        self.model_name = model_name
+        self.model_name = resolve_funasr_model(model_name)
+        self.output_script = getattr(
+            getattr(config, "asr", None),
+            "output_script",
+            "traditional-tw",
+        )
         self.model = None
         
         logger.info(f'[FunASR] 模型: {model_name}')
@@ -36,7 +84,7 @@ class FunASR(BaseASR):
         try:
             from funasr import AutoModel
             logger.info(f'[FunASR] 正在載入模型: {self.model_name}')
-            self.model = AutoModel(model=self.model_name)
+            self.model = AutoModel(model=self.model_name, disable_update=True)
             logger.info('[FunASR] 模型載入成功')
             
         except ImportError:
@@ -61,7 +109,10 @@ class FunASR(BaseASR):
         result = self.model.generate(input=audio_path)
         
         if result and len(result) > 0:
-            text = result[0].get("text", "")
+            text = convert_funasr_text(
+                result[0].get("text", ""),
+                self.output_script,
+            )
             return {
                 "text": text.strip(),
                 "language": "zh"

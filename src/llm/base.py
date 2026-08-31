@@ -5,7 +5,8 @@ from __future__ import annotations
 import math
 import time
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Generator, Optional
+from typing import TYPE_CHECKING, Callable, Generator, Optional
+from uuid import uuid4
 
 from src.utils.logging import logger
 
@@ -131,23 +132,57 @@ class BaseLLM(ABC):
         *,
         stream_to_avatar: bool = True,
         datainfo: Optional[dict] = None,
+        chunk_guard: Optional[Callable[[int], bool]] = None,
+        defer_history_commit: bool = False,
     ) -> str:
         """生成完整響應並推送到 avatar"""
         start_time = time.perf_counter()
         text_processor = TextStreamProcessor()
         full_response = ""
+        fenced = False
+        history_transaction = None
+        history_committed = False
+
+        begin_history = getattr(self, "begin_history_turn", None)
+        if callable(begin_history):
+            turn_id = str((datainfo or {}).get("turn_id") or uuid4().hex)
+            history_transaction = begin_history(message, turn_id=turn_id)
         
         target_avatar = (avatar_stream or self.parent) if stream_to_avatar else None
+        fragment_sequence = 0
         
         def send_to_avatar(text: str) -> None:
+            nonlocal fragment_sequence
             if target_avatar:
-                logger.info(f"Sending to avatar: {text}")
-                target_avatar.put_msg_txt(text, dict(datainfo or {}))
+                fragment_info = dict(datainfo or {})
+                if (
+                    fragment_info.get("turn_id")
+                    and fragment_info.get("generation") is not None
+                ):
+                    fragment_info["fragment_sequence"] = fragment_sequence
+                    logger.info(
+                        "Queueing turn-aware LLM fragment sequence=%d",
+                        fragment_sequence,
+                    )
+                else:
+                    logger.info("Queueing legacy LLM fragment")
+                target_avatar.put_msg_txt(text, fragment_info)
+                fragment_sequence += 1
         
         try:
             # 記錄首包延遲，方便定位 LLM 響應瓶頸
             first_chunk = True
-            for chunk in self.chat_stream(message):
+            if history_transaction is None:
+                chunks = self.chat_stream(message)
+            else:
+                chunks = self.chat_stream(
+                    message,
+                    history_transaction=history_transaction,
+                )
+            for sequence, chunk in enumerate(chunks):
+                if chunk_guard is not None and not chunk_guard(sequence):
+                    fenced = True
+                    break
                 if first_chunk:
                     first_chunk_time = time.perf_counter()
                     logger.info(f"Time to first chunk: {first_chunk_time - start_time:.3f}s")
@@ -163,9 +198,30 @@ class BaseLLM(ABC):
             
             total_time = time.perf_counter()
             logger.info(f"Total LLM response time: {total_time - start_time:.3f}s")
+
+            if history_transaction is not None and not defer_history_commit:
+                self.commit_history_turn(
+                    history_transaction,
+                    assistant_text="" if fenced else full_response,
+                    terminal_reason="cancelled" if fenced else "completed",
+                )
+                history_committed = True
             
             return full_response
             
         except Exception as e:
-            logger.error(f"Error in generate_response: {e}")
+            if (
+                history_transaction is not None
+                and not history_committed
+                and not defer_history_commit
+            ):
+                try:
+                    self.commit_history_turn(
+                        history_transaction,
+                        assistant_text="",
+                        terminal_reason="llm_error",
+                    )
+                except Exception:
+                    logger.exception("Failed to commit terminal LLM history transaction")
+            logger.error("LLM response generation failed: %s", type(e).__name__)
             raise

@@ -491,9 +491,23 @@ const handleVoiceEvent = (event) => {
   }
   if (event.type === 'user_transcript' && event.text) {
     addMessage(event.text, 'user')
-  } else if (event.type === 'assistant_text' && event.text) {
+  } else if (event.type === 'assistant_response' && event.text) {
     isThinking.value = false
-    addMessage(event.text, 'ai')
+    const duplicate = chatMessages.value.some(
+      message => message.type === 'ai' && message.voiceTurnId === event.turn_id
+    )
+    if (!duplicate) {
+      addMessage(event.text, 'ai', { voiceTurnId: event.turn_id })
+    }
+  } else if (event.type === 'assistant_fragment' && event.text) {
+    isThinking.value = false
+    const lastMessage = chatMessages.value[chatMessages.value.length - 1]
+    if (lastMessage?.type === 'ai' && lastMessage.voiceTurnId === event.turn_id) {
+      lastMessage.text += event.text
+      scrollMessagesToEnd()
+    } else {
+      addMessage(event.text, 'ai', { voiceTurnId: event.turn_id })
+    }
   } else if (event.type === 'speaking_start') {
     voiceState.value = 'avatar_speaking'
     isRecordingVoice.value = false
@@ -776,18 +790,22 @@ const downloadRecord = () => {
   showNotification(t('notifications.downloading'), 'info')
 }
 
-const addMessage = (text, type = 'user') => {
-  chatMessages.value.push({ 
-    text, 
-    type, 
-    time: getCurrentTime() 
-  })
-  
+const scrollMessagesToEnd = () => {
   nextTick(() => {
     if (messagesRef.value) {
       messagesRef.value.scrollTop = messagesRef.value.scrollHeight
     }
   })
+}
+
+const addMessage = (text, type = 'user', metadata = {}) => {
+  chatMessages.value.push({
+    text,
+    type,
+    time: getCurrentTime(),
+    ...metadata,
+  })
+  scrollMessagesToEnd()
 }
 
 // 清空輸入框
@@ -823,12 +841,9 @@ const sendChatMessage = async () => {
     })
     
     const data = await response.json().catch(() => ({}))
-    console.log('收到大模型回覆:', data)
+    console.log('回覆輪次已接受:', data)
     if (!response.ok || data.code === -1) {
       throw new Error(data.msg || `HTTP ${response.status}`)
-    }
-    if (data.response || data.text) {
-      addMessage(data.response || data.text, 'ai')
     }
   } catch (error) {
     console.error('Failed to send message:', error)
@@ -837,8 +852,6 @@ const sendChatMessage = async () => {
       detail ? `${t('notifications.messageFailed')}：${detail}` : t('notifications.messageFailed'),
       'error'
     )
-  } finally {
-    isThinking.value = false
   }
 }
 

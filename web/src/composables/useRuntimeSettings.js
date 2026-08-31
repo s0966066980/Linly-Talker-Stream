@@ -6,7 +6,8 @@ const runtime = reactive({
     base_url: '',
     provider: 'ollama',
     system_prompt: '',
-    response_max_chars: 120
+    response_max_chars: 120,
+    reply_mode: 'legacy'
   },
   avatar: {
     type: '',
@@ -73,7 +74,9 @@ const speech = reactive({
     type: 'whisper',
     model_size: 'base',
     language: 'zh',
+    output_script: 'traditional-tw',
     device: 'auto',
+    local_model_ready: false,
     engines: [],
     model_sizes: ['tiny', 'base', 'small', 'medium', 'large-v3'],
     models_by_engine: {
@@ -107,6 +110,7 @@ const sttDraft = reactive({
   type: 'whisper',
   model_size: 'base',
   language: 'zh',
+  output_script: 'traditional-tw',
   device: 'auto'
 })
 const ttsDraft = reactive({
@@ -143,6 +147,7 @@ const selectedAvatarId = ref('')
 const selectedLlm = ref('')
 const selectedSystemPrompt = ref('')
 const selectedResponseMaxChars = ref(120)
+const selectedReplyMode = ref('legacy')
 
 const responseLengthError = computed(() => {
   const value = Number(selectedResponseMaxChars.value)
@@ -164,7 +169,8 @@ const llmDirty = computed(() => {
     selectedProvider.value !== runtime.llm.provider ||
     selectedLlm.value !== runtime.llm.model ||
     selectedSystemPrompt.value !== (runtime.llm.system_prompt || '') ||
-    Number(selectedResponseMaxChars.value) !== Number(runtime.llm.response_max_chars || 120)
+    Number(selectedResponseMaxChars.value) !== Number(runtime.llm.response_max_chars || 120) ||
+    selectedReplyMode.value !== (runtime.llm.reply_mode || 'legacy')
   )
 })
 
@@ -191,6 +197,7 @@ const sttDirty = computed(() => (
   sttDraft.type !== speech.stt.type ||
   sttDraft.model_size !== speech.stt.model_size ||
   sttDraft.language !== speech.stt.language ||
+  sttDraft.output_script !== speech.stt.output_script ||
   sttDraft.device !== speech.stt.device
 ))
 
@@ -275,6 +282,7 @@ function applySpeechSnapshot(data) {
       type: data.stt.type,
       model_size: data.stt.model_size,
       language: data.stt.language,
+      output_script: data.stt.output_script || 'traditional-tw',
       device: data.stt.device
     })
   }
@@ -429,6 +437,7 @@ function applySnapshot(data) {
   }
   selectedSystemPrompt.value = data.llm?.system_prompt || ''
   selectedResponseMaxChars.value = Number(data.llm?.response_max_chars || 120)
+  selectedReplyMode.value = data.llm?.reply_mode || 'legacy'
 }
 
 async function loadRuntimeSettings() {
@@ -498,7 +507,8 @@ async function applyLlmModel(
   model = selectedLlm.value,
   provider = selectedProvider.value,
   systemPrompt = selectedSystemPrompt.value,
-  responseMaxChars = selectedResponseMaxChars.value
+  responseMaxChars = selectedResponseMaxChars.value,
+  replyMode = selectedReplyMode.value
 ) {
   applyingLlm.value = true
   try {
@@ -509,7 +519,8 @@ async function applyLlmModel(
         model,
         provider,
         system_prompt: systemPrompt,
-        response_max_chars: Number(responseMaxChars)
+        response_max_chars: Number(responseMaxChars),
+        reply_mode: replyMode
       })
     }))
     runtime.llm.model = data.model
@@ -517,11 +528,13 @@ async function applyLlmModel(
     runtime.llm.base_url = data.base_url || runtime.llm.base_url
     runtime.llm.system_prompt = data.system_prompt || systemPrompt
     runtime.llm.response_max_chars = Number(data.response_max_chars || responseMaxChars)
+    runtime.llm.reply_mode = data.reply_mode || replyMode
     ollama.current = data.model
     selectedLlm.value = data.model
     selectedProvider.value = data.provider || provider
     selectedSystemPrompt.value = runtime.llm.system_prompt
     selectedResponseMaxChars.value = runtime.llm.response_max_chars
+    selectedReplyMode.value = runtime.llm.reply_mode
     return data
   } finally {
     applyingLlm.value = false
@@ -645,6 +658,7 @@ export function useRuntimeSettings() {
     selectedLlm,
     selectedSystemPrompt,
     selectedResponseMaxChars,
+    selectedReplyMode,
     responseLengthError,
     filteredCharacters,
     llmDirty,

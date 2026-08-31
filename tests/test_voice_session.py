@@ -4,7 +4,7 @@ import time
 import unittest
 from threading import Event
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import numpy as np
 
@@ -15,12 +15,29 @@ class FakeAvatar:
     def __init__(self):
         self.messages = []
         self.flush_count = 0
+        self.media_guard = None
+        self.on_stale_drop = None
+        self.on_fragment_queued = None
 
     def put_msg_txt(self, text, data=None):
-        self.messages.append((text, data or {}))
+        eventpoint = data or {}
+        self.messages.append((text, eventpoint))
+        if self.on_fragment_queued is not None:
+            self.on_fragment_queued(text, eventpoint)
 
     def flush_talk(self):
         self.flush_count += 1
+
+    def configure_media_fence(
+        self,
+        *,
+        media_guard,
+        on_stale_drop,
+        on_fragment_queued=None,
+    ):
+        self.media_guard = media_guard
+        self.on_stale_drop = on_stale_drop
+        self.on_fragment_queued = on_fragment_queued
 
 
 class FakeSegmenter:
@@ -49,13 +66,14 @@ class FakeASR:
 
 
 class VoiceTurnSessionTests(unittest.IsolatedAsyncioTestCase):
-    def make_session(self, segment=None):
+    def make_session(self, segment=None, *, clock=time.monotonic, streaming=True):
         config = SimpleNamespace(
             asr=SimpleNamespace(type="whisper", model_size="base", language="zh"),
             vad=SimpleNamespace(),
+            reply_streaming=SimpleNamespace(enabled=streaming),
         )
         avatar = FakeAvatar()
-        session = VoiceTurnSession(7, config, avatar)
+        session = VoiceTurnSession(7, config, avatar, clock=clock)
         session._segmenter = FakeSegmenter(segment)
         session._asr = FakeASR()
         events = []
@@ -71,9 +89,21 @@ class VoiceTurnSessionTests(unittest.IsolatedAsyncioTestCase):
 
         # 逐句串流後，推送 TTS 的責任在 llm_response 內部，輪次只負責把
         # turn_id 交下去。用 side_effect 模擬它逐句回推。
-        def fake_llm(text, avatar_stream, *, stream_to_avatar=True, datainfo=None):
+        def fake_llm(
+            text,
+            avatar_stream,
+            *,
+            stream_to_avatar=True,
+            datainfo=None,
+            chunk_guard=None,
+            defer_history_commit=False,
+        ):
             self.assertTrue(stream_to_avatar)
-            avatar_stream.put_msg_txt("您好", dict(datainfo or {}))
+            self.assertTrue(chunk_guard(0))
+            self.assertEqual(datainfo["generation"], session._generation)
+            fragment_info = dict(datainfo or {})
+            fragment_info["fragment_sequence"] = 0
+            avatar_stream.put_msg_txt("您好", fragment_info)
             return "您好"
 
         with patch("src.server.voice_session.llm_response", side_effect=fake_llm):
@@ -83,10 +113,49 @@ class VoiceTurnSessionTests(unittest.IsolatedAsyncioTestCase):
             await task
 
         transcript = next(item for item in events if item["type"] == "user_transcript")
-        answer = next(item for item in events if item["type"] == "assistant_text")
+        eventpoint = avatar.messages[0][1]
+        self.assertNotIn("assistant_fragment", [item["type"] for item in events])
+        session.on_output_audio_frame(eventpoint, True)
+        answer = next(item for item in events if item["type"] == "assistant_fragment")
         self.assertEqual(transcript["turn_id"], answer["turn_id"])
-        self.assertEqual(avatar.messages, [("您好", {"turn_id": answer["turn_id"]})])
+        self.assertEqual(
+            avatar.messages,
+            [
+                (
+                    "您好",
+                    {
+                        "turn_id": answer["turn_id"],
+                        "generation": 0,
+                        "fragment_sequence": 0,
+                    },
+                )
+            ],
+        )
         self.assertEqual([item["seq"] for item in events], sorted(item["seq"] for item in events))
+        await session.close()
+
+
+    async def test_legacy_turn_exposes_first_audio_metric(self):
+        class FakeClock:
+            now = 0.0
+
+            def __call__(self):
+                return self.now
+
+        clock = FakeClock()
+        segment = SimpleNamespace(
+            audio=np.ones(1600, dtype=np.int16),
+            sample_rate=16000,
+        )
+        session, _, _ = self.make_session(segment, clock=clock)
+
+        with patch("src.server.voice_session.llm_response", return_value="您好"):
+            await session.feed_pcm(np.ones(512, dtype=np.int16))
+            await session._turn_task
+        clock.now = 0.8
+        session.on_output_audio(True)
+
+        self.assertEqual(session.metrics_snapshot()["first_audio_seconds"], 0.8)
         await session.close()
 
     async def test_streaming_vad_does_not_block_the_media_event_loop(self):
@@ -191,11 +260,194 @@ class VoiceTurnSessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_interrupt_flushes_old_turn_and_reopens_after_guard(self):
         session, avatar, events = self.make_session()
         session._turn_id = "old-turn"
+
+        class MediaPlayer:
+            discard_count = 0
+
+            def discard_stale_media(self):
+                self.discard_count += 1
+
+        media_player = MediaPlayer()
+        session.attach_media_player(media_player)
         with patch("src.server.voice_session.asyncio.sleep", new=AsyncMock()):
             await session.interrupt()
         self.assertEqual(avatar.flush_count, 1)
+        self.assertEqual(media_player.discard_count, 1)
         self.assertTrue(session._gate_open)
         self.assertTrue(any(item["type"] == "turn_cancelled" for item in events))
+        await session.close()
+
+    async def test_avatar_media_guard_rejects_cancelled_generation(self):
+        session, avatar, _ = self.make_session()
+        session._turn_id = "turn-1"
+        session._start_turn_context("turn-1")
+        eventpoint = {
+            "turn_id": "turn-1",
+            "generation": 0,
+            "fragment_sequence": 0,
+            "media_sequence": 0,
+        }
+
+        self.assertIsNotNone(avatar.media_guard)
+        self.assertTrue(avatar.media_guard(eventpoint, "avatar_audio_enqueue"))
+        session._turn_id = None
+        self.assertFalse(avatar.media_guard(eventpoint, "avatar_audio_enqueue"))
+        session._turn_id = "turn-1"
+        with patch("src.server.voice_session.asyncio.sleep", new=AsyncMock()):
+            await session.interrupt()
+        self.assertFalse(avatar.media_guard(eventpoint, "avatar_audio_enqueue"))
+        avatar.on_stale_drop("avatar_audio", "stale_generation")
+        self.assertEqual(
+            session.metrics_snapshot()["stale_drops"],
+            {"avatar_audio:stale_generation": 1},
+        )
+        await session.close()
+
+    async def test_executor_llm_cannot_enqueue_after_turn_is_cancelled(self):
+        segment = SimpleNamespace(
+            audio=np.ones(1600, dtype=np.int16),
+            sample_rate=16000,
+        )
+        session, avatar, _ = self.make_session(segment)
+        started = Event()
+        release = Event()
+        finished = Event()
+
+        def blocked_llm(
+            _text,
+            avatar_stream,
+            *,
+            stream_to_avatar=True,
+            datainfo=None,
+            chunk_guard=None,
+            defer_history_commit=False,
+        ):
+            started.set()
+            release.wait(timeout=1)
+            if chunk_guard is None or chunk_guard(0):
+                avatar_stream.put_msg_txt("舊回覆", dict(datainfo or {}))
+            finished.set()
+            return "舊回覆"
+
+        with patch("src.server.voice_session.llm_response", side_effect=blocked_llm):
+            await session.feed_pcm(np.ones(512, dtype=np.int16))
+            self.assertTrue(await asyncio.to_thread(started.wait, 1))
+            with patch("src.server.voice_session.asyncio.sleep", new=AsyncMock()):
+                await session.interrupt()
+            release.set()
+            self.assertTrue(await asyncio.to_thread(finished.wait, 1))
+
+        self.assertEqual(avatar.messages, [])
+        await session.close()
+
+    async def test_disconnect_fences_executor_llm_output(self):
+        segment = SimpleNamespace(
+            audio=np.ones(1600, dtype=np.int16),
+            sample_rate=16000,
+        )
+        session, avatar, _ = self.make_session(segment)
+        started = Event()
+        release = Event()
+        finished = Event()
+
+        def blocked_llm(
+            _text,
+            avatar_stream,
+            *,
+            stream_to_avatar=True,
+            datainfo=None,
+            chunk_guard=None,
+            defer_history_commit=False,
+        ):
+            started.set()
+            release.wait(timeout=1)
+            if chunk_guard is None or chunk_guard(0):
+                avatar_stream.put_msg_txt("舊回覆", dict(datainfo or {}))
+            finished.set()
+            return "舊回覆"
+
+        with patch("src.server.voice_session.llm_response", side_effect=blocked_llm):
+            await session.feed_pcm(np.ones(512, dtype=np.int16))
+            self.assertTrue(await asyncio.to_thread(started.wait, 1))
+            await session.close()
+            release.set()
+            self.assertTrue(await asyncio.to_thread(finished.wait, 1))
+
+        self.assertEqual(avatar.messages, [])
+
+
+class ReplyModeBehaviorTests(unittest.IsolatedAsyncioTestCase):
+    def make_session(self, *, streaming):
+        config = SimpleNamespace(
+            asr=SimpleNamespace(type="whisper", model_size="base", language="zh"),
+            vad=SimpleNamespace(),
+            reply_streaming=SimpleNamespace(enabled=streaming),
+        )
+        avatar = FakeAvatar()
+        session = VoiceTurnSession(7, config, avatar)
+        events = []
+        session.attach_event_sink(lambda raw: events.append(json.loads(raw)))
+        session._segmenter = FakeSegmenter()
+        session._asr = FakeASR()
+        return session, avatar, events
+
+    async def test_legacy_text_turn_emits_one_complete_response(self):
+        session, avatar, events = self.make_session(streaming=False)
+        calls = []
+
+        def fake_llm(text, avatar_stream, **kwargs):
+            calls.append((text, kwargs))
+            avatar_stream.put_msg_txt("完整回覆", {})
+            return "完整回覆"
+
+        with patch("src.server.voice_session.llm_response", side_effect=fake_llm):
+            started = await session.start_text_turn("請回答", interrupt=False)
+            await session._turn_task
+
+        self.assertEqual(started["reply_mode"], "legacy")
+        self.assertEqual(calls[0][1].get("datainfo"), None)
+        self.assertEqual(calls[0][1].get("chunk_guard"), None)
+        self.assertFalse(calls[0][1].get("defer_history_commit", False))
+        responses = [item for item in events if item["type"] == "assistant_response"]
+        self.assertEqual([item["text"] for item in responses], ["完整回覆"])
+        self.assertEqual(avatar.messages, [("完整回覆", {})])
+        await session.close()
+
+    async def test_streaming_text_turn_uses_guarded_played_fragment_delivery(self):
+        session, avatar, events = self.make_session(streaming=True)
+
+        def fake_llm(
+            text,
+            avatar_stream,
+            *,
+            stream_to_avatar=True,
+            datainfo=None,
+            chunk_guard=None,
+            defer_history_commit=False,
+        ):
+            self.assertEqual(text, "請串流")
+            self.assertTrue(stream_to_avatar)
+            self.assertIsNotNone(datainfo)
+            self.assertIsNotNone(chunk_guard)
+            self.assertTrue(defer_history_commit)
+            self.assertTrue(chunk_guard(0))
+            info = dict(datainfo)
+            info["fragment_sequence"] = 0
+            avatar_stream.put_msg_txt("逐段回覆", info)
+            return "逐段回覆"
+
+        with patch("src.server.voice_session.llm_response", side_effect=fake_llm):
+            started = await session.start_text_turn("請串流", interrupt=False)
+            await session._turn_task
+
+        self.assertEqual(started["reply_mode"], "streaming")
+        self.assertEqual(
+            [item for item in events if item["type"] == "assistant_fragment"],
+            [],
+        )
+        session.on_output_audio_frame(avatar.messages[0][1], True)
+        fragments = [item for item in events if item["type"] == "assistant_fragment"]
+        self.assertEqual([item["text"] for item in fragments], ["逐段回覆"])
         await session.close()
 
 
@@ -252,6 +504,81 @@ class WebRTCOfferCapacityTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.assertRaises(ReachedOfferParsing):
                 await offer(request)
+
+
+class ChatReplyModeRouteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_human_chat_delegates_to_text_turn_and_returns_ack(self):
+        from src.server.routes.chat import human
+        from src.server.state import state
+
+        request = AsyncMock()
+        request.json.return_value = {
+            "type": "chat",
+            "text": "你好",
+            "sessionid": 7,
+            "interrupt": True,
+        }
+        voice_session = SimpleNamespace(
+            start_text_turn=AsyncMock(
+                return_value={
+                    "turn_id": "turn-1",
+                    "reply_mode": "streaming",
+                    "delivery": "events",
+                }
+            ),
+            interrupt=AsyncMock(),
+        )
+        avatar = SimpleNamespace(flush_talk=Mock())
+        with (
+            patch.object(state, "voice_sessions", {7: voice_session}),
+            patch.object(state, "avatar_streams", {7: avatar}),
+        ):
+            response = await human(request)
+
+        payload = json.loads(response.text)
+        self.assertEqual(payload["code"], 0)
+        self.assertEqual(payload["msg"], "accepted")
+        self.assertEqual(payload["turn_id"], "turn-1")
+        self.assertNotIn("response", payload)
+        voice_session.start_text_turn.assert_awaited_once_with("你好", interrupt=True)
+        voice_session.interrupt.assert_not_awaited()
+        avatar.flush_talk.assert_not_called()
+
+    async def test_human_chat_rejects_missing_voice_session(self):
+        from aiohttp import web
+        from src.server.routes.chat import human
+        from src.server.state import state
+
+        request = AsyncMock()
+        request.json.return_value = {
+            "type": "chat",
+            "text": "你好",
+            "sessionid": 99,
+        }
+        with patch.object(state, "voice_sessions", {}), patch.object(
+            state, "avatar_streams", {}
+        ):
+            with self.assertRaises(web.HTTPConflict):
+                await human(request)
+
+    async def test_human_chat_rejects_when_event_sink_is_not_ready(self):
+        from aiohttp import web
+        from src.server.routes.chat import human
+        from src.server.state import state
+
+        request = AsyncMock()
+        request.json.return_value = {
+            "type": "chat",
+            "text": "你好",
+            "sessionid": 7,
+        }
+        voice_session = SimpleNamespace(event_sink_ready=False)
+        with (
+            patch.object(state, "voice_sessions", {7: voice_session}),
+            patch.object(state, "avatar_streams", {7: object()}),
+        ):
+            with self.assertRaises(web.HTTPConflict):
+                await human(request)
 
 
 if __name__ == "__main__":

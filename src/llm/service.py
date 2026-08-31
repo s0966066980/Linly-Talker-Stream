@@ -1,6 +1,6 @@
 """LLM 服務模組"""
 
-from typing import Optional
+from typing import Callable, Optional
 
 from src.avatars.base import BaseAvatar
 from src.llm.engines import OpenAILLM
@@ -19,6 +19,8 @@ def llm_response(
     *,
     stream_to_avatar: bool = True,
     datainfo: Optional[dict] = None,
+    chunk_guard: Optional[Callable[[int], bool]] = None,
+    defer_history_commit: bool = False,
 ) -> str:
     """呼叫 LLM 並將響應流式推送到 avatar"""
     try:
@@ -54,10 +56,12 @@ def llm_response(
             avatar_stream,
             stream_to_avatar=stream_to_avatar,
             datainfo=datainfo,
+            chunk_guard=chunk_guard,
+            defer_history_commit=defer_history_commit,
         )
         
     except Exception as e:
-        logger.error(f"Error in llm_response: {e}")
+        logger.error("LLM service failed: %s", type(e).__name__)
         raise
 
 
@@ -89,6 +93,27 @@ def clear_session_history(sessionid: int):
     if sessionid in _session_llm_instances:
         _session_llm_instances[sessionid].clear_history()
         logger.info(f"Cleared history for session {sessionid}")
+
+
+def commit_session_history(
+    sessionid: int,
+    turn_id: str,
+    *,
+    assistant_text: str,
+    terminal_reason: str,
+) -> bool:
+    """Commit exactly what crossed the playback boundary for one voice turn."""
+    llm = _session_llm_instances.get(sessionid)
+    commit = getattr(llm, "commit_pending_history_turn", None)
+    if not callable(commit):
+        return False
+    return bool(
+        commit(
+            turn_id,
+            assistant_text=assistant_text,
+            terminal_reason=terminal_reason,
+        )
+    )
 
 
 def remove_session(sessionid: int):
@@ -137,6 +162,7 @@ def switch_llm_endpoint(
 __all__ = [
     "llm_response",
     "clear_session_history",
+    "commit_session_history",
     "remove_session",
     "switch_llm_model",
     "switch_llm_endpoint",

@@ -70,6 +70,7 @@ async def set_llm_model(request):
                 params.get("provider", ""),
                 params.get("system_prompt"),
                 params.get("response_max_chars"),
+                params.get("reply_mode"),
             ),
         )
         return _json({"code": 0, "msg": "ok", "data": result})

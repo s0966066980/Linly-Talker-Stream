@@ -2,6 +2,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -173,6 +174,7 @@ class OverridePersistTests(unittest.TestCase):
             class Config:
                 llm = LLM()
                 model = Model()
+                reply_streaming = SimpleNamespace(enabled=True)
 
             with patch("src.config.overrides.RUNTIME_OVERRIDES_FILE", path):
                 persist_runtime_overrides(Config())
@@ -184,9 +186,41 @@ class OverridePersistTests(unittest.TestCase):
             self.assertEqual(data["llm"]["system_prompt"], "請用繁體中文簡短回答。")
             self.assertEqual(data["model"]["type"], "musetalk")
             self.assertEqual(data["model"]["avatar_id"], "musetalk_avatar1")
+            self.assertEqual(data["reply_streaming"], {"enabled": True})
 
 
 class DefaultPromptSettingsTests(unittest.TestCase):
+    def test_snapshot_exposes_user_selectable_reply_mode(self):
+        config = Config()
+        config.reply_streaming.enabled = True
+        with patch(
+            "src.server.runtime_settings.list_avatar_characters", return_value=[]
+        ), patch("src.server.runtime_settings.list_engines", return_value=[]):
+            snapshot = current_snapshot(config)
+
+        self.assertEqual(snapshot["llm"]["reply_mode"], "streaming")
+
+    def test_apply_llm_updates_and_persists_reply_mode(self):
+        config = Config()
+        config.llm.provider = "ollama"
+        config.llm.base_url = "http://localhost:11434/v1"
+
+        with patch("src.server.runtime_settings.persist_runtime_overrides") as persist, patch(
+            "src.server.runtime_settings.switch_llm_endpoint"
+        ):
+            result = apply_llm_model(
+                config,
+                "qwen3.5:4b",
+                "ollama",
+                "請使用繁體中文回答。",
+                120,
+                "legacy",
+            )
+
+        self.assertFalse(config.reply_streaming.enabled)
+        self.assertEqual(result["reply_mode"], "legacy")
+        persist.assert_called_once_with(config)
+
     def test_snapshot_exposes_effective_default_prompt(self):
         config = Config()
         config.llm.system_prompt = ""
@@ -391,12 +425,15 @@ class SpeechSettingsTests(unittest.TestCase):
                     "type": "whisper",
                     "model_size": "small",
                     "language": "auto",
+                    "output_script": "traditional-tw",
                     "device": "cuda",
                 },
                 session_count=0,
             )
         candidate.ensure_ready.assert_called_once()
         self.assertEqual(result["model_size"], "small")
+        self.assertEqual(result["output_script"], "traditional-tw")
+        self.assertEqual(config.asr.output_script, "traditional-tw")
         self.assertEqual(config.asr.device, "cuda")
         persist.assert_called_once()
 

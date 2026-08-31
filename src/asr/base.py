@@ -78,7 +78,10 @@ class BaseASR(ABC):
             temp_audio_path = self._save_temp_audio(audio_bytes)
             result = self._transcribe(temp_audio_path)
             
-            logger.info(f'[ASR] 識別結果: {result.get("text", "")}')
+            logger.info(
+                "[ASR] transcription completed language=%s",
+                result.get("language", "unknown"),
+            )
             return result
             
         finally:

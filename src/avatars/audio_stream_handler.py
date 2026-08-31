@@ -9,6 +9,23 @@ import torch.multiprocessing as mp
 from src.avatars.base import BaseAvatar
 
 
+def _drain_queue(target) -> None:
+    mutex = getattr(target, "mutex", None)
+    storage = getattr(target, "queue", None)
+    if mutex is not None and storage is not None:
+        with mutex:
+            storage.clear()
+            not_full = getattr(target, "not_full", None)
+            if not_full is not None:
+                not_full.notify_all()
+        return
+    while True:
+        try:
+            target.get_nowait()
+        except queue.Empty:
+            return
+
+
 class BaseAudioStreamHandler:
     """音訊流處理器基類
     
@@ -38,24 +55,51 @@ class BaseAudioStreamHandler:
         #self.warm_up()
 
     def flush_talk(self):
-        self.queue.queue.clear()
+        _drain_queue(self.queue)
+        _drain_queue(self.output_queue)
+        _drain_queue(self.feat_queue)
+        self.frames.clear()
 
     def put_audio_frame(self, audio_chunk, datainfo: dict):
-        self.queue.put((audio_chunk, datainfo))
+        while self._accepts_media(datainfo, "avatar_audio_enqueue"):
+            try:
+                self.queue.put_nowait((audio_chunk, datainfo))
+                return True
+            except queue.Full:
+                time.sleep(0.01)
+        self._record_stale_drop("avatar_audio_enqueue")
+        return False
+
+    def _accepts_media(self, eventpoint, stage: str) -> bool:
+        if not (isinstance(eventpoint, dict) and eventpoint.get("turn_id")):
+            return True
+        accepts_media = getattr(self.parent, "accepts_media", None)
+        return bool(accepts_media(eventpoint, stage)) if callable(accepts_media) else True
+
+    def _record_stale_drop(self, stage: str) -> None:
+        record = getattr(self.parent, "record_stale_drop", None)
+        if callable(record):
+            record(stage, "stale_generation")
 
     def get_audio_frame(self):        
-        try:
-            frame, eventpoint = self.queue.get(block=True, timeout=0.01)
-            type = 0
-            #print(f'[INFO] get frame {frame.shape}')
-        except queue.Empty:
-            if self.parent and self.parent.curr_state > 1: #播放自定義音訊
-                frame = self.parent.get_audio_stream(self.parent.curr_state)
-                type = self.parent.curr_state
-            else:
-                frame = np.zeros(self.chunk, dtype=np.float32)
-                type = 1
-            eventpoint = None
+        while True:
+            try:
+                frame, eventpoint = self.queue.get(block=True, timeout=0.01)
+                if not self._accepts_media(eventpoint, "avatar_audio_consume"):
+                    self._record_stale_drop("avatar_audio_consume")
+                    continue
+                type = 0
+                #print(f'[INFO] get frame {frame.shape}')
+                break
+            except queue.Empty:
+                if self.parent and getattr(self.parent, "curr_state", 0) > 1: #播放自定義音訊
+                    frame = self.parent.get_audio_stream(self.parent.curr_state)
+                    type = self.parent.curr_state
+                else:
+                    frame = np.zeros(self.chunk, dtype=np.float32)
+                    type = 1
+                eventpoint = None
+                break
 
         return frame, type, eventpoint 
 
