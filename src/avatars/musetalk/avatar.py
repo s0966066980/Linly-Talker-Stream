@@ -177,7 +177,8 @@ def __mirror_index(size, index):
 
 @torch.no_grad()
 def inference(quit_event,batch_size,input_latent_list_cycle,audio_feat_queue,audio_out_queue,res_frame_queue,
-              vae, unet, pe,timesteps, media_guard=None, on_stale_drop=None): #vae, unet, pe,timesteps
+              vae, unet, pe,timesteps, media_guard=None, on_stale_drop=None,
+              on_stage_end=None): #vae, unet, pe,timesteps
     
     # vae, unet, pe = load_diffusion_model()
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -190,6 +191,20 @@ def inference(quit_event,batch_size,input_latent_list_cycle,audio_feat_queue,aud
     index = 0
     count=0
     counttime=0
+    first_result_turns = set()
+
+    def mark_first_result(paired_audio) -> None:
+        if on_stage_end is None:
+            return
+        turn_ids = {
+            str(eventpoint.get("turn_id"))
+            for _frame, _frame_type, eventpoint in paired_audio
+            if isinstance(eventpoint, dict) and eventpoint.get("turn_id")
+        }
+        for turn_id in turn_ids:
+            if turn_id not in first_result_turns:
+                on_stage_end("musetalk_inference_first_result")
+                first_result_turns.add(turn_id)
     logger.info('start inference')
     while not quit_event.is_set():
         starttime=time.perf_counter()
@@ -241,6 +256,7 @@ def inference(quit_event,batch_size,input_latent_list_cycle,audio_feat_queue,aud
                     quit_event,
                 ):
                     break
+                mark_first_result(paired_audio)
                 index = index + 1
         else:
             # print('infer=======')
@@ -304,6 +320,7 @@ def inference(quit_event,batch_size,input_latent_list_cycle,audio_feat_queue,aud
                     quit_event,
                 ):
                     break
+                mark_first_result(paired_audio)
                 index = index + 1
             #print('total batch time:',time.perf_counter()-starttime)            
     logger.info('musereal inference processor stop')
@@ -320,7 +337,9 @@ class MuseTalkAvatar(BaseAvatar):
 
         self.batch_size = config.model.batch_size
         self.idx = 0
-        self.res_frame_queue = mp.Queue(self.batch_size*2)
+        # Render and inference both run as threads in this process; avoid
+        # multiprocessing serialization for generated frames.
+        self.res_frame_queue = queue.Queue(self.batch_size * 2)
 
         self.vae, self.unet, self.pe, self.timesteps, self.audio_processor = model
         self.frame_list_cycle,self.mask_list_cycle,self.coord_list_cycle,self.mask_coords_list_cycle, self.input_latent_list_cycle = avatar
@@ -394,7 +413,8 @@ class MuseTalkAvatar(BaseAvatar):
         infer_thread = Thread(target=inference, args=(infer_quit_event,self.batch_size,self.input_latent_list_cycle,
                                            self.audio_stream.feat_queue,self.audio_stream.output_queue,self.res_frame_queue,
                                            self.vae, self.unet, self.pe,self.timesteps,
-                                           self.accepts_media,self.record_stale_drop)) #mp.Process
+                                           self.accepts_media,self.record_stale_drop,
+                                           self.mark_stage_end)) #mp.Process
         infer_thread.start()
         
         process_quit_event = Event()

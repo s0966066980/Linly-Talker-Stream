@@ -873,3 +873,4 @@ npm run build
 
 - 2026-08-31：根據現行程式路徑、runtime 設定、llama.cpp runtime log、MuseTalk 空 queue 隔離量測與既有 50 輪 soak 報告建立本修改計畫。
 - 2026-08-31：已實作並測試 stage metrics、turn-aware SemanticFragmenter、MuseTalk 單次 blocking poll 與 startup microbatch、FunASR device 傳遞、TTS/Avatar stage markers、後端 assistant delta callback，以及前端 turn/sequence stale fence。完整 Python 219 項、前端 23 項與 Vite production build 通過；Edge provider/持久連線、VAD 實機 A/B 與 50 輪新 soak 尚未完成。WebRTC 80 ms buffer A/B 造成 starvation（首音 4.61 s），已恢復 240 ms 安全值。
+- 2026-08-31：後續音訊主時鐘解耦、MuseTalk runtime 瘦身、Edge 預取、PCM-native ASR 與前端 delta batching 已拆至 [Phase 10 詳細規劃](10-decouple-audio-clock-and-reduce-runtime-overhead.md)。

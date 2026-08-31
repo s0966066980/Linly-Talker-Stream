@@ -144,7 +144,12 @@ class TurnMetricsTests(unittest.TestCase):
                     "tts_first_encoded": None,
                     "tts_first_pcm": None,
                     "musetalk_first_batch": None,
+                    "musetalk_inference_first_result": None,
+                    "avatar_pasteback_done": None,
+                    "webrtc_audio_enqueue": None,
+                    "webrtc_video_enqueue": None,
                     "avatar_to_webrtc_commit": None,
+                    "webrtc_audio_commit": None,
                 },
             },
         )

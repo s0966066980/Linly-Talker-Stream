@@ -17,7 +17,12 @@ STAGE_NAMES = (
     "tts_first_encoded",
     "tts_first_pcm",
     "musetalk_first_batch",
+    "musetalk_inference_first_result",
+    "avatar_pasteback_done",
+    "webrtc_audio_enqueue",
+    "webrtc_video_enqueue",
     "avatar_to_webrtc_commit",
+    "webrtc_audio_commit",
 )
 
 

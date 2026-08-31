@@ -30,6 +30,10 @@ class MuseAudioStreamHandler(BaseAudioStreamHandler):
         super().__init__(config, parent)
         self.audio_processor = audio_processor
         self.queue = Queue(maxsize=max(1, round(self.fps * 2.0)))
+        # MuseTalk inference runs in threads in this process.  A thread queue
+        # avoids multiprocessing pipe/pickle overhead for numpy feature data.
+        self.feat_queue = Queue(maxsize=2)
+        self.output_queue = Queue()
         self._paired_audio_frames = deque()
         self._paired_audio_lock = Lock()
         # A short first batch gets the first mouth/audio frame onto WebRTC
@@ -83,19 +87,6 @@ class MuseAudioStreamHandler(BaseAudioStreamHandler):
         if len(self.frames) <= self.stride_left_size + self.stride_right_size:
             return
         
-        inputs = np.concatenate(self.frames)  # [N * chunk]
-        whisper_feature = self.audio_processor.audio2feat(inputs)
-        # for feature in whisper_feature:
-        #     self.audio_feats.append(feature)        
-        #print(f"processing audio costs {(time.time() - start_time) * 1000}ms, inputs shape:{inputs.shape} whisper_feature len:{len(whisper_feature)}")
-        whisper_chunks = self.audio_processor.feature2chunks(
-            feature_array=whisper_feature,
-            fps=self.fps / 2,
-            batch_size=effective_batch_size,
-            start=self.stride_left_size / 2
-        )
-        #print(f"whisper_chunks len:{len(whisper_chunks)},self.audio_feats len:{len(self.audio_feats)},self.output_queue len:{self.output_queue.qsize()}")
-        #self.audio_feats = self.audio_feats[-(self.stride_left_size + self.stride_right_size):]
         with self._paired_audio_lock:
             if len(self._paired_audio_frames) < effective_batch_size * 2:
                 return
@@ -103,6 +94,28 @@ class MuseAudioStreamHandler(BaseAudioStreamHandler):
                 self._paired_audio_frames.popleft()
                 for _ in range(effective_batch_size * 2)
             )
+
+        # Static/custom audio does not drive a mouth pose.  Preserve the
+        # paired timeline but bypass Whisper feature extraction entirely.
+        all_idle = all(
+            frame_type != 0
+            or frame.size == 0
+            or float(np.max(np.abs(frame))) <= 1e-4
+            for frame, frame_type, _event in paired_audio_frames
+        )
+        if all_idle:
+            whisper_chunks = ()
+        else:
+            inputs = np.concatenate(self.frames)  # [N * chunk]
+            whisper_feature = self.audio_processor.audio2feat(inputs)
+            whisper_chunks = self.audio_processor.feature2chunks(
+                feature_array=whisper_feature,
+                fps=self.fps / 2,
+                batch_size=effective_batch_size,
+                start=self.stride_left_size / 2
+            )
+        #print(f"whisper_chunks len:{len(whisper_chunks)},self.audio_feats len:{len(self.audio_feats)},self.output_queue len:{self.output_queue.qsize()}")
+        #self.audio_feats = self.audio_feats[-(self.stride_left_size + self.stride_right_size):]
         self.feat_queue.put(
             MuseInferenceBatch(
                 features=whisper_chunks,

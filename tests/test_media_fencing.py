@@ -132,7 +132,6 @@ class MuseTalkEnvelopePropagationTests(unittest.TestCase):
         self.assertEqual(frame_type, 1)
         self.assertIsNone(committed_event)
         self.assertEqual(stale_drops, [("avatar_audio_consume", "stale_generation")])
-
         handler.put_audio_frame(np.ones(320, dtype=np.float32), eventpoint)
         self.assertTrue(handler.queue.empty())
         self.assertEqual(
@@ -142,6 +141,7 @@ class MuseTalkEnvelopePropagationTests(unittest.TestCase):
                 ("avatar_audio_enqueue", "stale_generation"),
             ],
         )
+
 
     def test_feature_batch_preserves_paired_audio_envelopes(self):
         from src.avatars.musetalk.audio_stream_handler import (
@@ -219,6 +219,33 @@ class MuseTalkEnvelopePropagationTests(unittest.TestCase):
         self.assertEqual(batch.batch_size, 4)
         self.assertEqual(seen_batch_sizes, [4])
         self.assertTrue(handler.startup_batch_emitted)
+
+    def test_idle_batch_skips_whisper_feature_extraction(self):
+        from src.avatars.musetalk.audio_stream_handler import MuseAudioStreamHandler
+
+        class AudioProcessor:
+            @staticmethod
+            def audio2feat(_samples):
+                raise AssertionError("idle batch must not call audio2feat")
+
+            @staticmethod
+            def feature2chunks(**_kwargs):
+                raise AssertionError("idle batch must not create feature chunks")
+
+        config = SimpleNamespace(
+            audio=SimpleNamespace(fps=50, l=0, r=0),
+            model=SimpleNamespace(batch_size=2),
+        )
+        handler = MuseAudioStreamHandler(config, None, AudioProcessor())
+        handler.feat_queue = queue.Queue()
+        for _ in range(handler.startup_batch_size * 2):
+            handler.queue.put((np.zeros(320, dtype=np.float32), {}))
+
+        handler.run_step()
+
+        batch = handler.feat_queue.get_nowait()
+        self.assertEqual(batch.features, ())
+        self.assertEqual(len(batch.audio_frames), 4)
 
     def test_full_audio_queue_rechecks_generation_after_interrupt_flush(self):
         from threading import Thread
@@ -394,6 +421,57 @@ class MuseTalkEnvelopePropagationTests(unittest.TestCase):
 
         self.assertTrue(result_queue.empty())
         self.assertEqual(stale_drops, [("musetalk_result", "stale_generation")])
+
+
+class DirectAudioFanoutTests(unittest.IsolatedAsyncioTestCase):
+    async def test_tts_pcm_is_fanned_out_before_avatar_result(self):
+        from src.avatars.base import BaseAvatar
+
+        class AudioStream:
+            def __init__(self):
+                self.items = []
+
+            def put_audio_frame(self, frame, eventpoint):
+                self.items.append((frame, eventpoint))
+                return True
+
+        class Track:
+            def __init__(self):
+                self.items = []
+
+            async def prepare_speech_start(self):
+                self.items.append(("prepared", None))
+
+            async def enqueue(self, frame, eventpoint):
+                self.items.append((frame, eventpoint))
+
+        avatar = BaseAvatar.__new__(BaseAvatar)
+        avatar.audio_stream = AudioStream()
+        avatar.recording = False
+        avatar.configure_media_fence(
+            media_guard=lambda _event, _stage: True,
+            on_stale_drop=lambda _stage, _reason: None,
+        )
+        track = Track()
+        avatar.configure_audio_output(track, asyncio.get_running_loop())
+        eventpoint = {
+            "turn_id": "turn-1",
+            "generation": 1,
+            "fragment_sequence": 0,
+            "status": "start",
+        }
+
+        accepted = await asyncio.to_thread(
+            avatar.put_audio_frame,
+            np.ones(320, dtype=np.float32) * 0.1,
+            eventpoint,
+        )
+
+        self.assertTrue(accepted)
+        self.assertEqual(len(avatar.audio_stream.items), 1)
+        self.assertEqual(track.items[0][0], "prepared")
+        self.assertEqual(len(track.items), 2)
+        self.assertEqual(track.items[1][1]["status"], "start")
 
 
 class WebRTCMediaFenceTests(unittest.IsolatedAsyncioTestCase):

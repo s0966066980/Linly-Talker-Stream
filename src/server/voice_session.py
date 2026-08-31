@@ -145,6 +145,14 @@ class VoiceTurnSession:
 
     def attach_media_player(self, player) -> None:
         self._media_player = player
+        configure_audio_output = getattr(self.avatar, "configure_audio_output", None)
+        if callable(configure_audio_output) and bool(
+            getattr(getattr(self.config, "reply_streaming", None), "enabled", False)
+        ):
+            try:
+                configure_audio_output(player.audio, asyncio.get_running_loop())
+            except RuntimeError:
+                logger.debug("audio output fan-out deferred: no running event loop")
 
     def handle_control(self, raw_message: str) -> None:
         try:
@@ -465,6 +473,7 @@ class VoiceTurnSession:
                 had_first_audio = self._metrics.snapshot().get("first_audio_seconds") is not None
                 self._metrics.mark_first_audio()
                 self._metrics.mark_stage_end("avatar_to_webrtc_commit")
+                self._metrics.mark_stage_end("webrtc_audio_commit")
                 if not had_first_audio:
                     logger.info(
                         "first active audio committed turn=%s stages=%s",
@@ -489,7 +498,10 @@ class VoiceTurnSession:
                     self._fail_playback_turn()
             return
         is_still_rendering = getattr(self.avatar, "is_speaking", None)
-        if callable(is_still_rendering) and is_still_rendering():
+        direct_audio_enabled = bool(
+            getattr(self.avatar, "direct_audio_enabled", False)
+        )
+        if not direct_audio_enabled and callable(is_still_rendering) and is_still_rendering():
             self._silent_output_frames = 0
             return
         self._silent_output_frames += 1
@@ -524,7 +536,12 @@ class VoiceTurnSession:
         self.mark_stage_start("tts_first_encoded")
         self.mark_stage_start("tts_first_pcm")
         self.mark_stage_start("musetalk_first_batch")
+        self.mark_stage_start("musetalk_inference_first_result")
+        self.mark_stage_start("avatar_pasteback_done")
+        self.mark_stage_start("webrtc_audio_enqueue")
+        self.mark_stage_start("webrtc_video_enqueue")
         self.mark_stage_start("avatar_to_webrtc_commit")
+        self.mark_stage_start("webrtc_audio_commit")
         return True
 
     def fragment_playback_committed(self, eventpoint: dict) -> bool:

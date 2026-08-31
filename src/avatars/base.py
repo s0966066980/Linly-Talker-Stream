@@ -133,6 +133,9 @@ class BaseAvatar:
         self._on_tts_retry = None
         self._on_stage_end = None
         self._on_llm_chunk = None
+        self._direct_audio_track = None
+        self._direct_audio_loop = None
+        self._direct_audio_quit = Event()
         self._media_sequence_lock = RLock()
         self._media_sequences = {}
         self.__loadcustom()
@@ -171,6 +174,68 @@ class BaseAvatar:
         if not hasattr(self, "_media_sequence_lock"):
             self._media_sequence_lock = RLock()
             self._media_sequences = {}
+
+    def configure_audio_output(self, audio_track, loop) -> None:
+        """Attach an optional direct PCM fan-out for low-latency playback.
+
+        TTS producers run independently of avatar inference.  When configured,
+        PCM is sent to WebRTC as soon as it is produced while the renderer keeps
+        the same frames only for MuseTalk's mouth-pose alignment.
+        """
+        self._direct_audio_track = audio_track
+        self._direct_audio_loop = loop
+        self._direct_audio_quit = Event()
+
+    @property
+    def direct_audio_enabled(self) -> bool:
+        return (
+            getattr(self, "_direct_audio_track", None) is not None
+            and getattr(self, "_direct_audio_loop", None) is not None
+        )
+
+    def _enqueue_direct_audio(self, audio_chunk, eventpoint: dict) -> bool:
+        if not self.direct_audio_enabled:
+            return True
+        frame = np.asarray(audio_chunk, dtype=np.float32)
+        pcm = (frame * 32767).astype(np.int16)
+        new_frame = AudioFrame(format="s16", layout="mono", samples=pcm.shape[0])
+        new_frame.planes[0].update(pcm.tobytes())
+        new_frame.sample_rate = 16000
+        if eventpoint.get("status") == "start":
+            prepare = getattr(self._direct_audio_track, "prepare_speech_start", None)
+            if callable(prepare) and not wait_media_coroutine(
+                prepare(), self._direct_audio_loop, self._direct_audio_quit
+            ):
+                return False
+        queued = enqueue_media_frame(
+            self._direct_audio_track,
+            new_frame,
+            eventpoint,
+            self._direct_audio_loop,
+            self._direct_audio_quit,
+        )
+        if queued:
+            self.record_audio_data(pcm)
+            if eventpoint.get("turn_id"):
+                self.mark_stage_end("webrtc_audio_enqueue")
+            if eventpoint.get("fragment_end"):
+                # Edge's final PCM may itself be non-silent. Add one tagged
+                # silence frame so the playback clock can emit speaking_end
+                # and close the turn without waiting for renderer idle output.
+                silence = np.zeros(self.chunk, dtype=np.int16)
+                silence_frame = AudioFrame(
+                    format="s16", layout="mono", samples=silence.shape[0]
+                )
+                silence_frame.planes[0].update(silence.tobytes())
+                silence_frame.sample_rate = 16000
+                queued = enqueue_media_frame(
+                    self._direct_audio_track,
+                    silence_frame,
+                    eventpoint,
+                    self._direct_audio_loop,
+                    self._direct_audio_quit,
+                )
+        return queued
 
     def fragment_playback_committed(self, eventpoint: dict) -> bool:
         checker = self._fragment_playback_committed
@@ -224,7 +289,10 @@ class BaseAvatar:
                 eventpoint.get("media_sequence", 0)
             )
             eventpoint["media_sequence"] = sequence
-        return self.audio_stream.put_audio_frame(audio_chunk,eventpoint)
+        accepted = self.audio_stream.put_audio_frame(audio_chunk,eventpoint)
+        if not accepted:
+            return False
+        return self._enqueue_direct_audio(audio_chunk, eventpoint)
 
     def put_audio_file(self,filebyte,datainfo:dict={}): 
         # 檔案音訊按 chunk 切片後送入音訊流
@@ -363,6 +431,55 @@ class BaseAvatar:
                 )
                 continue
             video_eventpoint = dict(turn_events[0]) if turn_events else None
+
+            # Audio is the user-visible clock. Enqueue it before the potentially
+            # expensive paste-back/encode path so the first PCM frame is not
+            # blocked behind video compositing.
+            speech_starts = any(
+                isinstance(audio_frame[2], dict)
+                and audio_frame[2].get("status") == "start"
+                for audio_frame in audio_frames
+            )
+            prepare_speech_start = getattr(
+                audio_track, "prepare_speech_start", None
+            )
+            if speech_starts and callable(prepare_speech_start):
+                logger.info(
+                    "[AVSync] speech start queued audio=%d video=%d",
+                    getattr(audio_track, "_queue", None).qsize()
+                    if getattr(audio_track, "_queue", None) is not None
+                    else -1,
+                    getattr(video_track, "_queue", None).qsize()
+                    if getattr(video_track, "_queue", None) is not None
+                    else -1,
+                )
+                if not wait_media_coroutine(
+                    prepare_speech_start(), loop, quit_event
+                ):
+                    break
+            direct_batch_contains_speech = any(
+                frame_type == 0 for _frame, frame_type, _eventpoint in audio_frames
+            )
+            if not self.direct_audio_enabled or not direct_batch_contains_speech:
+                audio_enqueue_failed = False
+                for audio_frame in audio_frames:
+                    frame, type, eventpoint = audio_frame
+                    frame = (frame * 32767).astype(np.int16)
+                    new_audio_frame = AudioFrame(
+                        format="s16", layout="mono", samples=frame.shape[0]
+                    )
+                    new_audio_frame.planes[0].update(frame.tobytes())
+                    new_audio_frame.sample_rate = 16000
+                    if not enqueue_media_frame(
+                        audio_track, new_audio_frame, eventpoint, loop, quit_event
+                    ):
+                        audio_enqueue_failed = True
+                        break
+                    self.record_audio_data(frame)
+                    if type == 0:
+                        self.mark_stage_end("webrtc_audio_enqueue")
+                if audio_enqueue_failed:
+                    break
             
             if enable_transition:
                 # 檢測狀態變化
@@ -397,6 +514,7 @@ class BaseAvatar:
                 self.speaking = True
                 try:
                     current_frame = self.paste_back_frame(res_frame,idx)
+                    self.mark_stage_end("avatar_pasteback_done")
                 except Exception as e:
                     logger.warning(f"paste_back_frame error: {e}")
                     continue
@@ -416,52 +534,21 @@ class BaseAvatar:
            
             image = combine_frame
             new_frame = VideoFrame.from_ndarray(image, format="bgr24")
-            speech_starts = any(
-                isinstance(audio_frame[2], dict)
-                and audio_frame[2].get("status") == "start"
-                for audio_frame in audio_frames
-            )
-            prepare_speech_start = getattr(
-                audio_track, "prepare_speech_start", None
-            )
-            if speech_starts and callable(prepare_speech_start):
-                logger.info(
-                    "[AVSync] speech start queued audio=%d video=%d",
-                    getattr(audio_track, "_queue", None).qsize()
-                    if getattr(audio_track, "_queue", None) is not None
-                    else -1,
-                    getattr(video_track, "_queue", None).qsize()
-                    if getattr(video_track, "_queue", None) is not None
-                    else -1,
-                )
-                if not wait_media_coroutine(
-                    prepare_speech_start(), loop, quit_event
-                ):
-                    break
+            if self.direct_audio_enabled:
+                audio_queue = getattr(audio_track, "_queue", None)
+                if audio_queue is not None and audio_queue.qsize() == 0:
+                    # Do not let the video clock run ahead while direct PCM
+                    # fan-out is briefly starved; the next result will retry
+                    # with a fresh mouth frame once audio has runway.
+                    continue
             # 子執行緒推送到 WebRTC 佇列
             if not enqueue_media_frame(
                 video_track, new_frame, video_eventpoint, loop, quit_event
             ):
                 break
+            if video_eventpoint is not None:
+                self.mark_stage_end("webrtc_video_enqueue")
             self.record_video_data(combine_frame)
-
-            audio_enqueue_failed = False
-            for audio_frame in audio_frames:
-                frame,type,eventpoint = audio_frame
-                frame = (frame * 32767).astype(np.int16)
-
-                new_frame = AudioFrame(format='s16', layout='mono', samples=frame.shape[0])
-                new_frame.planes[0].update(frame.tobytes())
-                new_frame.sample_rate=16000
-                # 子執行緒推送到 WebRTC 佇列
-                if not enqueue_media_frame(
-                    audio_track, new_frame, eventpoint, loop, quit_event
-                ):
-                    audio_enqueue_failed = True
-                    break
-                self.record_audio_data(frame)
-            if audio_enqueue_failed:
-                break
         logger.info('basereal process_frames thread stop') 
 
 
