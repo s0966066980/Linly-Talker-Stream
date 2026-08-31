@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Callable, Generator, Optional
 from uuid import uuid4
 
+from src.server.reply_streaming.fragmenter import SemanticFragmenter
 from src.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -137,7 +138,17 @@ class BaseLLM(ABC):
     ) -> str:
         """生成完整響應並推送到 avatar"""
         start_time = time.perf_counter()
-        text_processor = TextStreamProcessor()
+        semantic_stream = bool(
+            stream_to_avatar
+            and datainfo
+            and datainfo.get("turn_id")
+            and datainfo.get("generation") is not None
+        )
+        text_processor = (
+            SemanticFragmenter()
+            if semantic_stream
+            else TextStreamProcessor()
+        )
         full_response = ""
         fenced = False
         history_transaction = None
@@ -189,12 +200,31 @@ class BaseLLM(ABC):
                     first_chunk = False
                 
                 full_response += chunk
+
+                if target_avatar and semantic_stream:
+                    notify_chunk = getattr(target_avatar, "notify_llm_chunk", None)
+                    if callable(notify_chunk):
+                        notify_chunk(
+                            chunk,
+                            {
+                                **dict(datainfo or {}),
+                                "llm_sequence": sequence,
+                            },
+                        )
                 
                 if target_avatar:
-                    text_processor.process_chunk(chunk, send_to_avatar)
+                    if semantic_stream:
+                        for fragment in text_processor.feed(chunk):
+                            send_to_avatar(fragment)
+                    else:
+                        text_processor.process_chunk(chunk, send_to_avatar)
             
             if target_avatar:
-                text_processor.flush(send_to_avatar)
+                if semantic_stream:
+                    for fragment in text_processor.flush():
+                        send_to_avatar(fragment)
+                else:
+                    text_processor.flush(send_to_avatar)
             
             total_time = time.perf_counter()
             logger.info(f"Total LLM response time: {total_time - start_time:.3f}s")

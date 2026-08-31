@@ -384,6 +384,9 @@ const chatMessages = ref([
   }
 ])
 
+// 每個語音 turn 保留最後接受的 LLM delta 序號；晚到或重複事件不得污染文字預覽。
+const assistantStreamState = new Map()
+
 const isConnected = computed(() => connectionStatus.value === 'connected')
 const canConnect = computed(() => (
   backendReady.value
@@ -491,6 +494,47 @@ const handleVoiceEvent = (event) => {
   }
   if (event.type === 'user_transcript' && event.text) {
     addMessage(event.text, 'user')
+  } else if (event.type === 'assistant_response_start') {
+    isThinking.value = true
+    if (event.turn_id) {
+      assistantStreamState.set(event.turn_id, { lastSequence: -1, done: false })
+    }
+    const duplicate = chatMessages.value.some(
+      message => message.type === 'ai' && message.voiceTurnId === event.turn_id
+    )
+    if (!duplicate) {
+      addMessage('', 'ai', { voiceTurnId: event.turn_id, streamingPreview: true })
+    }
+  } else if (event.type === 'assistant_response_delta' && event.text_delta) {
+    isThinking.value = false
+    const stream = event.turn_id ? assistantStreamState.get(event.turn_id) : null
+    const sequence = Number(event.sequence)
+    if (!stream || !Number.isInteger(sequence) || sequence <= stream.lastSequence || stream.done) {
+      return
+    }
+    stream.lastSequence = sequence
+    const lastMessage = chatMessages.value[chatMessages.value.length - 1]
+    if (lastMessage?.type === 'ai' && lastMessage.voiceTurnId === event.turn_id) {
+      if (lastMessage.streamingPreview !== false) {
+        lastMessage.text += event.text_delta
+        scrollMessagesToEnd()
+      }
+    } else {
+      addMessage(event.text_delta, 'ai', {
+        voiceTurnId: event.turn_id,
+        streamingPreview: true,
+      })
+    }
+  } else if (event.type === 'assistant_response_done') {
+    const stream = event.turn_id ? assistantStreamState.get(event.turn_id) : null
+    if (stream) {
+      stream.done = true
+    }
+    const message = chatMessages.value.find(
+      item => item.type === 'ai' && item.voiceTurnId === event.turn_id
+    )
+    if (message) message.streamingPreview = true
+    isThinking.value = false
   } else if (event.type === 'assistant_response' && event.text) {
     isThinking.value = false
     const duplicate = chatMessages.value.some(
@@ -503,7 +547,11 @@ const handleVoiceEvent = (event) => {
     isThinking.value = false
     const lastMessage = chatMessages.value[chatMessages.value.length - 1]
     if (lastMessage?.type === 'ai' && lastMessage.voiceTurnId === event.turn_id) {
-      lastMessage.text += event.text
+      // Streaming deltas already rendered this text.  Fragments remain the
+      // playback-commit signal and must not duplicate the chat transcript.
+      if (lastMessage.streamingPreview !== true || !lastMessage.text) {
+        lastMessage.text += event.text
+      }
       scrollMessagesToEnd()
     } else {
       addMessage(event.text, 'ai', { voiceTurnId: event.turn_id })

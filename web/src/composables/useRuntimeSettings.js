@@ -13,6 +13,26 @@ const runtime = reactive({
     type: '',
     avatar_id: ''
   },
+  avatar_quality: {
+    mouth_sharpen: 0.5,
+    paste_interpolation: 'lanczos',
+    musetalk: {
+      bbox_shift: 0,
+      extra_margin: 10,
+      parsing_mode: 'jaw',
+      left_cheek_width: 90,
+      right_cheek_width: 90,
+      upper_boundary_ratio: 0.5,
+      expand: 1.5,
+      mask_blur_ratio: 0.05
+    },
+    wav2lip: {
+      pad_top: 0,
+      pad_bottom: 10,
+      pad_left: 0,
+      pad_right: 0
+    }
+  },
   engines: [],
   characters: [],
   session_count: 0,
@@ -81,8 +101,7 @@ const speech = reactive({
     model_sizes: ['tiny', 'base', 'small', 'medium', 'large-v3'],
     models_by_engine: {
       whisper: ['tiny', 'base', 'small', 'medium', 'large-v3'],
-      funasr: ['paraformer-zh'],
-      'qwen3-asr': ['Qwen/Qwen3-ASR-0.6B', 'Qwen/Qwen3-ASR-1.7B']
+      funasr: ['paraformer-zh']
     },
     languages: ['zh', 'en', 'auto'],
     devices: ['auto', 'cpu', 'cuda']
@@ -92,7 +111,7 @@ const speech = reactive({
     ref_file: 'zh-TW-HsiaoChenNeural',
     ref_text: '',
     tts_server: '',
-    model: 'Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice',
+    model: '',
     language: 'Chinese',
     speaker: 'Vivian',
     instruct: '',
@@ -118,7 +137,7 @@ const ttsDraft = reactive({
   ref_file: 'zh-TW-HsiaoChenNeural',
   ref_text: '',
   tts_server: '',
-  model: 'Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice',
+  model: '',
   language: 'Chinese',
   speaker: 'Vivian',
   instruct: '',
@@ -223,9 +242,18 @@ watch(() => sttDraft.type, () => {
   }
 })
 
-watch(() => ttsDraft.type, (type) => {
-  if (type === 'qwen3-tts' && speech.tts.models?.length && !speech.tts.models.includes(ttsDraft.model)) {
-    ttsDraft.model = speech.tts.models[0]
+const EDGE_VOICE_ID = /^zh-TW-.+Neural$/
+
+watch(() => ttsDraft.type, (type, previous) => {
+  if (previous === 'edgetts' && type !== 'edgetts' && EDGE_VOICE_ID.test(ttsDraft.ref_file)) {
+    ttsDraft.ref_file = ''
+  }
+  if (
+    type === 'edgetts' &&
+    speech.tts.edge_voices?.length &&
+    !speech.tts.edge_voices.some((voice) => voice.id === ttsDraft.ref_file)
+  ) {
+    ttsDraft.ref_file = speech.tts.edge_voices[0].id
   }
 })
 
@@ -236,6 +264,53 @@ const selectedVadEngine = computed(() => {
 const selectedEngineInfo = computed(() => {
   return runtime.engines.find((item) => item.id === selectedEngine.value) || null
 })
+
+const QUALITY_DEFAULTS = {
+  mouth_sharpen: 0.5,
+  paste_interpolation: 'lanczos',
+  musetalk: {
+    bbox_shift: 0,
+    extra_margin: 10,
+    parsing_mode: 'jaw',
+    left_cheek_width: 90,
+    right_cheek_width: 90,
+    upper_boundary_ratio: 0.5,
+    expand: 1.5,
+    mask_blur_ratio: 0.05
+  },
+  wav2lip: {
+    pad_top: 0,
+    pad_bottom: 10,
+    pad_left: 0,
+    pad_right: 0
+  }
+}
+
+function mergeQuality(raw) {
+  const value = raw || {}
+  return {
+    mouth_sharpen: Number(value.mouth_sharpen ?? QUALITY_DEFAULTS.mouth_sharpen),
+    paste_interpolation: value.paste_interpolation || QUALITY_DEFAULTS.paste_interpolation,
+    musetalk: { ...QUALITY_DEFAULTS.musetalk, ...(value.musetalk || {}) },
+    wav2lip: { ...QUALITY_DEFAULTS.wav2lip, ...(value.wav2lip || {}) }
+  }
+}
+
+const qualityDraft = reactive(mergeQuality())
+const applyingQuality = ref(false)
+const qualityError = ref('')
+
+function assignQualityDraft(value) {
+  const merged = mergeQuality(value)
+  qualityDraft.mouth_sharpen = merged.mouth_sharpen
+  qualityDraft.paste_interpolation = merged.paste_interpolation
+  Object.assign(qualityDraft.musetalk, merged.musetalk)
+  Object.assign(qualityDraft.wav2lip, merged.wav2lip)
+}
+
+const qualityDirty = computed(() => (
+  JSON.stringify(mergeQuality(qualityDraft)) !== JSON.stringify(mergeQuality(runtime.avatar_quality))
+))
 
 async function parseJson(response) {
   let data = {}
@@ -293,7 +368,7 @@ function applySpeechSnapshot(data) {
       ref_file: data.tts.ref_file || '',
       ref_text: data.tts.ref_text || '',
       tts_server: data.tts.tts_server || '',
-      model: data.tts.model || 'Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice',
+      model: data.tts.model || '',
       language: data.tts.language || 'Chinese',
       speaker: data.tts.speaker || 'Vivian',
       instruct: data.tts.instruct || '',
@@ -418,9 +493,31 @@ async function applyVadSettings() {
   }
 }
 
+async function applyMouthQuality() {
+  applyingQuality.value = true
+  qualityError.value = ''
+  try {
+    const data = await parseJson(await fetch('/api/avatar/quality', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(mergeQuality(qualityDraft))
+    }))
+    runtime.avatar_quality = mergeQuality(data)
+    assignQualityDraft(data)
+    return data
+  } catch (error) {
+    qualityError.value = error.message
+    throw error
+  } finally {
+    applyingQuality.value = false
+  }
+}
+
 function applySnapshot(data) {
   runtime.llm = data.llm
   runtime.avatar = data.avatar
+  runtime.avatar_quality = mergeQuality(data.avatar_quality)
+  assignQualityDraft(runtime.avatar_quality)
   runtime.engines = data.engines || []
   runtime.characters = data.characters || []
   runtime.session_count = data.session_count || 0
@@ -558,6 +655,7 @@ async function importCharacter({ file, engine, avatarId, overwrite = false }) {
     form.append('type', engine)
     if (avatarId) form.append('avatar_id', avatarId)
     if (overwrite) form.append('overwrite', 'true')
+    form.append('quality', JSON.stringify(mergeQuality(qualityDraft)))
 
     const started = await parseJson(await fetch('/api/avatars/import', {
       method: 'POST',
@@ -668,6 +766,11 @@ export function useRuntimeSettings() {
     loadOllamaModels,
     applyLlmModel,
     applyAvatar,
+    applyMouthQuality,
+    qualityDraft,
+    qualityDirty,
+    applyingQuality,
+    qualityError,
     importCharacter,
     importing,
     importJob,

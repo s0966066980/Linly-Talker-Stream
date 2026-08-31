@@ -11,7 +11,6 @@ from .engines import (
     EdgeTTS,
     FishTTS,
     IndexTTS2,
-    Qwen3TTS,
     SovitsTTS,
     XTTS,
 )
@@ -23,7 +22,6 @@ _ENGINE_MAP: dict[str, Type[BaseTTS]] = {
     "cosyvoice": CosyVoiceTTS,
     "fishtts": FishTTS,
     "indextts2": IndexTTS2,
-    "qwen3-tts": Qwen3TTS,
 }
 
 

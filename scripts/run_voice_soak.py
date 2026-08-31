@@ -273,7 +273,9 @@ async def run(args) -> dict:
                 metric = await peer.run_turn(fixtures[index % len(fixtures)], scenario)
                 metrics.append(metric)
                 print(
-                    f"soak progress {index + 1}/{args.turns} scenario={scenario}",
+                    f"soak progress {index + 1}/{args.turns} scenario={scenario} "
+                    f"first_audio={metric.get('first_audio_seconds')} "
+                    f"avatar_commit={metric.get('stage_seconds', {}).get('avatar_to_webrtc_commit')}",
                     flush=True,
                 )
         finally:

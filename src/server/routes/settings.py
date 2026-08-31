@@ -14,11 +14,13 @@ from src.server.runtime_settings import (
     SettingsError,
     apply_avatar,
     apply_llm_model,
+    apply_mouth_quality,
     apply_stt_settings,
     apply_tts_settings,
     apply_vad_settings,
     current_snapshot,
     fetch_llm_catalog,
+    quality_from_model,
     vad_snapshot,
     speech_snapshot,
 )
@@ -171,6 +173,20 @@ async def set_avatar(request):
         return _json({"code": -1, "msg": str(exc)}, status=500)
 
 
+async def set_mouth_quality(request):
+    if not state.config:
+        return _json({"code": -1, "msg": "服務尚未就緒"}, status=503)
+    try:
+        params = await request.json()
+        result = apply_mouth_quality(state.config, params or {})
+        return _json({"code": 0, "msg": "ok", "data": result})
+    except SettingsError as exc:
+        return _json({"code": -1, "msg": exc.message, **exc.extra}, status=exc.status)
+    except Exception as exc:
+        logger.exception("套用嘴型畫質失敗")
+        return _json({"code": -1, "msg": str(exc)}, status=500)
+
+
 async def avatar_preview(request):
     avatar_id = request.match_info.get("avatar_id", "")
     preview = resolve_preview_path(avatar_id)
@@ -187,6 +203,7 @@ async def import_avatar(request):
         engine = ""
         avatar_id = ""
         overwrite = False
+        quality = None
         video_path = None
         original_name = "upload.mp4"
 
@@ -200,6 +217,17 @@ async def import_avatar(request):
                 avatar_id = (await part.text()).strip()
             elif part.name == "overwrite":
                 overwrite = (await part.text()).strip().lower() in {"1", "true", "yes"}
+            elif part.name == "quality":
+                raw = (await part.text()).strip()
+                if not raw:
+                    continue
+                try:
+                    parsed = json.loads(raw)
+                except json.JSONDecodeError:
+                    return _json({"code": -1, "msg": "嘴型參數格式不正確"}, status=400)
+                if not isinstance(parsed, dict):
+                    return _json({"code": -1, "msg": "嘴型參數必須是物件"}, status=400)
+                quality = parsed
             elif part.name == "video":
                 original_name = part.filename or original_name
                 suffix = Path(original_name).suffix.lower() or ".mp4"
@@ -218,6 +246,11 @@ async def import_avatar(request):
         if video_path is None or not video_path.is_file() or video_path.stat().st_size == 0:
             return _json({"code": -1, "msg": "請選擇要匯入的影片"}, status=400)
 
+        if quality is not None:
+            quality = apply_mouth_quality(state.config, quality)
+        else:
+            quality = quality_from_model(state.config.model)
+
         job = start_import_job(
             engine=engine,
             video_path=video_path,
@@ -225,6 +258,7 @@ async def import_avatar(request):
             avatar_id=avatar_id,
             overwrite=overwrite,
             session_count=_active_session_count(),
+            quality=quality,
         )
         return _json({"code": 0, "msg": "ok", "data": job.to_dict()})
     except SettingsError as exc:

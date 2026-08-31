@@ -518,7 +518,7 @@
           <article class="flow-step"><h3>建立 WebRTC</h3><p>瀏覽器協商音訊、影像與事件通道。</p></article>
           <article class="flow-step"><h3>傳送麥克風</h3><p>可收音時持續送出上行音軌。</p></article>
           <article class="flow-step"><h3>Silero 切段</h3><p>在後端判斷一段<strong>完整發話</strong>。</p></article>
-          <article class="flow-step"><h3>STT 辨識</h3><p>Whisper、FunASR 或 Qwen3-ASR 產生文字。</p></article>
+          <article class="flow-step"><h3>STT 辨識</h3><p>Whisper 或 FunASR 產生文字。</p></article>
           <article class="flow-step"><h3>LLM 回覆</h3><p>Ollama 或 llama.cpp 根據 Prompt 與歷史回答。</p></article>
           <article class="flow-step"><h3>TTS 合成</h3><p>把回覆排入語音佇列並產生音訊。</p></article>
           <article class="flow-step"><h3>Avatar 渲染</h3><p>模型依聲音驅動嘴型與畫面。</p></article>
@@ -577,8 +577,8 @@
           </article>
         </div>
         <div class="callout">
-          <strong>Qwen3-TTS 的精確定義</strong>
-          目前會先生成完整句子的波形，再切成 20 ms 幀播放。因此它是「逐句排程 + 音訊幀輸出」，不是生成模型邊推理邊輸出波形。真正增量 TTS 需要引擎本身提供可中斷的音訊 iterator。
+          <strong>舊有模式與串流模式的 TTS 時機</strong>
+          串流模式在完整句號後立即把句子送入 TTS 與數字人；舊有模式等 LLM 全文結束後一次合成。兩者都不是引擎邊推理邊吐波形的增量 TTS。
         </div>
       </div>
     </section>
@@ -595,9 +595,9 @@
             <thead><tr><th>能力</th><th>支援選項</th><th>建議起點</th><th>注意事項</th></tr></thead>
             <tbody>
               <tr><td>VAD</td><td>Silero</td><td>CPU、16 kHz</td><td>唯一具權威性的發話邊界；前端 RMS 只做顯示。</td></tr>
-              <tr><td>STT</td><td>faster-whisper、FunASR、Qwen3-ASR</td><td>Whisper Base</td><td>GPU FP16；資源不足時可降級 CPU INT8。</td></tr>
+              <tr><td>STT</td><td>faster-whisper、FunASR</td><td>Whisper Base</td><td>GPU FP16；資源不足時可降級 CPU INT8。</td></tr>
               <tr><td>LLM</td><td>Ollama、llama.cpp</td><td>Ollama</td><td>可在設定頁列出模型，支援 Prompt 與約略回覆字數。</td></tr>
-              <tr><td>TTS</td><td>Edge、Qwen3、GPT-SoVITS、XTTS、CosyVoice、Fish、IndexTTS2</td><td>Edge TTS</td><td>套用前先試聽；Qwen3 使用獨立環境。</td></tr>
+              <tr><td>TTS</td><td>Edge、GPT-SoVITS、XTTS、CosyVoice、Fish、IndexTTS2</td><td>Edge TTS</td><td>套用前先試聽。</td></tr>
               <tr><td>Avatar</td><td>Wav2Lip、MuseTalk、Ultralight、ER-NeRF、TalkingGaussian</td><td>Wav2Lip</td><td>各引擎的素材格式、權重與 GPU 成本不同。</td></tr>
             </tbody>
           </table>
@@ -643,7 +643,6 @@
 │   ├── config/             schema 與持久化
 │   ├── llm/                對話與句界處理
 │   ├── server/             API、WebRTC、對話輪次
-│   ├── speech/             Qwen 隔離程序
 │   ├── tts/                語音合成與音訊佇列
 │   └── vad/                Silero 端點偵測
 ├── tests/                  Python 測試
@@ -678,13 +677,10 @@ bash scripts/setup-env.sh wav2lip
 # 2. 建立本機 HTTPS 憑證
 bash scripts/create_ssl_certs.sh
 
-# 3. 選用：安裝 Qwen3-ASR / Qwen3-TTS
-bash scripts/setup-qwen-speech.sh
-
-# 4. 同時啟動前後端
+# 3. 同時啟動前後端
 bash scripts/start-all.sh config/config.yaml
 
-# 5. 開啟前端
+# 4. 開啟前端
 https://localhost:3000</code></pre>
         </div>
       </div>

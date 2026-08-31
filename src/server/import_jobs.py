@@ -57,6 +57,7 @@ def start_import_job(
     avatar_id: str = "",
     overwrite: bool = False,
     session_count: int = 0,
+    quality: Optional[Dict[str, Any]] = None,
 ) -> ImportJob:
     engine = (engine or "").strip().lower()
     if engine not in IMPORTABLE_ENGINES:
@@ -80,7 +81,7 @@ def start_import_job(
     _JOBS[job.id] = job
     thread = threading.Thread(
         target=_run_job,
-        args=(job, video_path, overwrite),
+        args=(job, video_path, overwrite, quality),
         daemon=True,
         name=f"avatar-import-{job.id}",
     )
@@ -88,7 +89,12 @@ def start_import_job(
     return job
 
 
-def _run_job(job: ImportJob, video_path: Path, overwrite: bool) -> None:
+def _run_job(
+    job: ImportJob,
+    video_path: Path,
+    overwrite: bool,
+    quality: Optional[Dict[str, Any]] = None,
+) -> None:
     if not _WORKER_LOCK.acquire(blocking=False):
         job.status = "failed"
         job.error = "已有角色正在製作，請稍後再試"
@@ -109,6 +115,7 @@ def _run_job(job: ImportJob, video_path: Path, overwrite: bool) -> None:
             job.avatar_id,
             overwrite=overwrite,
             progress=progress,
+            quality=quality,
         )
         job.status = "done"
         job.progress = 100

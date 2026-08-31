@@ -336,6 +336,226 @@
               <p>{{ t('settings.avatar.emptyCharacters') }}</p>
             </div>
 
+            <div class="settings-section quality-section">
+              <h4><i class="bi bi-brush"></i> {{ t('settings.quality.title') }}</h4>
+              <p class="section-hint">{{ t('settings.quality.desc') }}</p>
+
+              <div class="setting-item">
+                <div class="setting-label">
+                  <label for="mouth-sharpen">{{ t('settings.quality.sharpen') }}</label>
+                  <span id="mouth-sharpen-hint" class="setting-desc">{{ t('settings.quality.sharpenDesc') }}</span>
+                </div>
+                <div class="setting-control">
+                  <input
+                    id="mouth-sharpen"
+                    type="range"
+                    min="0"
+                    max="2"
+                    step="0.1"
+                    v-model.number="qualityDraft.mouth_sharpen"
+                    :disabled="applyingQuality || importing"
+                    aria-describedby="mouth-sharpen-hint"
+                  >
+                  <span class="range-value">{{ Number(qualityDraft.mouth_sharpen).toFixed(1) }}</span>
+                </div>
+              </div>
+
+              <div class="setting-item setting-item-stack">
+                <div class="setting-label">
+                  <label for="paste-interpolation">{{ t('settings.quality.interpolation') }}</label>
+                  <span id="paste-interpolation-hint" class="setting-desc">{{ t('settings.quality.interpolationDesc') }}</span>
+                </div>
+                <div class="setting-control setting-control-grow">
+                  <select
+                    id="paste-interpolation"
+                    v-model="qualityDraft.paste_interpolation"
+                    :disabled="applyingQuality || importing"
+                    aria-describedby="paste-interpolation-hint"
+                  >
+                    <option value="lanczos">{{ t('settings.quality.lanczos') }}</option>
+                    <option value="cubic">{{ t('settings.quality.cubic') }}</option>
+                    <option value="linear">{{ t('settings.quality.linear') }}</option>
+                  </select>
+                </div>
+              </div>
+
+              <template v-if="selectedEngine === 'musetalk'">
+                <div class="setting-item">
+                  <div class="setting-label">
+                    <label for="bbox-shift">{{ t('settings.quality.bboxShift') }}</label>
+                    <span id="bbox-shift-hint" class="setting-desc">{{ t('settings.quality.bboxShiftDesc') }}</span>
+                  </div>
+                  <div class="setting-control">
+                    <input
+                      id="bbox-shift"
+                      type="range"
+                      min="-30"
+                      max="30"
+                      step="1"
+                      v-model.number="qualityDraft.musetalk.bbox_shift"
+                      :disabled="applyingQuality || importing"
+                      aria-describedby="bbox-shift-hint"
+                    >
+                    <span class="range-value">{{ qualityDraft.musetalk.bbox_shift }}</span>
+                  </div>
+                </div>
+
+                <div class="setting-item">
+                  <div class="setting-label">
+                    <label for="extra-margin">{{ t('settings.quality.extraMargin') }}</label>
+                    <span id="extra-margin-hint" class="setting-desc">{{ t('settings.quality.extraMarginDesc') }}</span>
+                  </div>
+                  <div class="setting-control">
+                    <input
+                      id="extra-margin"
+                      type="range"
+                      min="0"
+                      max="40"
+                      step="1"
+                      v-model.number="qualityDraft.musetalk.extra_margin"
+                      :disabled="applyingQuality || importing"
+                      aria-describedby="extra-margin-hint"
+                    >
+                    <span class="range-value">{{ qualityDraft.musetalk.extra_margin }} px</span>
+                  </div>
+                </div>
+
+                <div class="setting-item setting-item-stack">
+                  <div class="setting-label">
+                    <label for="parsing-mode">{{ t('settings.quality.parsingMode') }}</label>
+                    <span id="parsing-mode-hint" class="setting-desc">{{ t('settings.quality.parsingModeDesc') }}</span>
+                  </div>
+                  <div class="setting-control setting-control-grow">
+                    <select
+                      id="parsing-mode"
+                      v-model="qualityDraft.musetalk.parsing_mode"
+                      :disabled="applyingQuality || importing"
+                      aria-describedby="parsing-mode-hint"
+                    >
+                      <option value="jaw">{{ t('settings.quality.jaw') }}</option>
+                      <option value="raw">{{ t('settings.quality.raw') }}</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="setting-item">
+                  <div class="setting-label">
+                    <label for="mask-blur">{{ t('settings.quality.maskBlur') }}</label>
+                    <span id="mask-blur-hint" class="setting-desc">{{ t('settings.quality.maskBlurDesc') }}</span>
+                  </div>
+                  <div class="setting-control">
+                    <input
+                      id="mask-blur"
+                      type="range"
+                      min="0"
+                      max="0.15"
+                      step="0.01"
+                      v-model.number="qualityDraft.musetalk.mask_blur_ratio"
+                      :disabled="applyingQuality || importing"
+                      aria-describedby="mask-blur-hint"
+                    >
+                    <span class="range-value">{{ Number(qualityDraft.musetalk.mask_blur_ratio).toFixed(2) }}</span>
+                  </div>
+                </div>
+
+                <div class="setting-item">
+                  <div class="setting-label">
+                    <label for="upper-boundary">{{ t('settings.quality.upperBoundary') }}</label>
+                    <span id="upper-boundary-hint" class="setting-desc">{{ t('settings.quality.upperBoundaryDesc') }}</span>
+                  </div>
+                  <div class="setting-control">
+                    <input
+                      id="upper-boundary"
+                      type="range"
+                      min="0.3"
+                      max="0.7"
+                      step="0.05"
+                      v-model.number="qualityDraft.musetalk.upper_boundary_ratio"
+                      :disabled="applyingQuality || importing"
+                      aria-describedby="upper-boundary-hint"
+                    >
+                    <span class="range-value">{{ Number(qualityDraft.musetalk.upper_boundary_ratio).toFixed(2) }}</span>
+                  </div>
+                </div>
+
+                <div class="setting-item">
+                  <div class="setting-label">
+                    <label for="left-cheek">{{ t('settings.quality.leftCheek') }}</label>
+                    <span id="left-cheek-hint" class="setting-desc">{{ t('settings.quality.cheekDesc') }}</span>
+                  </div>
+                  <div class="setting-control">
+                    <input
+                      id="left-cheek"
+                      type="range"
+                      min="20"
+                      max="160"
+                      step="5"
+                      v-model.number="qualityDraft.musetalk.left_cheek_width"
+                      :disabled="applyingQuality || importing"
+                      aria-describedby="left-cheek-hint"
+                    >
+                    <span class="range-value">{{ qualityDraft.musetalk.left_cheek_width }}</span>
+                  </div>
+                </div>
+
+                <div class="setting-item">
+                  <div class="setting-label">
+                    <label for="right-cheek">{{ t('settings.quality.rightCheek') }}</label>
+                    <span id="right-cheek-hint" class="setting-desc">{{ t('settings.quality.cheekDesc') }}</span>
+                  </div>
+                  <div class="setting-control">
+                    <input
+                      id="right-cheek"
+                      type="range"
+                      min="20"
+                      max="160"
+                      step="5"
+                      v-model.number="qualityDraft.musetalk.right_cheek_width"
+                      :disabled="applyingQuality || importing"
+                      aria-describedby="right-cheek-hint"
+                    >
+                    <span class="range-value">{{ qualityDraft.musetalk.right_cheek_width }}</span>
+                  </div>
+                </div>
+              </template>
+
+              <template v-else-if="selectedEngine === 'wav2lip'">
+                <div class="setting-item">
+                  <div class="setting-label">
+                    <label for="wav2lip-pad-bottom">{{ t('settings.quality.padBottom') }}</label>
+                    <span id="wav2lip-pad-bottom-hint" class="setting-desc">{{ t('settings.quality.padBottomDesc') }}</span>
+                  </div>
+                  <div class="setting-control">
+                    <input
+                      id="wav2lip-pad-bottom"
+                      type="range"
+                      min="0"
+                      max="40"
+                      step="1"
+                      v-model.number="qualityDraft.wav2lip.pad_bottom"
+                      :disabled="applyingQuality || importing"
+                      aria-describedby="wav2lip-pad-bottom-hint"
+                    >
+                    <span class="range-value">{{ qualityDraft.wav2lip.pad_bottom }} px</span>
+                  </div>
+                </div>
+              </template>
+
+              <p class="field-hint">{{ t('settings.quality.rebuildHint') }}</p>
+              <p v-if="qualityError" class="field-error" role="alert">{{ qualityError }}</p>
+
+              <button
+                class="btn-apply"
+                type="button"
+                :disabled="!qualityDirty || applyingQuality || importing"
+                @click="handleApplyMouthQuality"
+              >
+                <i class="bi bi-hourglass-split spin" v-if="applyingQuality"></i>
+                <i class="bi bi-check-lg" v-else></i>
+                {{ applyingQuality ? t('settings.quality.applying') : t('settings.quality.apply') }}
+              </button>
+            </div>
+
             <div class="import-card">
               <div class="setting-label">
                 <label for="avatar-import-file">{{ t('settings.import.title') }}</label>
@@ -801,74 +1021,7 @@
                 </div>
               </div>
 
-              <template v-if="ttsDraft.type === 'qwen3-tts'">
-                <div class="setting-item">
-                  <div class="setting-label"><label for="qwen-tts-model">{{ t('settings.speech.model') }}</label></div>
-                  <div class="setting-control">
-                    <select id="qwen-tts-model" v-model="ttsDraft.model" :disabled="applyingTts">
-                      <option v-for="model in speech.tts.models" :key="model" :value="model">{{ model }}</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div class="setting-item">
-                  <div class="setting-label"><label for="qwen-tts-language">{{ t('settings.speech.outputLanguage') }}</label></div>
-                  <div class="setting-control">
-                    <select id="qwen-tts-language" v-model="ttsDraft.language" :disabled="applyingTts">
-                      <option v-for="language in speech.tts.languages" :key="language" :value="language">{{ language }}</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div class="setting-item">
-                  <div class="setting-label"><label for="qwen-tts-device">{{ t('settings.speech.device') }}</label></div>
-                  <div class="setting-control">
-                    <select id="qwen-tts-device" v-model="ttsDraft.device" :disabled="applyingTts">
-                      <option value="auto">{{ t('settings.speech.auto') }}</option>
-                      <option value="cuda">CUDA</option>
-                      <option value="cpu">CPU</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div v-if="qwenTtsKind === 'custom'" class="setting-item">
-                  <div class="setting-label"><label for="qwen-tts-speaker">{{ t('settings.speech.speaker') }}</label></div>
-                  <div class="setting-control">
-                    <select id="qwen-tts-speaker" v-model="ttsDraft.speaker" :disabled="applyingTts">
-                      <option v-for="speaker in speech.tts.speakers" :key="speaker" :value="speaker">{{ speaker }}</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div v-if="qwenTtsKind !== 'base'" class="setting-item setting-item-stack">
-                  <div class="setting-label">
-                    <label for="qwen-tts-instruct">{{ t('settings.speech.instruction') }}</label>
-                    <span class="setting-desc">{{ t('settings.speech.instructionDesc') }}</span>
-                  </div>
-                  <div class="setting-control setting-control-grow">
-                    <input id="qwen-tts-instruct" v-model.trim="ttsDraft.instruct" type="text" :disabled="applyingTts">
-                  </div>
-                </div>
-
-                <template v-if="qwenTtsKind === 'base'">
-                  <div class="setting-item">
-                    <div class="setting-label"><label for="qwen-tts-reference">{{ t('settings.speech.cloneReference') }}</label></div>
-                    <div class="setting-control">
-                      <input id="qwen-tts-reference" v-model.trim="ttsDraft.ref_file" type="text" :disabled="applyingTts">
-                    </div>
-                  </div>
-                  <div class="setting-item">
-                    <div class="setting-label"><label for="qwen-tts-ref-text">{{ t('settings.speech.referenceText') }}</label></div>
-                    <div class="setting-control">
-                      <input id="qwen-tts-ref-text" v-model.trim="ttsDraft.ref_text" type="text" :disabled="applyingTts">
-                    </div>
-                  </div>
-                </template>
-
-                <p class="field-hint warning-hint">{{ t('settings.speech.qwenFirstLoad') }}</p>
-              </template>
-
-              <div v-else-if="ttsDraft.type === 'edgetts'" class="setting-item setting-item-stack">
+              <div v-if="ttsDraft.type === 'edgetts'" class="setting-item setting-item-stack">
                 <div class="setting-label">
                   <label for="edge-tts-voice">{{ t('settings.speech.voice') }}</label>
                   <span id="edge-tts-voice-hint" class="setting-desc">
@@ -893,16 +1046,26 @@
                 </div>
               </div>
 
-              <div v-else class="setting-item">
+              <div v-else class="setting-item setting-item-stack">
                 <div class="setting-label">
                   <label for="tts-reference">{{ t('settings.speech.reference') }}</label>
+                  <span id="tts-reference-hint" class="setting-desc">
+                    {{ t('settings.speech.referencePathDesc') }}
+                  </span>
                 </div>
-                <div class="setting-control">
-                  <input id="tts-reference" v-model.trim="ttsDraft.ref_file" type="text" :disabled="applyingTts">
+                <div class="setting-control setting-control-grow">
+                  <input
+                    id="tts-reference"
+                    v-model.trim="ttsDraft.ref_file"
+                    type="text"
+                    :placeholder="t('settings.speech.referencePathPlaceholder')"
+                    :disabled="applyingTts"
+                    aria-describedby="tts-reference-hint"
+                  >
                 </div>
               </div>
 
-              <template v-if="ttsDraft.type !== 'edgetts' && ttsDraft.type !== 'qwen3-tts'">
+              <template v-if="ttsDraft.type !== 'edgetts'">
                 <div class="setting-item">
                   <div class="setting-label"><label for="tts-server">{{ t('settings.speech.server') }}</label></div>
                   <div class="setting-control">
@@ -1009,6 +1172,11 @@ const {
   loadingModels,
   applyingLlm,
   applyingAvatar,
+  applyMouthQuality,
+  qualityDraft,
+  qualityDirty,
+  applyingQuality,
+  qualityError,
   settingsError,
   modelsError,
   selectedEngine,
@@ -1050,14 +1218,6 @@ const {
   applySttSettings,
   applyTtsSettings
 } = useRuntimeSettings()
-
-const qwenTtsKind = computed(() => {
-  const model = String(ttsDraft.model || '').toLowerCase()
-  if (model.includes('customvoice')) return 'custom'
-  if (model.includes('voicedesign')) return 'design'
-  if (model.includes('base')) return 'base'
-  return ''
-})
 
 const currentVadLabel = computed(() => 'Silero VAD')
 
@@ -1304,6 +1464,15 @@ const onImportDrop = (event) => {
 const onImportFileChange = (event) => {
   const file = event.target.files?.[0]
   importFile.value = file || null
+}
+
+const handleApplyMouthQuality = async () => {
+  try {
+    await applyMouthQuality()
+    emit('notification', t('notifications.qualityApplied'), 'success')
+  } catch (error) {
+    emit('notification', error.message, 'error')
+  }
 }
 
 const handleImportCharacter = async () => {
@@ -1579,6 +1748,12 @@ watch(settings, () => {
 }
 
 .settings-tab-panel > .settings-section + .settings-section {
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.quality-section {
+  margin: 1.5rem 0 0;
   padding-top: 1.5rem;
   border-top: 1px solid var(--border);
 }

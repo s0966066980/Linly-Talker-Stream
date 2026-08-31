@@ -40,6 +40,7 @@ def create_app():
     app.router.add_get("/api/llm/models", routes.list_llm_models)
     app.router.add_post("/api/llm/model", routes.set_llm_model)
     app.router.add_post("/api/avatar", routes.set_avatar)
+    app.router.add_post("/api/avatar/quality", routes.set_mouth_quality)
     app.router.add_get("/api/vad", routes.get_vad_settings)
     app.router.add_post("/api/vad", routes.set_vad_settings)
     app.router.add_get("/api/speech", routes.get_speech_settings)

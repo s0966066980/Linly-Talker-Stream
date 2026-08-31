@@ -188,6 +188,38 @@ class MuseTalkEnvelopePropagationTests(unittest.TestCase):
         )
         self.assertTrue(handler.output_queue.empty())
 
+    def test_first_feature_batch_uses_startup_microbatch(self):
+        from src.avatars.musetalk.audio_stream_handler import MuseAudioStreamHandler
+
+        seen_batch_sizes = []
+
+        class AudioProcessor:
+            @staticmethod
+            def audio2feat(_samples):
+                return np.zeros((1, 1), dtype=np.float32)
+
+            @staticmethod
+            def feature2chunks(**kwargs):
+                seen_batch_sizes.append(kwargs["batch_size"])
+                return [np.zeros((1, 1), dtype=np.float32)] * kwargs["batch_size"]
+
+        config = SimpleNamespace(
+            audio=SimpleNamespace(fps=50, l=0, r=0),
+            model=SimpleNamespace(batch_size=8),
+        )
+        handler = MuseAudioStreamHandler(config, None, AudioProcessor())
+        handler.feat_queue = queue.Queue()
+        for _ in range(handler.startup_batch_size * 2):
+            handler.put_audio_frame(np.ones(320, dtype=np.float32), {})
+
+        handler.run_step()
+
+        batch = handler.feat_queue.get_nowait()
+        self.assertEqual(handler.startup_batch_size, 4)
+        self.assertEqual(batch.batch_size, 4)
+        self.assertEqual(seen_batch_sizes, [4])
+        self.assertTrue(handler.startup_batch_emitted)
+
     def test_full_audio_queue_rechecks_generation_after_interrupt_flush(self):
         from threading import Thread
 

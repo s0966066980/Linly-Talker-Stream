@@ -19,37 +19,44 @@ from src.utils.logging import logger
 # consume the entire first-audio SLO before the fallback attempt starts.
 EDGE_STREAM_TIMEOUT_SECONDS = 1.5
 EDGE_MAX_ATTEMPTS = 2
+ACTIVITY_THRESHOLD = 1e-4
+ONSET_THRESHOLD = 1e-5
+FRAME_SECONDS = 0.01
+MAX_PREROLL_SECONDS = 0.16
+SILENCE_GUARD_SECONDS = 0.04
+TRAILING_PAUSE_SECONDS = 0.12
 
 
 def trim_edge_silence(
     stream: np.ndarray,
     sample_rate: int,
-    threshold: float = 1e-4,
-    leading_pause_seconds: float = 0.04,
-    trailing_pause_seconds: float = 0.12,
+    threshold: float = ACTIVITY_THRESHOLD,
+    leading_pause_seconds: float = SILENCE_GUARD_SECONDS,
+    trailing_pause_seconds: float = TRAILING_PAUSE_SECONDS,
+    *,
+    activity_threshold: Optional[float] = None,
+    onset_threshold: float = ONSET_THRESHOLD,
+    max_preroll_seconds: float = MAX_PREROLL_SECONDS,
+    silence_guard_seconds: Optional[float] = None,
 ) -> np.ndarray:
-    """移除 Edge TTS 每次請求附帶的長首尾靜音，同時保留自然停頓。"""
+    """移除 Edge TTS 供應商 padding，同時保留低能量語音起音與自然停頓。"""
     if stream.size == 0:
         return stream
 
-    # Edge 音檔尾端偶爾會殘留數個極小的非零取樣；逐點判斷會把它們誤認成
-    # 語音，因而保留整段約 700ms 的 padding。以 10ms RMS 判斷較穩健。
-    frame_size = max(1, int(sample_rate * 0.01))
-    padded_size = ((stream.shape[0] + frame_size - 1) // frame_size) * frame_size
-    framed = np.pad(stream, (0, padded_size - stream.shape[0])).reshape(-1, frame_size)
-    frame_rms = np.sqrt(np.mean(np.square(framed, dtype=np.float64), axis=1))
-    active_frames = np.flatnonzero(frame_rms > threshold)
-    if active_frames.size == 0:
-        return stream
-
-    first_active_sample = int(active_frames[0]) * frame_size
-    last_active_sample = min(stream.shape[0], (int(active_frames[-1]) + 1) * frame_size)
-    start = max(0, first_active_sample - int(sample_rate * leading_pause_seconds))
-    end = min(
-        stream.shape[0],
-        last_active_sample + int(sample_rate * trailing_pause_seconds),
+    trimmer = _StreamingSilenceTrimmer(
+        sample_rate,
+        threshold=threshold,
+        leading_pause_seconds=leading_pause_seconds,
+        trailing_pause_seconds=trailing_pause_seconds,
+        activity_threshold=activity_threshold,
+        onset_threshold=onset_threshold,
+        max_preroll_seconds=max_preroll_seconds,
+        silence_guard_seconds=silence_guard_seconds,
     )
-    return stream[start:end]
+    trimmed = np.concatenate((trimmer.feed(stream), trimmer.finish()))
+    if trimmed.size == 0 and not trimmer.started:
+        return stream
+    return trimmed
 
 
 class _StreamingSilenceTrimmer:
@@ -58,34 +65,77 @@ class _StreamingSilenceTrimmer:
     def __init__(
         self,
         sample_rate: int,
-        threshold: float = 1e-4,
-        leading_pause_seconds: float = 0.04,
-        trailing_pause_seconds: float = 0.12,
+        threshold: float = ACTIVITY_THRESHOLD,
+        leading_pause_seconds: float = SILENCE_GUARD_SECONDS,
+        trailing_pause_seconds: float = TRAILING_PAUSE_SECONDS,
+        activity_threshold: Optional[float] = None,
+        onset_threshold: float = ONSET_THRESHOLD,
+        max_preroll_seconds: float = MAX_PREROLL_SECONDS,
+        silence_guard_seconds: Optional[float] = None,
     ):
-        self.frame_size = max(1, int(sample_rate * 0.01))
-        self.threshold = threshold
-        self.leading_frames = max(0, round(leading_pause_seconds / 0.01))
-        self.trailing_frames = max(0, round(trailing_pause_seconds / 0.01))
+        self.frame_size = max(1, int(sample_rate * FRAME_SECONDS))
+        self.activity_threshold = (
+            float(threshold) if activity_threshold is None else float(activity_threshold)
+        )
+        self.onset_threshold = float(onset_threshold)
+        guard_seconds = (
+            leading_pause_seconds
+            if silence_guard_seconds is None
+            else silence_guard_seconds
+        )
+        self.silence_guard_frames = max(0, round(guard_seconds / FRAME_SECONDS))
+        self.max_preroll_frames = max(1, round(max_preroll_seconds / FRAME_SECONDS))
+        self.trailing_frames = max(0, round(trailing_pause_seconds / FRAME_SECONDS))
         self._remainder = np.empty(0, dtype=np.float32)
-        self._leading = deque(maxlen=self.leading_frames or 1)
+        self._preroll: deque[np.ndarray] = deque()
         self._trailing = []
         self._started = False
+        self.retained_preroll_samples = 0
+
+    @property
+    def started(self) -> bool:
+        return self._started
+
+    @property
+    def threshold(self) -> float:
+        return self.activity_threshold
+
+    def _frame_rms(self, block: np.ndarray) -> float:
+        return float(np.sqrt(np.mean(np.square(block, dtype=np.float64))))
+
+    def _trim_preroll(self) -> None:
+        while len(self._preroll) > self.max_preroll_frames:
+            self._preroll.popleft()
+        leading_padding = 0
+        for frame in self._preroll:
+            if self._frame_rms(frame) <= self.onset_threshold:
+                leading_padding += 1
+            else:
+                break
+        drop = max(0, leading_padding - self.silence_guard_frames)
+        for _ in range(drop):
+            self._preroll.popleft()
+
+    def _flush_preroll(self) -> list[np.ndarray]:
+        output = list(self._preroll)
+        self.retained_preroll_samples = sum(frame.size for frame in output)
+        self._preroll.clear()
+        return output
 
     def _process_block(self, block: np.ndarray) -> list[np.ndarray]:
-        rms = float(np.sqrt(np.mean(np.square(block, dtype=np.float64))))
-        active = rms > self.threshold
+        rms = self._frame_rms(block)
         output = []
         if not self._started:
-            if active:
+            if rms > self.activity_threshold:
                 self._started = True
-                output.extend(self._leading)
-                self._leading.clear()
+                output.extend(self._flush_preroll())
                 output.append(block)
-            elif self.leading_frames:
-                self._leading.append(block)
+            else:
+                self._preroll.append(block)
+                self._trim_preroll()
             return output
 
-        if active:
+        if rms > self.activity_threshold:
             output.extend(self._trailing)
             self._trailing.clear()
             output.append(block)
@@ -144,7 +194,6 @@ class _EdgePCMEmitter:
         text: str,
         textevent: dict,
         *,
-        skip_samples: int = 0,
         start_event_sent: bool = False,
         start_media_sequence: int = 0,
         chunk_guard: Optional[Callable[[int], bool]] = None,
@@ -163,7 +212,6 @@ class _EdgePCMEmitter:
         self.pending_chunk = None
         self.emitted_chunks = 0
         self.emitted_samples = 0
-        self.skip_samples = max(0, skip_samples)
         self.start_event_sent = start_event_sent
         self.media_sequence = start_media_sequence
         self.chunk_guard = chunk_guard
@@ -199,6 +247,10 @@ class _EdgePCMEmitter:
             if not turn_aware:
                 eventpoint.update({"text": self.text, **self.textevent})
         self.owner.parent.put_audio_frame(samples, eventpoint)
+        if self.emitted_chunks == 0:
+            mark_stage = getattr(self.owner.parent, "mark_stage_end", None)
+            if callable(mark_stage) and self.textevent.get("turn_id"):
+                mark_stage("tts_first_pcm")
         self.emitted_chunks += 1
         self.emitted_samples += samples.size
         self.media_sequence += 1
@@ -206,12 +258,6 @@ class _EdgePCMEmitter:
     def _queue_samples(self, samples: np.ndarray) -> None:
         if not samples.size:
             return
-        if self.skip_samples:
-            skipped = min(self.skip_samples, samples.size)
-            self.skip_samples -= skipped
-            samples = samples[skipped:]
-            if not samples.size:
-                return
         self.samples = np.concatenate((self.samples, samples))
         while self.samples.size >= self.owner.chunk:
             chunk = self.samples[: self.owner.chunk].copy()
@@ -267,13 +313,25 @@ class _EdgePCMEmitter:
 class EdgeTTS(BaseTTS):
     def __init__(self, config, parent):
         super().__init__(config, parent)
+        self.retry_after_pcm_count = 0
+        self.retry_after_playback_commit_count = 0
+        self.last_onset_preroll_ms = 0.0
 
     def txt_to_audio(self, msg: tuple[str, dict]):
         voicename = self.config.tts.ref_file  # 比如 "zh-CN-YunxiaNeural"
         text, textevent = msg
         started_at = time.perf_counter()
         try:
-            asyncio.run(self._stream_with_retry(voicename, text, textevent, started_at))
+            asyncio.run(
+                self._stream_with_retry(
+                    voicename,
+                    text,
+                    textevent,
+                    started_at,
+                    fragment_committed=self._fragment_committed_predicate(textevent),
+                    discard_uncommitted=self._discard_uncommitted_predicate(textevent),
+                )
+            )
         except Exception:
             logger.exception("Edge TTS streaming failed")
         finally:
@@ -288,6 +346,8 @@ class EdgeTTS(BaseTTS):
         *,
         chunk_guard: Callable[[int], bool],
         retry_budget: Optional[RetryBudget] = None,
+        fragment_committed: Optional[Callable[[], bool]] = None,
+        discard_uncommitted: Optional[Callable[[], bool]] = None,
     ) -> None:
         """Synchronously synthesize one fenced fragment into 20ms PCM frames."""
         envelope = fragment.envelope
@@ -306,10 +366,63 @@ class EdgeTTS(BaseTTS):
                     started_at,
                     chunk_guard=chunk_guard,
                     retry_budget=retry_budget,
+                    fragment_committed=fragment_committed,
+                    discard_uncommitted=discard_uncommitted,
                 )
             )
         except Exception:
             logger.exception("Edge TTS fragment streaming failed")
+
+    def _fragment_committed_predicate(
+        self, textevent: dict
+    ) -> Optional[Callable[[], bool]]:
+        checker = getattr(self.parent, "fragment_playback_committed", None)
+        if not callable(checker):
+            return None
+        return lambda: bool(checker(textevent))
+
+    def _discard_uncommitted_predicate(
+        self, textevent: dict
+    ) -> Optional[Callable[[], bool]]:
+        discard = getattr(self.parent, "discard_uncommitted_fragment", None)
+        if not callable(discard):
+            return None
+        return lambda: bool(discard(textevent))
+
+    def _record_onset_preroll(self, emitter: _EdgePCMEmitter) -> None:
+        samples = int(getattr(emitter.trimmer, "retained_preroll_samples", 0) or 0)
+        self.last_onset_preroll_ms = round(
+            samples / float(self.sample_rate) * 1000.0,
+            3,
+        )
+        observe = getattr(self.parent, "observe_tts_onset_preroll_ms", None)
+        if callable(observe) and self.last_onset_preroll_ms:
+            observe(self.last_onset_preroll_ms)
+
+    def _fail_closed_after_pcm(
+        self,
+        emitter: _EdgePCMEmitter,
+        *,
+        committed: bool,
+        exc: Exception,
+    ) -> None:
+        if committed:
+            self.retry_after_playback_commit_count += 1
+        else:
+            self.retry_after_pcm_count += 1
+        try:
+            emitter.finish()
+        except Exception:
+            logger.debug("Could not flush interrupted Edge stream", exc_info=True)
+        self._record_onset_preroll(emitter)
+        logger.warning(
+            "Edge TTS stream stopped after PCM without sample splice reason=%s type=%s",
+            "playback_commit" if committed else "uncommitted_pcm",
+            type(exc).__name__,
+        )
+        observe = getattr(self.parent, "observe_tts_retry", None)
+        if callable(observe):
+            observe(after_commit=committed)
 
     async def _stream_with_retry(
         self,
@@ -320,20 +433,20 @@ class EdgeTTS(BaseTTS):
         *,
         chunk_guard: Optional[Callable[[int], bool]] = None,
         retry_budget: Optional[RetryBudget] = None,
+        fragment_committed: Optional[Callable[[], bool]] = None,
+        discard_uncommitted: Optional[Callable[[], bool]] = None,
     ) -> None:
         last_error = None
-        emitted_samples = 0
         start_event_sent = False
         first_audio_logged = False
+        first_encoded_logged = False
         retry_timeout_seconds = EDGE_STREAM_TIMEOUT_SECONDS
         for attempt in range(1, EDGE_MAX_ATTEMPTS + 1):
             emitter = _EdgePCMEmitter(
                 self,
                 text,
                 textevent,
-                skip_samples=emitted_samples,
                 start_event_sent=start_event_sent,
-                start_media_sequence=emitted_samples // self.chunk,
                 chunk_guard=chunk_guard,
             )
 
@@ -363,6 +476,11 @@ class EdgeTTS(BaseTTS):
                     except StopAsyncIteration:
                         break
                     if item.get("type") == "audio":
+                        if not first_encoded_logged:
+                            first_encoded_logged = True
+                            mark_stage = getattr(self.parent, "mark_stage_end", None)
+                            if callable(mark_stage) and textevent.get("turn_id"):
+                                mark_stage("tts_first_encoded")
                         emitter.feed_mp3(item["data"])
                         log_first_audio()
                         if emitter.cancelled:
@@ -371,15 +489,12 @@ class EdgeTTS(BaseTTS):
                 log_first_audio()
                 if emitter.cancelled:
                     return
-                emitted_samples += emitter.emitted_samples
-                start_event_sent = emitter.start_event_sent
-                if emitted_samples or self.state != State.RUNNING:
+                self._record_onset_preroll(emitter)
+                if emitter.emitted_samples or self.state != State.RUNNING:
                     return
                 raise RuntimeError("Edge TTS returned no decodable audio")
             except Exception as exc:
                 last_error = exc
-                emitted_samples += emitter.emitted_samples
-                start_event_sent = emitter.start_event_sent
                 if self.state != State.RUNNING:
                     return
                 can_retry = attempt < EDGE_MAX_ATTEMPTS
@@ -388,29 +503,32 @@ class EdgeTTS(BaseTTS):
                     can_retry = permit is not None
                     if permit is not None:
                         retry_timeout_seconds = permit.max_wait_seconds
-                if emitted_samples and can_retry:
+                if emitter.emitted_samples:
                     log_first_audio()
-                    logger.warning(
-                        "Edge TTS stream interrupted after %d samples; "
-                        "resuming with attempt %d/%d: %s",
-                        emitted_samples,
-                        attempt + 1,
-                        EDGE_MAX_ATTEMPTS,
-                        exc,
+                    committed = bool(
+                        fragment_committed is not None and fragment_committed()
                     )
-                    continue
-                if emitted_samples:
-                    emitted_before_finish = emitter.emitted_samples
-                    try:
-                        emitter.finish()
-                    except Exception:
-                        logger.debug("Could not flush interrupted Edge stream", exc_info=True)
-                    emitted_samples += emitter.emitted_samples - emitted_before_finish
-                    log_first_audio()
-                    logger.warning(
-                        "Edge TTS stream remained incomplete after %d attempts: %s",
-                        EDGE_MAX_ATTEMPTS,
-                        exc,
+                    if committed:
+                        self._fail_closed_after_pcm(
+                            emitter, committed=True, exc=exc
+                        )
+                        return
+                    if (
+                        can_retry
+                        and discard_uncommitted is not None
+                        and discard_uncommitted()
+                    ):
+                        self.retry_after_pcm_count += 1
+                        start_event_sent = False
+                        logger.warning(
+                            "Edge TTS discarded uncommitted PCM; "
+                            "retrying fragment from start attempt %d/%d",
+                            attempt + 1,
+                            EDGE_MAX_ATTEMPTS,
+                        )
+                        continue
+                    self._fail_closed_after_pcm(
+                        emitter, committed=False, exc=exc
                     )
                     return
                 logger.warning(

@@ -23,13 +23,12 @@ flowchart LR
 
 - 全雙工 WebRTC 音訊與影像傳輸，支援免按對話、按住說話與按鍵插話。
 - Silero 服務端串流 VAD，瀏覽器只傳輸音訊，不自行切段。
-- STT：faster-whisper、FunASR、Qwen3-ASR。
+- STT：faster-whisper、FunASR。
 - LLM：Ollama 與 llama.cpp，可列出並切換本機模型。
-- TTS：Edge TTS、Qwen3-TTS、GPT-SoVITS、XTTS、CosyVoice、Fish TTS、IndexTTS2。
+- TTS：Edge TTS、GPT-SoVITS、XTTS、CosyVoice、Fish TTS、IndexTTS2。
 - 數字人：Wav2Lip、MuseTalk、Ultralight、ER-NeRF、TalkingGaussian。
 - 設定頁可修改預設 Prompt、約略回覆字數、數字人角色、VAD、STT 與 TTS。
 - Edge TTS 直接列出臺灣華語聲音：曉臻、曉雨與雲哲。
-- Qwen3 語音模型使用獨立虛擬環境，啟動子程序時自動補齊 NVIDIA 動態函式庫路徑。
 - 設定套用前執行可用性檢查與語音試聽，成功後才持久化至 YAML。
 - 繁體中文與英文介面。
 
@@ -37,12 +36,10 @@ flowchart LR
 
 本專案目前同時存在兩條處理路徑，不能把它們都稱為「真正逐句串流」：
 
-| 路徑 | LLM 輸出 | 送入 TTS 的時機 | 現況 |
+| 路徑 | LLM 輸出 | 送入 TTS 與數字人的時機 | 現況 |
 | --- | --- | --- | --- |
-| 文字訊息 | 逐 chunk 接收 | 累積到完整句號後立即排入 TTS | 已具備逐句管線 |
-| 免按語音對話 | 等待完整 LLM 回覆 | 完整回覆完成後一次排入 TTS | 尚未逐句 |
-
-此外，Qwen3-TTS 目前會先完成整句波形，再切成固定 20 ms 音訊幀送往數字人；它是「音訊幀串流播放」，但不是模型生成期間就持續吐出音訊的增量 TTS。
+| 串流模式 | 逐 chunk 接收 | 完整句號後立即排入 TTS／數字人 | 首音可早於全文生成結束 |
+| 舊有模式 | 等待完整 LLM 回覆 | 全文一次排入 TTS／數字人 | 畫面一次顯示，TTS 也一次合成 |
 
 若要讓語音對話也成為真正的逐句串流，建議讓 `VoiceTurnSession` 直接消費 LLM chunk，在伺服器內以句界緩衝器產生 `sentence_ready` 事件，再把每句依序送入有界 TTS 佇列。完整設計、取消規則與驗收指標請看 [專案規劃與逐句串流設計](docs/project-roadmap.html)。
 
@@ -59,7 +56,6 @@ Linly-Talker-Stream/
 │   ├── config/             # YAML schema、載入與設定持久化
 │   ├── llm/                # 對話引擎、歷史、Prompt 與句界緩衝
 │   ├── server/             # aiohttp、WebRTC、API、輪次與執行時設定
-│   ├── speech/             # Qwen3 語音隔離程序與 IPC
 │   ├── tts/                # TTS 介面、佇列與各語音引擎
 │   └── vad/                # Silero 串流端點偵測
 ├── tests/                  # Python 單元與整合測試
@@ -118,15 +114,7 @@ cd ..
 bash scripts/download_musetalk_weights.sh
 ```
 
-### 3. 可選：安裝 Qwen3 語音環境
-
-```bash
-bash scripts/setup-qwen-speech.sh
-```
-
-這會建立 `.venv-qwen-speech`，避免 Qwen3 的新套件版本影響數字人主環境。若使用參考音訊前處理，系統也需要安裝 SoX。
-
-### 4. 產生本機 HTTPS 憑證
+### 3. 產生本機 HTTPS 憑證
 
 遠端瀏覽器使用麥克風通常需要安全來源；預設設定已開啟 HTTPS。
 
@@ -134,7 +122,7 @@ bash scripts/setup-qwen-speech.sh
 bash scripts/create_ssl_certs.sh
 ```
 
-### 5. 啟動
+### 4. 啟動
 
 ```bash
 bash scripts/start-all.sh config/config.yaml
@@ -157,7 +145,7 @@ bash scripts/start-all.sh config/config.yaml
 | LLM | Ollama／llama.cpp、模型、預設 Prompt、約略回覆字數 | 會更新現有 LLM session；回覆字數是柔性目標 |
 | 數字人 | 引擎與角色 | 有進行中會話時不可切換 |
 | VAD | 啟用、門檻、靜音、最短／最長發話等 | 立即套用至新的發話判定 |
-| STT | Whisper／FunASR／Qwen3-ASR、模型、語言、裝置 | 引擎切換時需先中斷會話 |
+| STT | Whisper／FunASR、模型、語言、裝置 | 引擎切換時需先中斷會話 |
 | TTS | 引擎、聲音、模型、語言、說話者、裝置與指令 | 先執行實際試聽，再保存設定 |
 
 所有麥克風音訊預設只存在短生命週期的記憶體緩衝；除非使用者明確啟動錄製功能，系統不持久保存原始收音。
@@ -186,10 +174,6 @@ uv run python scripts/check-integration.py
 
 ## 常見問題
 
-### Qwen3-TTS 顯示 cuDNN Frontend 或 `libnvrtc.so.12` 錯誤
-
-目前版本會自動把 Qwen3 獨立環境內的 NVIDIA 函式庫目錄加入 worker 環境。更新程式後請完整重新啟動後端，讓常駐的 Qwen worker 使用新環境；若仍失敗，再重新執行 `bash scripts/setup-qwen-speech.sh`。
-
 ### 設定套用失敗
 
 切換 Avatar、STT 或 TTS 前先中斷目前 WebRTC 會話。TTS 設定只有在試聽成功後才會保存，因此模型未下載、服務未啟動或 GPU 記憶體不足都會直接回報錯誤。
@@ -202,7 +186,6 @@ uv run python scripts/check-integration.py
 
 - [可視化專案架構與說明](docs/project-overview.html)
 - [專案規劃與真正逐句串流設計](docs/project-roadmap.html)
-- [Qwen3 語音整合研究](docs/research/qwen3-speech-integration.md)
 - [架構決策紀錄](docs/adr/)
 - [專案共通語言](CONTEXT.md)
 

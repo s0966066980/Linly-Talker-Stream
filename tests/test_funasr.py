@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from src.asr import factory
@@ -51,13 +52,28 @@ class FunASRLocalModelTests(unittest.TestCase):
 
         auto_model = Mock(return_value=object())
         with patch("funasr.AutoModel", auto_model):
-            engine = FunASR(model_name="/models/paraformer-zh")
+            engine = FunASR(
+                config=SimpleNamespace(asr=SimpleNamespace(device="cpu")),
+                model_name="/models/paraformer-zh",
+            )
             engine.ensure_ready()
 
         auto_model.assert_called_once_with(
             model="/models/paraformer-zh",
             disable_update=True,
+            device="cpu",
         )
+
+    def test_auto_device_resolves_to_available_backend(self):
+        from src.asr.engines.funasr import FunASR
+
+        with patch("src.asr.engines.funasr.torch.cuda.is_available", return_value=False):
+            engine = FunASR(
+                config=SimpleNamespace(asr=SimpleNamespace(device="auto")),
+                model_name="/models/paraformer-zh",
+            )
+
+        self.assertEqual(engine.device, "cpu")
 
 
 if __name__ == "__main__":

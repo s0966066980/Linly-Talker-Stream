@@ -6,11 +6,9 @@ ASR 引擎實現集中入口
 """
 
 from .funasr import FunASR
-from .qwen3 import Qwen3ASR
 from .whisper import WhisperASR
 
 __all__ = [
     "WhisperASR",
     "FunASR",
-    "Qwen3ASR",
 ]

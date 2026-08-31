@@ -92,16 +92,43 @@ class BaseAudioStreamHandler:
                 #print(f'[INFO] get frame {frame.shape}')
                 break
             except queue.Empty:
-                if self.parent and getattr(self.parent, "curr_state", 0) > 1: #播放自定義音訊
-                    frame = self.parent.get_audio_stream(self.parent.curr_state)
-                    type = self.parent.curr_state
-                else:
-                    frame = np.zeros(self.chunk, dtype=np.float32)
-                    type = 1
+                frame, type = self._idle_audio_frame()
                 eventpoint = None
                 break
 
         return frame, type, eventpoint 
+
+    def _idle_audio_frame(self):
+        if self.parent and getattr(self.parent, "curr_state", 0) > 1:
+            return (
+                self.parent.get_audio_stream(self.parent.curr_state),
+                self.parent.curr_state,
+            )
+        return np.zeros(self.chunk, dtype=np.float32), 1
+
+    def get_audio_frames(self, count: int):
+        """Read one batch with at most one blocking queue poll.
+
+        MuseTalk consumes many 20 ms frames per inference batch.  Waiting up
+        to 10 ms independently for every missing frame adds avoidable startup
+        latency, so only the first frame may block; the rest are drained
+        non-blockingly and padded with the normal idle frame.
+        """
+        count = max(0, int(count))
+        if count == 0:
+            return []
+        frames = [self.get_audio_frame()]
+        while len(frames) < count:
+            try:
+                frame, eventpoint = self.queue.get_nowait()
+                if not self._accepts_media(eventpoint, "avatar_audio_consume"):
+                    self._record_stale_drop("avatar_audio_consume")
+                    continue
+                frames.append((frame, 0, eventpoint))
+            except queue.Empty:
+                frame, frame_type = self._idle_audio_frame()
+                frames.append((frame, frame_type, None))
+        return frames
 
     def get_audio_out(self): 
         return self.output_queue.get()

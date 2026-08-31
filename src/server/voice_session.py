@@ -7,6 +7,7 @@ remain private so routes and UI cannot accidentally create competing pipelines.
 from __future__ import annotations
 
 import asyncio
+from functools import partial
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -76,6 +77,7 @@ class VoiceTurnSession:
         self._metrics_emitted_turns: set[str] = set()
         self._llm_finished = False
         self._media_player = None
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
         self._silent_output_frames = 0
         self._segmenter_reset_pending = True
         self._resampler = AudioResampler(format="s16", layout="mono", rate=16000)
@@ -91,6 +93,11 @@ class VoiceTurnSession:
                 media_guard=self.accepts_media,
                 on_stale_drop=self.record_stale_drop,
                 on_fragment_queued=self.register_fragment,
+                fragment_playback_committed=self.fragment_playback_committed,
+                on_tts_onset_preroll_ms=self.observe_tts_onset_preroll_ms,
+                on_tts_retry=self.observe_tts_retry,
+                on_stage_end=self.mark_stage_end,
+                on_llm_chunk=self._on_llm_chunk,
             )
 
     async def prepare(self) -> None:
@@ -313,7 +320,9 @@ class VoiceTurnSession:
             self._emit("state", state="stt", turn_id=turn_id)
             wav = BytesIO()
             sf.write(wav, audio, sample_rate, format="WAV", subtype="PCM_16")
+            self.mark_stage_start("asr")
             result = await loop.run_in_executor(None, self._asr.transcribe, wav.getvalue())
+            self.mark_stage_end("asr")
             if not self._is_current(turn_id, generation):
                 return
             text = str(result.get("text", "")).strip()
@@ -357,16 +366,23 @@ class VoiceTurnSession:
         input_source: str,
     ) -> None:
         loop = asyncio.get_running_loop()
+        self._event_loop = loop
         if not self._is_current(turn_id, generation):
             return
         self._emit("state", state="llm", turn_id=turn_id)
+        if self._pipeline_mode == "streaming":
+            self._emit("assistant_response_start", turn_id=turn_id, mode="streaming", input_source=input_source)
         turn_context = self._turn_context
         if turn_context is None:
             return
         if turn_context.state == TurnState.CREATED:
             turn_context.transition(TurnState.LLM_STREAMING)
 
-        kwargs = {"stream_to_avatar": True}
+        self.mark_stage_start("llm_first_token")
+        self.mark_stage_start("llm_total")
+        self.mark_stage_start("first_fragment")
+
+        kwargs = {"stream_to_avatar": self._pipeline_mode == "streaming"}
         if self._pipeline_mode == "streaming":
             kwargs.update(
                 {
@@ -385,6 +401,7 @@ class VoiceTurnSession:
             None,
             lambda: llm_response(text, self.avatar, **kwargs),
         )
+        self.mark_stage_end("llm_total")
         if not self._is_current(turn_id, generation):
             return
         response = str(response).strip()
@@ -399,12 +416,20 @@ class VoiceTurnSession:
             self._refresh_gate()
             return
         if self._pipeline_mode == "legacy":
+            self.avatar.put_msg_txt(response)
             self._emit(
                 "assistant_response",
                 text=response,
                 turn_id=turn_id,
                 mode="legacy",
                 input_source=input_source,
+            )
+        else:
+            self._emit(
+                "assistant_response_done",
+                turn_id=turn_id,
+                mode="streaming",
+                terminal_reason="completed",
             )
         self._turn_task = None
 
@@ -437,7 +462,15 @@ class VoiceTurnSession:
         if active:
             self._silent_output_frames = 0
             if self._metrics is not None:
+                had_first_audio = self._metrics.snapshot().get("first_audio_seconds") is not None
                 self._metrics.mark_first_audio()
+                self._metrics.mark_stage_end("avatar_to_webrtc_commit")
+                if not had_first_audio:
+                    logger.info(
+                        "first active audio committed turn=%s stages=%s",
+                        self._turn_id,
+                        self._metrics.snapshot().get("stage_seconds", {}),
+                    )
             if not self._output_active:
                 self._output_active = True
                 self._close_gate()
@@ -487,7 +520,21 @@ class VoiceTurnSession:
             return False
         with self._fragment_lock:
             self._fragment_texts.setdefault(sequence, str(text))
+        self.mark_stage_end("first_fragment")
+        self.mark_stage_start("tts_first_encoded")
+        self.mark_stage_start("tts_first_pcm")
+        self.mark_stage_start("musetalk_first_batch")
+        self.mark_stage_start("avatar_to_webrtc_commit")
         return True
+
+    def fragment_playback_committed(self, eventpoint: dict) -> bool:
+        """True after a non-silent WebRTC frame for this fragment has been sent."""
+        try:
+            sequence = int(eventpoint["fragment_sequence"])
+        except (KeyError, TypeError, ValueError):
+            return False
+        with self._fragment_lock:
+            return sequence in self._played_fragment_sequences
 
     def on_output_audio_frame(self, eventpoint: dict, active: bool) -> None:
         """Commit subtitle/text only after a current non-silent audio frame."""
@@ -671,9 +718,12 @@ class VoiceTurnSession:
     def _accept_llm_chunk(self, turn_context: TurnContext, sequence: int) -> bool:
         if self._turn_context is not turn_context:
             return False
-        return turn_context.accepts(
+        accepted = turn_context.accepts(
             turn_context.envelope(stage="llm_token", sequence=sequence)
         )
+        if accepted:
+            self.mark_stage_end("llm_first_token")
+        return accepted
 
     def accepts_media(self, eventpoint: dict, stage: str) -> bool:
         """Validate one turn-aware media item at a cross-thread boundary."""
@@ -752,6 +802,63 @@ class VoiceTurnSession:
             self._metrics.observe_media_debt(media_debt_seconds)
         if av_offset_seconds is not None:
             self._metrics.observe_av_offset(av_offset_seconds)
+
+    def observe_audio_pacing(
+        self,
+        *,
+        lag_seconds: float = 0.0,
+        rebase_count: int = 0,
+        min_release_interval_seconds: Optional[float] = None,
+        catch_up_burst_count: int = 0,
+    ) -> None:
+        if self._metrics is None:
+            return
+        self._metrics.observe_audio_pacing(
+            lag_seconds=lag_seconds,
+            rebase_count=rebase_count,
+            min_release_interval_seconds=min_release_interval_seconds,
+            catch_up_burst_count=catch_up_burst_count,
+        )
+
+    def observe_tts_onset_preroll_ms(self, milliseconds: float) -> None:
+        if self._metrics is None:
+            return
+        self._metrics.observe_tts_onset_preroll_ms(milliseconds)
+
+    def observe_tts_retry(self, *, after_commit: bool) -> None:
+        if self._metrics is None:
+            return
+        self._metrics.observe_tts_retry(after_commit=after_commit)
+
+    def mark_stage_start(self, stage: str) -> None:
+        if self._metrics is not None:
+            self._metrics.mark_stage_start(stage)
+
+    def mark_stage_end(self, stage: str) -> None:
+        if self._metrics is not None:
+            self._metrics.mark_stage_end(stage)
+
+    def _on_llm_chunk(self, text: str, eventpoint: dict) -> None:
+        """Forward generated text to the event loop without blocking LLM work."""
+        if not text or self._closed or self._pipeline_mode != "streaming":
+            return
+        turn_id = str(eventpoint.get("turn_id") or self._turn_id or "")
+        generation = eventpoint.get("generation")
+        if not turn_id or generation is None or not self._is_current(turn_id, int(generation)):
+            return
+        sequence = int(eventpoint.get("llm_sequence", 0))
+        loop = self._event_loop
+        if loop is None or loop.is_closed():
+            return
+        loop.call_soon_threadsafe(
+            partial(
+                self._emit,
+                "assistant_response_delta",
+                turn_id=turn_id,
+                sequence=sequence,
+                text_delta=text,
+            )
+        )
 
     def _start_turn_context(self, turn_id: str) -> None:
         if (

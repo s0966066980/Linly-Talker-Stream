@@ -11,7 +11,6 @@ from .fish import FishTTS
 from .sovits import SovitsTTS
 from .cosyvoice import CosyVoiceTTS
 from .indextts2 import IndexTTS2
-from .qwen3 import Qwen3TTS
 from .xtts import XTTS
 
 __all__ = [
@@ -22,6 +21,5 @@ __all__ = [
     "SovitsTTS",
     "CosyVoiceTTS",
     "IndexTTS2",
-    "Qwen3TTS",
     "XTTS",
 ]

@@ -20,6 +20,23 @@ model:
   # Low-latency conversation: 8 frames = 320ms at 25fps (was 640ms at 16).
   batch_size: 8
   model_path: ./models
+  # 嘴型貼回：Lanczos + 適度銳化可減輕 256 口型放大後的模糊；可在設定頁調整
+  mouth_sharpen: 0.5
+  paste_interpolation: lanczos
+  musetalk:
+    bbox_shift: 0
+    extra_margin: 10
+    parsing_mode: jaw
+    left_cheek_width: 90
+    right_cheek_width: 90
+    upper_boundary_ratio: 0.5
+    expand: 1.5
+    mask_blur_ratio: 0.05
+  wav2lip:
+    pad_top: 0
+    pad_bottom: 10
+    pad_left: 0
+    pad_right: 0
   
   # ERNeRF 配置資訊參考
   # type: ernerf
@@ -41,9 +58,9 @@ model:
 
 # TTS 配置資訊，可以改對應的模型，建議edgetts
 tts:
-  type: edgetts  # edgetts | qwen3-tts | fishtts | gpt-sovits | cosyvoice | indextts2 | xtts
+  type: edgetts  # edgetts | fishtts | gpt-sovits | cosyvoice | indextts2 | xtts
   ref_file: zh-TW-HsiaoChenNeural  # 臺灣女聲（曉臻）
-  model: Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
+  model: ''
   language: Chinese
   speaker: Vivian
   instruct: ''
@@ -52,8 +69,8 @@ tts:
 # ASR 配置資訊，可以改對應的模型，建議browser
 asr:
   mode: server  # 互動麥克風固定經 WebRTC 送到服務端
-  type: whisper  # whisper | funasr | qwen3-asr
-  model_size: base  # Qwen 示例：Qwen/Qwen3-ASR-0.6B
+  type: whisper  # whisper | funasr
+  model_size: base
   language: zh  # zh | en | auto
   output_script: traditional-tw  # FunASR: traditional-tw | simplified
   device: auto  # auto | cpu | cuda

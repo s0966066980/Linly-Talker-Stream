@@ -32,6 +32,7 @@ class FakeAvatar:
         media_guard,
         on_stale_drop,
         on_fragment_queued=None,
+        **_unused,
     ):
         self.media_guard = media_guard
         self.on_stale_drop = on_stale_drop

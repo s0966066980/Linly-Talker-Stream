@@ -20,6 +20,7 @@ import torch.multiprocessing as mp
 from src.avatars.musetalk.utils.utils import get_file_type,get_video_fps,datagen
 #from musetalk.utils.preprocessing import get_landmark_and_bbox,read_imgs,coord_placeholder
 from src.avatars.musetalk.myutil import get_image_blending
+from src.avatars.mouth_quality import enhance_from_config
 from src.avatars.musetalk.utils.utils import load_all_model
 from src.avatars.musetalk.whisper.audio2feature import Audio2Feature
 
@@ -199,6 +200,7 @@ def inference(quit_event,batch_size,input_latent_list_cycle,audio_feat_queue,aud
         if isinstance(feature_item, MuseInferenceBatch):
             whisper_chunks = feature_item.features
             audio_frames = list(feature_item.audio_frames)
+            effective_batch_size = int(feature_item.batch_size or batch_size)
             if not _media_batch_is_current(
                 audio_frames,
                 media_guard,
@@ -210,8 +212,9 @@ def inference(quit_event,batch_size,input_latent_list_cycle,audio_feat_queue,aud
         else:
             whisper_chunks = feature_item
             audio_frames = []
+            effective_batch_size = batch_size
         is_all_silence=True
-        for _ in range(len(audio_frames), batch_size*2):
+        for _ in range(len(audio_frames), effective_batch_size * 2):
             audio_frames.append(audio_out_queue.get())
         normalized_audio_frames = []
         for frame,frame_type,eventpoint in audio_frames:
@@ -222,7 +225,7 @@ def inference(quit_event,batch_size,input_latent_list_cycle,audio_feat_queue,aud
                 is_all_silence=False
         audio_frames = normalized_audio_frames
         if is_all_silence:
-            for i in range(batch_size):
+            for i in range(effective_batch_size):
                 paired_audio = audio_frames[i*2:i*2+2]
                 if not _media_batch_is_current(
                     paired_audio,
@@ -244,7 +247,7 @@ def inference(quit_event,batch_size,input_latent_list_cycle,audio_feat_queue,aud
             t=time.perf_counter()
             whisper_batch = np.stack(whisper_chunks)
             latent_batch = []
-            for i in range(batch_size):
+            for i in range(effective_batch_size):
                 idx = __mirror_index(length,index+i)
                 latent = input_latent_list_cycle[idx]
                 latent_batch.append(latent)
@@ -273,7 +276,7 @@ def inference(quit_event,batch_size,input_latent_list_cycle,audio_feat_queue,aud
             # print('vae time:',time.perf_counter()-t)
             #print('diffusion len=',len(recon))
             counttime += (time.perf_counter() - t)
-            count += batch_size
+            count += effective_batch_size
             #_totalframe += 1
             if count>=100:
                 logger.info(f"------actual avg infer fps:{count/counttime:.4f}")
@@ -370,7 +373,9 @@ class MuseTalkAvatar(BaseAvatar):
         ori_frame = copy.deepcopy(self.frame_list_cycle[idx])
         x1, y1, x2, y2 = bbox
 
-        res_frame = cv2.resize(pred_frame.astype(np.uint8),(x2-x1,y2-y1))
+        res_frame = enhance_from_config(
+            pred_frame, (x2 - x1, y2 - y1), self.config
+        )
         mask = self.mask_list_cycle[idx]
         mask_crop_box = self.mask_coords_list_cycle[idx]
 
@@ -405,10 +410,15 @@ class MuseTalkAvatar(BaseAvatar):
             # update texture every frame
             # audio stream thread...
             video_queue_size = video_track._queue.qsize() if video_track else 0
+            required_audio_frames = (
+                self.batch_size * 2
+                if self.audio_stream.startup_batch_emitted
+                else self.audio_stream.startup_batch_size * 2
+            )
             if should_wait_for_tts_audio(
                 self.tts.has_pending_work(),
                 self.audio_stream.queue.qsize(),
-                self.batch_size * 2,
+                required_audio_frames,
                 video_queue_size,
             ):
                 time.sleep(0.01)

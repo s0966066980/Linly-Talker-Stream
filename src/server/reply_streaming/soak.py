@@ -4,6 +4,8 @@ from __future__ import annotations
 import math
 from typing import Iterable, Mapping
 
+from .metrics import STAGE_NAMES
+
 
 def percentile(values: Iterable[float], percentile_value: float) -> float | None:
     samples = sorted(float(value) for value in values if value is not None)
@@ -46,6 +48,19 @@ def build_soak_report(
         for item in turns
         for count in dict(item.get("stale_drops") or {}).values()
     )
+    stage_seconds = {
+        stage: {
+            "p50": percentile(
+                (dict(item.get("stage_seconds") or {}).get(stage) for item in turns),
+                50,
+            ),
+            "p95": percentile(
+                (dict(item.get("stage_seconds") or {}).get(stage) for item in turns),
+                95,
+            ),
+        }
+        for stage in STAGE_NAMES
+    }
 
     metrics = {
         "first_audio_seconds": {
@@ -70,6 +85,7 @@ def build_soak_report(
             "maximum": max(media_debts, default=0.0),
             "target_at_most": 2.0,
         },
+        "stage_seconds": stage_seconds,
     }
     checks = {
         "at_least_50_turns": len(turns) >= 50,

@@ -186,6 +186,9 @@ class OverridePersistTests(unittest.TestCase):
             self.assertEqual(data["llm"]["system_prompt"], "請用繁體中文簡短回答。")
             self.assertEqual(data["model"]["type"], "musetalk")
             self.assertEqual(data["model"]["avatar_id"], "musetalk_avatar1")
+            self.assertEqual(data["model"]["mouth_sharpen"], 0.5)
+            self.assertEqual(data["model"]["paste_interpolation"], "lanczos")
+            self.assertEqual(data["model"]["musetalk"]["extra_margin"], 10)
             self.assertEqual(data["reply_streaming"], {"enabled": True})
 
 
@@ -355,7 +358,7 @@ class SpeechSettingsTests(unittest.TestCase):
         self.assertEqual(
             ids,
             {
-                "edgetts", "qwen3-tts", "gpt-sovits", "xtts",
+                "edgetts", "gpt-sovits", "xtts",
                 "cosyvoice", "fishtts", "indextts2",
             },
         )
@@ -401,6 +404,21 @@ class SpeechSettingsTests(unittest.TestCase):
         self.assertIn("preview_audio", result)
         persist.assert_called_once()
 
+    def test_gpt_sovits_rejects_edge_voice_id_as_reference_path(self):
+        with patch("src.server.runtime_settings._engine_available", return_value=True):
+            with self.assertRaises(SettingsError) as ctx:
+                apply_tts_settings(
+                    Config(),
+                    {
+                        "type": "gpt-sovits",
+                        "ref_file": "zh-TW-YunJheNeural",
+                        "tts_server": "http://127.0.0.1:9880",
+                    },
+                    session_count=0,
+                )
+        self.assertIn("zh-TW-YunJheNeural", ctx.exception.message)
+        self.assertIn("完整路徑", ctx.exception.message)
+
     def test_edge_tts_rejects_non_zh_tw_voice(self):
         with patch("src.server.runtime_settings._engine_available", return_value=True):
             with self.assertRaises(SettingsError) as ctx:
@@ -437,50 +455,25 @@ class SpeechSettingsTests(unittest.TestCase):
         self.assertEqual(config.asr.device, "cuda")
         persist.assert_called_once()
 
-    def test_qwen_asr_model_is_exposed_and_committed(self):
-        config = Config()
-        candidate = Mock()
-        with patch("src.server.runtime_settings._engine_available", return_value=True), patch(
-            "src.server.runtime_settings.create_asr_engine", return_value=candidate
-        ), patch("src.server.runtime_settings.activate_asr_engine"), patch(
-            "src.server.runtime_settings.persist_runtime_overrides"
-        ):
-            result = apply_stt_settings(
-                config,
-                {
-                    "type": "qwen3-asr",
-                    "model_size": "Qwen/Qwen3-ASR-0.6B",
-                    "language": "auto",
-                    "device": "cuda",
-                },
+    def test_removed_qwen_speech_engines_are_rejected(self):
+        with self.assertRaises(SettingsError):
+            apply_stt_settings(
+                Config(),
+                {"type": "qwen3-asr", "model_size": "Qwen/Qwen3-ASR-0.6B"},
                 session_count=0,
             )
-        self.assertEqual(config.asr.type, "qwen3-asr")
-        self.assertEqual(result["model_size"], "Qwen/Qwen3-ASR-0.6B")
-        self.assertIn("qwen3-asr", result["models_by_engine"])
-
-    def test_qwen_tts_fields_commit_only_after_preview(self):
-        config = Config()
-        with patch("src.server.runtime_settings._engine_available", return_value=True), patch(
-            "src.server.runtime_settings._preview_tts",
-            return_value="data:audio/wav;base64,dGVzdA==",
-        ), patch("src.server.runtime_settings.persist_runtime_overrides"):
-            result = apply_tts_settings(
-                config,
-                {
-                    "type": "qwen3-tts",
-                    "model": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
-                    "language": "Chinese",
-                    "speaker": "Vivian",
-                    "instruct": "溫柔地說",
-                    "device": "cuda",
-                },
+        with self.assertRaises(SettingsError):
+            apply_tts_settings(
+                Config(),
+                {"type": "qwen3-tts", "model": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"},
                 session_count=0,
             )
-        self.assertEqual(config.tts.type, "qwen3-tts")
-        self.assertEqual(config.tts.speaker, "Vivian")
-        self.assertEqual(config.tts.instruct, "溫柔地說")
-        self.assertIn("preview_audio", result)
+        snapshot = speech_snapshot(Config())
+        self.assertNotIn("qwen3-asr", snapshot["stt"]["models_by_engine"])
+        self.assertNotIn(
+            "qwen3-tts",
+            {item["id"] for item in snapshot["tts"]["engines"]},
+        )
 
 
 class AvatarNameTests(unittest.TestCase):

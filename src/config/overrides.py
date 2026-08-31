@@ -5,6 +5,7 @@ from typing import Any, Dict
 
 import yaml
 
+from src.avatars.mouth_quality import quality_from_model
 from src.utils.logging import logger
 from src.utils.paths import get_config_dir
 
@@ -37,6 +38,7 @@ def persist_runtime_overrides(config) -> None:
         "model": {
             "type": config.model.type,
             "avatar_id": config.model.avatar_id,
+            **quality_from_model(config.model),
         },
         "reply_streaming": {
             "enabled": bool(

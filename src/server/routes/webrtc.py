@@ -136,6 +136,7 @@ async def offer(request):
         on_audio_activity=voice_session.on_output_audio,
         on_audio_frame=voice_session.on_output_audio_frame,
         on_media_timing=voice_session.observe_media_timing,
+        on_audio_pacing=voice_session.observe_audio_pacing,
         media_guard=voice_session.accepts_media,
         on_stale_drop=voice_session.record_stale_drop,
     )

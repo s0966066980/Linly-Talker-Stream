@@ -1,5 +1,6 @@
 import asyncio
 import queue
+import time
 import unittest
 from io import BytesIO
 from threading import Event, Thread
@@ -170,6 +171,125 @@ class WebRTCPacingTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual([first_pts, second_pts, third_pts], expected)
                 track.stop()
 
+    async def test_audio_does_not_catch_up_after_sub_threshold_stall(self):
+        from src.utils.webrtc import AUDIO_PTIME, SAMPLE_RATE, PlayerStreamTrack
+
+        now = [100.0]
+        deliveries = []
+
+        async def fake_sleep(delay):
+            now[0] += delay
+
+        track = PlayerStreamTrack(None, kind="audio")
+        with (
+            patch("src.utils.webrtc.time.monotonic", side_effect=lambda: now[0]),
+            patch("src.utils.webrtc.asyncio.sleep", new=fake_sleep),
+            patch("src.utils.webrtc.mylogger"),
+        ):
+            pts_list = []
+            first_pts, _ = await track.next_timestamp()
+            pts_list.append(first_pts)
+            deliveries.append(now[0])
+            now[0] += 0.090
+            for _ in range(5):
+                pts, _ = await track.next_timestamp()
+                pts_list.append(pts)
+                deliveries.append(now[0])
+
+        packet_ticks = int(AUDIO_PTIME * SAMPLE_RATE)
+        self.assertEqual(pts_list, [index * packet_ticks for index in range(6)])
+        intervals = [
+            round(deliveries[index] - deliveries[index - 1], 6)
+            for index in range(1, len(deliveries))
+        ]
+        self.assertGreaterEqual(intervals[0], 0.089)
+        for interval in intervals[1:]:
+            self.assertGreater(interval, 0.015)
+            self.assertLess(interval, 0.025)
+        self.assertFalse(
+            any(
+                left < 0.005 and right < 0.005
+                for left, right in zip(intervals, intervals[1:])
+            )
+        )
+        self.assertEqual(track.catch_up_burst_count, 0)
+        track.stop()
+
+    async def test_audio_recovers_20ms_pacing_after_short_stalls(self):
+        from src.utils.webrtc import AUDIO_PTIME, SAMPLE_RATE, PlayerStreamTrack
+
+        for stall in (0.030, 0.050, 0.090, 0.100, 1.0):
+            with self.subTest(stall=stall):
+                now = [100.0]
+
+                async def fake_sleep(delay):
+                    now[0] += delay
+
+                track = PlayerStreamTrack(None, kind="audio")
+                with (
+                    patch("src.utils.webrtc.time.monotonic", side_effect=lambda: now[0]),
+                    patch("src.utils.webrtc.asyncio.sleep", new=fake_sleep),
+                    patch("src.utils.webrtc.mylogger"),
+                ):
+                    pts_list = []
+                    deliveries = []
+                    first_pts, _ = await track.next_timestamp()
+                    pts_list.append(first_pts)
+                    deliveries.append(now[0])
+                    now[0] += stall
+                    for _ in range(4):
+                        pts, _ = await track.next_timestamp()
+                        pts_list.append(pts)
+                        deliveries.append(now[0])
+
+                packet_ticks = int(AUDIO_PTIME * SAMPLE_RATE)
+                self.assertEqual(
+                    pts_list,
+                    [index * packet_ticks for index in range(5)],
+                )
+                intervals = [
+                    round(deliveries[index] - deliveries[index - 1], 6)
+                    for index in range(1, len(deliveries))
+                ]
+                self.assertGreaterEqual(intervals[0], stall - 0.001)
+                for interval in intervals[1:]:
+                    self.assertGreater(interval, 0.015)
+                    self.assertLess(interval, 0.025)
+                self.assertEqual(track.catch_up_burst_count, 0)
+                track.stop()
+
+    async def test_audio_pacing_callback_is_content_free(self):
+        from src.utils.webrtc import HumanPlayer
+
+        observations = []
+        now = [100.0]
+
+        async def fake_sleep(delay):
+            now[0] += delay
+
+        player = HumanPlayer(
+            None,
+            on_audio_pacing=lambda **values: observations.append(values),
+        )
+        with (
+            patch("src.utils.webrtc.time.monotonic", side_effect=lambda: now[0]),
+            patch("src.utils.webrtc.asyncio.sleep", new=fake_sleep),
+            patch("src.utils.webrtc.mylogger"),
+        ):
+            await player.audio.next_timestamp()
+            now[0] += 0.090
+            await player.audio.next_timestamp()
+            await player.audio.next_timestamp()
+
+        self.assertTrue(observations)
+        self.assertGreaterEqual(observations[-1]["rebase_count"], 1)
+        self.assertEqual(observations[-1]["catch_up_burst_count"], 0)
+        self.assertTrue(
+            {"text", "transcript", "pcm", "samples"}.isdisjoint(observations[-1])
+        )
+        player.audio.stop()
+        player.video.stop()
+
 
 class TextStreamTimingTests(unittest.TestCase):
     def test_comma_clause_waits_for_sentence_end(self):
@@ -204,6 +324,21 @@ class MuseTalkAudioWindowTests(unittest.TestCase):
 
 
 class MuseTalkBufferPolicyTests(unittest.TestCase):
+    def test_empty_batch_uses_one_blocking_poll(self):
+        from src.avatars.audio_stream_handler import BaseAudioStreamHandler
+
+        config = SimpleNamespace(
+            audio=SimpleNamespace(fps=50, l=2, r=2),
+            model=SimpleNamespace(batch_size=8),
+        )
+        handler = BaseAudioStreamHandler(config, parent=None)
+        started = time.perf_counter()
+        frames = handler.get_audio_frames(16)
+        elapsed = time.perf_counter() - started
+
+        self.assertEqual(len(frames), 16)
+        self.assertLess(elapsed, 0.08)
+
     def test_waits_for_pending_tts_while_playback_has_headroom(self):
         from src.avatars.musetalk.avatar import should_wait_for_tts_audio
 
@@ -396,6 +531,95 @@ class EdgeTTSSilenceTests(unittest.TestCase):
             np.array_equal(np.concatenate(output), trim_edge_silence(stream, sample_rate))
         )
 
+    @staticmethod
+    def _trim_chunked(stream, sample_rate, sizes):
+        from src.tts.engines.edge import _StreamingSilenceTrimmer
+
+        trimmer = _StreamingSilenceTrimmer(sample_rate)
+        output = []
+        offset = 0
+        index = 0
+        while offset < stream.size:
+            size = sizes[index % len(sizes)]
+            chunk = trimmer.feed(stream[offset : offset + size])
+            if chunk.size:
+                output.append(chunk)
+            offset += size
+            index += 1
+        leftover = trimmer.finish()
+        if leftover.size:
+            output.append(leftover)
+        if not output:
+            return np.empty(0, dtype=np.float32), trimmer
+        return np.concatenate(output), trimmer
+
+    def test_preserves_low_energy_onset_before_confirmed_speech(self):
+        sample_rate = 16000
+        quiet_onset = np.full(int(sample_rate * 0.08), 5e-5, dtype=np.float32)
+        voiced = np.full(int(sample_rate * 0.02), 0.1, dtype=np.float32)
+        source = np.concatenate((quiet_onset, voiced))
+
+        result, _ = self._trim_chunked(source, sample_rate, (173, 1, 160, 320, 137))
+
+        self.assertEqual(result.size, source.size)
+        self.assertTrue(np.allclose(result[: quiet_onset.size], quiet_onset))
+        self.assertTrue(np.allclose(result[quiet_onset.size :], voiced))
+
+    def test_each_fragment_preserves_its_own_low_energy_onset(self):
+        sample_rate = 16000
+        quiet_onset = np.full(int(sample_rate * 0.08), 5e-5, dtype=np.float32)
+        voiced = np.full(int(sample_rate * 0.02), 0.1, dtype=np.float32)
+        source = np.concatenate((quiet_onset, voiced))
+
+        for _ in range(2):
+            result, _ = self._trim_chunked(source, sample_rate, (137, 160, 1, 320))
+            self.assertEqual(result.size, source.size)
+            self.assertTrue(np.allclose(result[: quiet_onset.size], quiet_onset))
+
+    def test_preserves_ramped_low_energy_onset(self):
+        sample_rate = 16000
+        ramp = np.linspace(2e-5, 8e-5, int(sample_rate * 0.08), dtype=np.float32)
+        voiced = np.full(int(sample_rate * 0.02), 0.1, dtype=np.float32)
+        source = np.concatenate((ramp, voiced))
+
+        result, _ = self._trim_chunked(source, sample_rate, (137, 160, 320))
+
+        self.assertEqual(result.size, source.size)
+        self.assertTrue(np.allclose(result[: ramp.size], ramp, atol=1e-8))
+
+    def test_tiny_codec_residual_does_not_keep_long_padding(self):
+        sample_rate = 16000
+        residual = np.full(int(sample_rate * 0.10), 1e-6, dtype=np.float32)
+        voiced = np.full(int(sample_rate * 0.20), 0.1, dtype=np.float32)
+        source = np.concatenate((residual, voiced))
+
+        result, _ = self._trim_chunked(source, sample_rate, (160, 320))
+
+        self.assertEqual(result.size, int(sample_rate * (0.04 + 0.20)))
+        self.assertTrue(np.allclose(result[: int(sample_rate * 0.04)], 1e-6))
+        self.assertTrue(np.allclose(result[int(sample_rate * 0.04) :], voiced))
+
+    def test_chunk_boundaries_do_not_change_onset_preservation(self):
+        from src.tts.engines.edge import trim_edge_silence
+
+        sample_rate = 16000
+        quiet_onset = np.full(int(sample_rate * 0.08), 5e-5, dtype=np.float32)
+        voiced = np.full(int(sample_rate * 0.12), 0.1, dtype=np.float32)
+        source = np.concatenate((quiet_onset, voiced))
+        expected = trim_edge_silence(source, sample_rate)
+        rng = np.random.default_rng(0)
+        size_sets = (
+            (1,),
+            (137,),
+            (160,),
+            (320,),
+            tuple(int(size) for size in rng.integers(1, 401, size=12)),
+        )
+        for sizes in size_sets:
+            with self.subTest(sizes=sizes):
+                result, _ = self._trim_chunked(source, sample_rate, sizes)
+                self.assertTrue(np.array_equal(result, expected))
+
 
 class EdgeTTSStreamingTests(unittest.TestCase):
     @staticmethod
@@ -509,7 +733,7 @@ class EdgeTTSStreamingTests(unittest.TestCase):
         ]
         self.assertEqual(len(start_events), 1)
 
-    def test_timeout_after_partial_audio_resumes_without_duplicate_prefix(self):
+    def test_timeout_after_partial_audio_does_not_sample_splice(self):
         calls = []
 
         class Parent:
@@ -526,36 +750,70 @@ class EdgeTTSStreamingTests(unittest.TestCase):
                 yield {"type": "audio", "data": payload[: len(payload) * 3 // 4]}
                 raise asyncio.TimeoutError
 
-        class WorkingCommunicate:
+        class ShiftedCommunicate:
             async def stream(self):
                 yield {"type": "audio", "data": payload}
 
         def communicate(*_args):
             calls.append(len(calls) + 1)
-            return PartialTimeoutCommunicate() if len(calls) == 1 else WorkingCommunicate()
-
-        resumed_parent = Parent()
-        resumed_tts = self._make_tts(resumed_parent)
-        with patch("src.tts.engines.edge.edge_tts.Communicate", side_effect=communicate):
-            resumed_tts.txt_to_audio(("測試中斷續傳。", {}))
-
-        expected_parent = Parent()
-        expected_tts = self._make_tts(expected_parent)
-        with patch(
-            "src.tts.engines.edge.edge_tts.Communicate",
-            side_effect=lambda *_args: WorkingCommunicate(),
-        ):
-            expected_tts.txt_to_audio(("測試中斷續傳。", {}))
-
-        self.assertEqual(calls, [1, 2])
-        self.assertTrue(
-            np.array_equal(
-                np.concatenate([frame for frame, _ in resumed_parent.frames]),
-                np.concatenate([frame for frame, _ in expected_parent.frames]),
+            return (
+                PartialTimeoutCommunicate()
+                if len(calls) == 1
+                else ShiftedCommunicate()
             )
+
+        parent = Parent()
+        tts = self._make_tts(parent)
+        with patch("src.tts.engines.edge.edge_tts.Communicate", side_effect=communicate):
+            tts.txt_to_audio(("測試中斷不接續。", {}))
+
+        self.assertEqual(calls, [1])
+        self.assertTrue(parent.frames)
+        self.assertGreater(tts.retry_after_pcm_count, 0)
+        self.assertEqual(tts.retry_after_playback_commit_count, 0)
+
+    def test_timeout_after_playback_commit_does_not_retry(self):
+        from src.server.reply_streaming.channel import PlayableFragment
+        from src.server.reply_streaming.turn import TurnContext
+
+        calls = []
+
+        class Parent:
+            def __init__(self):
+                self.frames = []
+
+            def put_audio_frame(self, frame, eventpoint):
+                self.frames.append((frame.copy(), dict(eventpoint)))
+
+        payload = self._mp3_fixture()
+
+        class PartialTimeoutCommunicate:
+            async def stream(self):
+                yield {"type": "audio", "data": payload[: len(payload) * 3 // 4]}
+                raise asyncio.TimeoutError
+
+        def communicate(*_args):
+            calls.append(len(calls) + 1)
+            return PartialTimeoutCommunicate()
+
+        turn = TurnContext(turn_id="turn-1", generation=1)
+        fragment = PlayableFragment(
+            envelope=turn.envelope(stage="tts_fragment", sequence=0),
+            text="測試提交後不重試。",
+            estimated_seconds=0.5,
         )
-        events = [event for _, event in resumed_parent.frames if event]
-        self.assertEqual([event["status"] for event in events], ["start", "end"])
+        parent = Parent()
+        tts = self._make_tts(parent)
+        with patch("src.tts.engines.edge.edge_tts.Communicate", side_effect=communicate):
+            tts.synthesize_fragment(
+                fragment,
+                chunk_guard=lambda _sequence: True,
+                fragment_committed=lambda: True,
+            )
+
+        self.assertEqual(calls, [1])
+        self.assertTrue(parent.frames)
+        self.assertEqual(tts.retry_after_playback_commit_count, 1)
 
     def test_turn_aware_frames_are_fenced_and_keep_20ms_media_sequences(self):
         from src.server.reply_streaming.channel import PlayableFragment

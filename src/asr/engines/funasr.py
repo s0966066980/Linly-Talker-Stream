@@ -7,6 +7,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Any
 
+import torch
+
 from src.utils.logging import logger
 from src.asr.base import BaseASR
 
@@ -75,6 +77,17 @@ class FunASR(BaseASR):
             "output_script",
             "traditional-tw",
         )
+        requested_device = str(
+            getattr(getattr(config, "asr", None), "device", "auto")
+            or "auto"
+        ).lower()
+        if requested_device == "auto":
+            requested_device = "cuda" if torch.cuda.is_available() else "cpu"
+        if requested_device not in {"cpu", "cuda"}:
+            raise ValueError(f"不支援的 FunASR 裝置: {requested_device}")
+        if requested_device == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError("FunASR 設定要求 CUDA，但目前沒有可用的 CUDA")
+        self.device = requested_device
         self.model = None
         
         logger.info(f'[FunASR] 模型: {model_name}')
@@ -84,7 +97,11 @@ class FunASR(BaseASR):
         try:
             from funasr import AutoModel
             logger.info(f'[FunASR] 正在載入模型: {self.model_name}')
-            self.model = AutoModel(model=self.model_name, disable_update=True)
+            self.model = AutoModel(
+                model=self.model_name,
+                device=self.device,
+                disable_update=True,
+            )
             logger.info('[FunASR] 模型載入成功')
             
         except ImportError:
@@ -127,6 +144,7 @@ class FunASR(BaseASR):
         """獲取引擎資訊"""
         info = super().get_info()
         info.update({
-            "model_name": self.model_name
+            "model_name": self.model_name,
+            "device": self.device,
         })
         return info

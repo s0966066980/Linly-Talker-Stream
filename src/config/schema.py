@@ -132,6 +132,29 @@ class TalkingGaussianConfig:
     bg_img: str = "white"
     sh_degree: int = 3
 
+
+@dataclass
+class MuseTalkQualityConfig:
+    """MuseTalk 角色製作時寫入素材的臉框與融合參數。"""
+    bbox_shift: int = 0
+    extra_margin: int = 10
+    parsing_mode: str = "jaw"
+    left_cheek_width: int = 90
+    right_cheek_width: int = 90
+    upper_boundary_ratio: float = 0.5
+    expand: float = 1.5
+    mask_blur_ratio: float = 0.05
+
+
+@dataclass
+class Wav2LipQualityConfig:
+    """Wav2Lip 角色製作時的臉框留白。"""
+    pad_top: int = 0
+    pad_bottom: int = 10
+    pad_left: int = 0
+    pad_right: int = 0
+
+
 @dataclass
 class ModelConfig:
     """模型配置"""
@@ -139,20 +162,25 @@ class ModelConfig:
     avatar_id: str = "avator_1"
     batch_size: int = 16
     model_path: str = "./models"
-    
+    # 256 口型貼回時的觀感；不需重新製作角色
+    mouth_sharpen: float = 0.5
+    paste_interpolation: str = "lanczos"  # lanczos | cubic | linear
+
     # 模型專屬配置
     ernerf: ERNeRfConfig = field(default_factory=ERNeRfConfig)
     talkinggaussian: TalkingGaussianConfig = field(default_factory=TalkingGaussianConfig)
+    musetalk: MuseTalkQualityConfig = field(default_factory=MuseTalkQualityConfig)
+    wav2lip: Wav2LipQualityConfig = field(default_factory=Wav2LipQualityConfig)
 
 
 @dataclass
 class TTSConfig:
     """TTS 配置"""
-    type: str = "edgetts"  # edgetts | qwen3-tts | fishtts | gpt-sovits | cosyvoice | indextts2 | xtts
+    type: str = "edgetts"  # edgetts | fishtts | gpt-sovits | cosyvoice | indextts2 | xtts
     ref_file: str = "zh-TW-HsiaoChenNeural"
     ref_text: Optional[str] = None
     tts_server: str = "http://127.0.0.1:9880"
-    model: str = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
+    model: str = ""
     language: str = "Chinese"
     speaker: str = "Vivian"
     instruct: str = ""
@@ -163,7 +191,7 @@ class TTSConfig:
 class ASRConfig:
     """ASR 語音識別配置"""
     mode: str = "server"  # 互動麥克風固定由 WebRTC 傳到伺服器
-    type: str = "whisper"  # whisper (faster-whisper) | funasr | qwen3-asr
+    type: str = "whisper"  # whisper (faster-whisper) | funasr
     model_size: str = "base"  # engine-specific model name or Hugging Face/local path
     language: str = "zh"  # zh | en | auto
     output_script: str = "traditional-tw"  # FunASR: traditional-tw | simplified

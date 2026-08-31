@@ -19,6 +19,7 @@ from threading import Thread, Event
 import torch.multiprocessing as mp
 
 
+from src.avatars.mouth_quality import enhance_from_config
 from src.avatars.wav2lip.audio_stream_handler import LipAudioStreamHandler
 import asyncio
 from av import AudioFrame, VideoFrame
@@ -197,7 +198,9 @@ class Wav2LipAvatar(BaseAvatar):
         combine_frame = copy.deepcopy(self.frame_list_cycle[idx])
         #combine_frame = copy.deepcopy(self.imagecache.get_img(idx))
         y1, y2, x1, x2 = bbox
-        res_frame = cv2.resize(pred_frame.astype(np.uint8),(x2-x1,y2-y1))
+        res_frame = enhance_from_config(
+            pred_frame, (x2 - x1, y2 - y1), self.config
+        )
         #combine_frame = get_image(ori_frame,res_frame,bbox)
         #t=time.perf_counter()
         combine_frame[y1:y2, x1:x2] = res_frame

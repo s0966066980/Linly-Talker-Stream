@@ -34,6 +34,7 @@ class FakeAvatar:
         media_guard,
         on_stale_drop,
         on_fragment_queued=None,
+        **_unused,
     ):
         self.media_guard = media_guard
         self.on_stale_drop = on_stale_drop
@@ -397,7 +398,6 @@ class ReplyModeBehaviorTests(unittest.IsolatedAsyncioTestCase):
 
         def fake_llm(text, avatar_stream, **kwargs):
             calls.append((text, kwargs))
-            avatar_stream.put_msg_txt("完整回覆", {})
             return "完整回覆"
 
         with patch("src.server.voice_session.llm_response", side_effect=fake_llm):
@@ -405,6 +405,7 @@ class ReplyModeBehaviorTests(unittest.IsolatedAsyncioTestCase):
             await session._turn_task
 
         self.assertEqual(started["reply_mode"], "legacy")
+        self.assertFalse(calls[0][1].get("stream_to_avatar", True))
         self.assertEqual(calls[0][1].get("datainfo"), None)
         self.assertEqual(calls[0][1].get("chunk_guard"), None)
         self.assertFalse(calls[0][1].get("defer_history_commit", False))
@@ -449,6 +450,45 @@ class ReplyModeBehaviorTests(unittest.IsolatedAsyncioTestCase):
         fragments = [item for item in events if item["type"] == "assistant_fragment"]
         self.assertEqual([item["text"] for item in fragments], ["逐段回覆"])
         await session.close()
+
+    async def test_streaming_enqueues_tts_before_legacy_one_shot_finishes(self):
+        first = "這是一段足夠長度的第一句話用來觸發分段語音合成開始。"
+        second = "這是接在後面的第二句，用來模擬模型還在繼續生成內容。"
+        gap = 0.08
+
+        async def run_mode(streaming):
+            session, avatar, _events = self.make_session(streaming=streaming)
+            started_at = time.perf_counter()
+            first_tts_at = []
+
+            def fake_llm(text, avatar_stream, **kwargs):
+                if kwargs.get("stream_to_avatar"):
+                    avatar_stream.put_msg_txt(first, kwargs.get("datainfo") or {})
+                    first_tts_at.append(time.perf_counter())
+                    time.sleep(gap)
+                    avatar_stream.put_msg_txt(second, kwargs.get("datainfo") or {})
+                    return first + second
+                time.sleep(gap)
+                return first + second
+
+            with patch("src.server.voice_session.llm_response", side_effect=fake_llm):
+                await session.start_text_turn("請比較", interrupt=False)
+                await session._turn_task
+            if not first_tts_at:
+                first_tts_at.append(time.perf_counter())
+            await session.close()
+            return len(avatar.messages), first_tts_at[0] - started_at, avatar.messages[0][0]
+
+        stream_count, stream_first, stream_text = await run_mode(True)
+        legacy_count, legacy_first, legacy_text = await run_mode(False)
+
+        self.assertGreaterEqual(stream_count, 2)
+        self.assertEqual(legacy_count, 1)
+        self.assertEqual(legacy_text, first + second)
+        self.assertIn(first[:8], stream_text)
+        self.assertLess(stream_first, gap / 2)
+        self.assertGreater(legacy_first, gap * 0.8)
+        self.assertLess(stream_first, legacy_first)
 
 
 class WebRTCOfferCapacityTests(unittest.IsolatedAsyncioTestCase):

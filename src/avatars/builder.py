@@ -17,6 +17,7 @@ from src.avatars.catalog import (
     is_safe_avatar_id,
     list_avatar_characters,
 )
+from src.avatars.mouth_quality import QualityError, normalize_quality
 from src.utils.logging import logger
 from src.utils.paths import get_data_dir
 
@@ -96,6 +97,7 @@ def build_character(
     *,
     overwrite: bool = False,
     progress: ProgressCb = None,
+    quality: Optional[dict] = None,
 ) -> dict:
     engine = (engine or "").strip().lower()
     avatar_id = (avatar_id or "").strip()
@@ -125,11 +127,15 @@ def build_character(
         full_imgs = work_dir / "full_imgs"
         frame_count = extract_frames(video_path, full_imgs)
         report(20, f"已抽取 {frame_count} 幀，開始做人臉處理")
+        try:
+            options = normalize_quality(quality)
+        except QualityError as exc:
+            raise BuildError(str(exc)) from exc
 
         if engine == "musetalk":
-            _build_musetalk(work_dir, avatar_id, str(video_path), report)
+            _build_musetalk(work_dir, avatar_id, str(video_path), report, options)
         else:
-            _build_wav2lip(work_dir, report)
+            _build_wav2lip(work_dir, report, options)
 
         report(100, "角色製作完成")
         return {
@@ -153,7 +159,13 @@ def _sorted_images(folder: Path) -> list[Path]:
     return images
 
 
-def _build_musetalk(work_dir: Path, avatar_id: str, video_path: str, report: Callable[[int, str], None]) -> None:
+def _build_musetalk(
+    work_dir: Path,
+    avatar_id: str,
+    video_path: str,
+    report: Callable[[int, str], None],
+    options: dict,
+) -> None:
     import torch
 
     from src.avatars.musetalk.utils.blending import get_image_prepare_material
@@ -164,21 +176,24 @@ def _build_musetalk(work_dir: Path, avatar_id: str, video_path: str, report: Cal
     mask_dir = work_dir / "mask"
     mask_dir.mkdir(parents=True, exist_ok=True)
     img_paths = [str(p) for p in _sorted_images(full_imgs)]
+    musetalk = options["musetalk"]
 
     info = {
         "avatar_id": avatar_id,
         "video_path": video_path,
-        "bbox_shift": 0,
         "engine": "musetalk",
+        **musetalk,
+        "mouth_sharpen": options["mouth_sharpen"],
+        "paste_interpolation": options["paste_interpolation"],
     }
     (work_dir / "avator_info.json").write_text(
         json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
     report(30, "正在檢測人臉與關鍵點")
-    coord_list, frame_list = get_landmark_and_bbox(img_paths, 0)
+    coord_list, frame_list = get_landmark_and_bbox(img_paths, musetalk["bbox_shift"])
     vae = _musetalk_vae()
-    extra_margin = 10
+    extra_margin = musetalk["extra_margin"]
     latents = []
     kept_coords = []
     kept_frames = []
@@ -199,13 +214,22 @@ def _build_musetalk(work_dir: Path, avatar_id: str, video_path: str, report: Cal
         raise BuildError("沒有檢測到人臉。請使用正面、閉嘴、臉部清晰的短影片")
 
     report(65, "正在生成口型遮罩")
-    fp = FaceParsing(left_cheek_width=90, right_cheek_width=90)
+    fp = FaceParsing(
+        left_cheek_width=musetalk["left_cheek_width"],
+        right_cheek_width=musetalk["right_cheek_width"],
+    )
     mask_coords = []
     for index, frame in enumerate(kept_frames):
         cv2.imwrite(str(full_imgs / f"{index:08d}.png"), frame)
         x1, y1, x2, y2 = kept_coords[index]
         mask, crop_box = get_image_prepare_material(
-            frame, [x1, y1, x2, y2], fp=fp, mode="jaw"
+            frame,
+            [x1, y1, x2, y2],
+            fp=fp,
+            mode=musetalk["parsing_mode"],
+            upper_boundary_ratio=musetalk["upper_boundary_ratio"],
+            expand=musetalk["expand"],
+            mask_blur_ratio=musetalk["mask_blur_ratio"],
         )
         cv2.imwrite(str(mask_dir / f"{index:08d}.png"), mask)
         mask_coords.append(crop_box)
@@ -249,7 +273,9 @@ def _musetalk_vae():
     return vae
 
 
-def _build_wav2lip(work_dir: Path, report: Callable[[int, str], None]) -> None:
+def _build_wav2lip(
+    work_dir: Path, report: Callable[[int, str], None], options: dict
+) -> None:
     from src.avatars.wav2lip.face_detection import FaceAlignment, LandmarksType
 
     full_imgs = work_dir / "full_imgs"
@@ -281,8 +307,13 @@ def _build_wav2lip(work_dir: Path, report: Callable[[int, str], None]) -> None:
     finally:
         del detector
 
-    pads = (0, 10, 0, 0)
-    pady1, pady2, padx1, padx2 = pads
+    pads = options["wav2lip"]
+    pady1, pady2, padx1, padx2 = (
+        pads["pad_top"],
+        pads["pad_bottom"],
+        pads["pad_left"],
+        pads["pad_right"],
+    )
     raw_boxes = []
     for rect, image in zip(predictions, frames):
         if rect is None:
@@ -304,7 +335,7 @@ def _build_wav2lip(work_dir: Path, report: Callable[[int, str], None]) -> None:
         crop = image[y1:y2, x1:x2]
         if crop.size == 0:
             raise BuildError("人臉裁切失敗，請換一段臉部更居中的影片")
-        resized = cv2.resize(crop, (256, 256))
+        resized = cv2.resize(crop, (256, 256), interpolation=cv2.INTER_LANCZOS4)
         cv2.imwrite(str(face_imgs / f"{index:08d}.png"), resized)
         coords.append((y1, y2, x1, x2))
 

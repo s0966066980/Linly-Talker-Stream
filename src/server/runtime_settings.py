@@ -17,6 +17,11 @@ from src.avatars.catalog import (
     list_avatar_characters,
     list_engines,
 )
+from src.avatars.mouth_quality import (
+    QualityError,
+    apply_quality_to_model,
+    quality_from_model,
+)
 from src.config.overrides import persist_runtime_overrides
 from src.llm.base import (
     DEFAULT_RESPONSE_MAX_CHARS,
@@ -116,6 +121,7 @@ def current_snapshot(config) -> Dict[str, Any]:
             "type": model_cfg.type,
             "avatar_id": model_cfg.avatar_id,
         },
+        "avatar_quality": quality_from_model(model_cfg),
         "engines": engines,
         "characters": characters,
         "vad": vad_snapshot(config),
@@ -397,6 +403,16 @@ def apply_avatar(config, engine: str, avatar_id: str, *, session_count: int) -> 
         _SWITCH_LOCK.release()
 
 
+def apply_mouth_quality(config, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate and persist mouth paste-back / character-build quality settings."""
+    try:
+        quality = apply_quality_to_model(config.model, params or {})
+    except QualityError as exc:
+        raise SettingsError(str(exc)) from exc
+    persist_runtime_overrides(config)
+    return quality
+
+
 def _reload_avatar(config, engine: str, avatar_id: str) -> Dict[str, Any]:
     from copy import deepcopy
 
@@ -604,14 +620,6 @@ STT_ENGINE_META = {
         "install": 'uv pip install "funasr>=1.1"',
         "description": "paraformer-zh，中文優先",
     },
-    "qwen3-asr": {
-        "label": "Qwen3-ASR",
-        "module": "qwen_asr",
-        "worker": "qwen-speech",
-        "install": "bash scripts/setup-qwen-speech.sh",
-        "description": "隔離環境執行的本機 Qwen3-ASR，支援多語言與自動語言識別",
-        "setup": "首次套用會下載模型；不影響數字人相依環境",
-    },
 }
 STT_OUTPUT_SCRIPTS = ("traditional-tw", "simplified")
 
@@ -652,43 +660,15 @@ TTS_ENGINE_META = {
         "description": "連線本機或內網 IndexTTS2 Gradio 服務",
         "setup": "需要 gradio_client、本地服務與參考音訊",
     },
-    "qwen3-tts": {
-        "label": "Qwen3-TTS",
-        "module": "qwen_tts",
-        "worker": "qwen-speech",
-        "install": "bash scripts/setup-qwen-speech.sh",
-        "description": "隔離環境執行的本機 Qwen3-TTS，支援內建聲線、聲音設計與聲音克隆",
-        "setup": "首次套用會下載模型；不影響數字人相依環境；不需要 API 金鑰",
-    },
 }
 
 STT_MODEL_SIZES = ("tiny", "base", "small", "medium", "large-v3")
-QWEN_ASR_MODELS = (
-    "Qwen/Qwen3-ASR-0.6B",
-    "Qwen/Qwen3-ASR-1.7B",
-)
 STT_MODELS_BY_ENGINE = {
     "whisper": STT_MODEL_SIZES,
     "funasr": ("paraformer-zh",),
-    "qwen3-asr": QWEN_ASR_MODELS,
 }
 STT_LANGUAGES = ("zh", "en", "auto")
 STT_DEVICES = ("auto", "cpu", "cuda")
-QWEN_TTS_MODELS = (
-    "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
-    "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-    "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
-    "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
-    "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
-)
-QWEN_TTS_LANGUAGES = (
-    "Auto", "Chinese", "English", "Japanese", "Korean", "German",
-    "French", "Russian", "Portuguese", "Spanish", "Italian",
-)
-QWEN_TTS_SPEAKERS = (
-    "Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric",
-    "Ryan", "Aiden", "Ono_Anna", "Sohee",
-)
 EDGE_TTS_ZH_TW_VOICES = (
     {"id": "zh-TW-HsiaoChenNeural", "name": "HsiaoChen", "gender": "female"},
     {"id": "zh-TW-HsiaoYuNeural", "name": "HsiaoYu", "gender": "female"},
@@ -700,10 +680,6 @@ EDGE_TTS_ZH_TW_VOICE_IDS = frozenset(
 
 
 def _engine_available(item: Dict[str, str]) -> bool:
-    if item.get("worker") == "qwen-speech":
-        from src.speech.qwen_process import qwen_worker_available
-
-        return qwen_worker_available()
     return _module_installed(item["module"])
 
 
@@ -717,10 +693,7 @@ def _catalog(meta: Dict[str, Dict[str, str]]) -> list:
             "description": item.get("description", ""),
             "setup": item.get("setup", ""),
             "available": available,
-            "message": "" if available else (
-                "缺少隔離 Qwen 語音環境" if item.get("worker")
-                else f"缺少依賴：{item['module']}"
-            ),
+            "message": "" if available else f"缺少依賴：{item['module']}",
             "install": item.get("install", ""),
         })
     return items
@@ -757,9 +730,9 @@ def speech_snapshot(config) -> Dict[str, Any]:
             "instruct": tts.instruct,
             "device": tts.device,
             "engines": _catalog(TTS_ENGINE_META),
-            "models": list(QWEN_TTS_MODELS),
-            "languages": list(QWEN_TTS_LANGUAGES),
-            "speakers": list(QWEN_TTS_SPEAKERS),
+            "models": [],
+            "languages": [],
+            "speakers": [],
             "edge_voices": [dict(voice) for voice in EDGE_TTS_ZH_TW_VOICES],
             "devices": list(STT_DEVICES),
         },
@@ -799,10 +772,6 @@ def apply_stt_settings(config, params: Dict[str, Any], *, session_count: int) ->
         )
     if engine == "whisper" and model_size not in STT_MODEL_SIZES:
         raise SettingsError(f"不支援的 faster-whisper 模型: {model_size}")
-    if engine == "qwen3-asr" and not (
-        model_size in QWEN_ASR_MODELS or Path(model_size).expanduser().is_dir()
-    ):
-        raise SettingsError(f"不支援的 Qwen3-ASR 模型或本地路徑: {model_size}")
     if language not in STT_LANGUAGES:
         raise SettingsError(f"不支援的識別語言: {language}")
     if output_script not in STT_OUTPUT_SCRIPTS:
@@ -863,24 +832,8 @@ def apply_tts_settings(config, params: Dict[str, Any], *, session_count: int) ->
     device = str(params.get("device", config.tts.device) or "auto").strip().lower()
     if engine == "edgetts" and ref_file not in EDGE_TTS_ZH_TW_VOICE_IDS:
         raise SettingsError("請選擇可用的 Edge TTS 台灣華語聲線")
-    if engine not in {"edgetts", "qwen3-tts"} and not tts_server:
+    if engine != "edgetts" and not tts_server:
         raise SettingsError("本地 TTS 必須填寫服務地址")
-    if engine == "qwen3-tts":
-        if not (model in QWEN_TTS_MODELS or Path(model).expanduser().is_dir()):
-            raise SettingsError(f"不支援的 Qwen3-TTS 模型或本地路徑: {model}")
-        if language not in QWEN_TTS_LANGUAGES:
-            raise SettingsError(f"不支援的 Qwen3-TTS 語言: {language}")
-        if device not in STT_DEVICES:
-            raise SettingsError(f"不支援的運算裝置: {device}")
-        model_kind = model.lower()
-        if "customvoice" in model_kind and speaker not in QWEN_TTS_SPEAKERS:
-            raise SettingsError(f"不支援的 Qwen3-TTS 聲線: {speaker}")
-        if "voicedesign" in model_kind and not instruct:
-            raise SettingsError("VoiceDesign 模型必須填寫聲音描述")
-        if "base" in model_kind and (
-            not ref_file or not Path(ref_file).expanduser().is_file()
-        ):
-            raise SettingsError("聲音克隆模型必須填寫存在的參考音訊")
 
     preview_audio = _preview_tts(
         config,
@@ -894,14 +847,6 @@ def apply_tts_settings(config, params: Dict[str, Any], *, session_count: int) ->
         instruct=instruct,
         device=device,
     )
-
-    from src.tts.engines.qwen3 import Qwen3TTS, release_qwen_tts_workers
-
-    keep_worker = (
-        (model, Qwen3TTS._resolve_device(device))
-        if engine == "qwen3-tts" else None
-    )
-    release_qwen_tts_workers(keep=keep_worker)
 
     config.tts.type = engine
     config.tts.ref_file = ref_file
@@ -933,8 +878,14 @@ def _preview_tts(
 ) -> str:
     """Run the real engine against a bounded phrase and return a WAV data URI."""
     if engine in {"gpt-sovits", "xtts", "cosyvoice", "indextts2"}:
-        if not ref_file or not Path(ref_file).expanduser().is_file():
-            raise SettingsError("參考音訊不存在，請檢查路徑")
+        audio_path = Path(ref_file).expanduser() if ref_file else None
+        if audio_path is None or not audio_path.is_file():
+            shown = ref_file or "（未填寫）"
+            raise SettingsError(
+                f"參考音訊不存在：{shown}。"
+                "請填寫本機 WAV／MP3 的完整路徑，不能使用 Edge 聲線名稱"
+                "（例如 zh-TW-HsiaoChenNeural）。"
+            )
 
     pending = deepcopy(config)
     pending.tts.type = engine

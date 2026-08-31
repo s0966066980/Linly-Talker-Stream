@@ -128,6 +128,11 @@ class BaseAvatar:
         self._media_guard = None
         self._on_stale_drop = None
         self._on_fragment_queued = None
+        self._fragment_playback_committed = None
+        self._on_tts_onset_preroll_ms = None
+        self._on_tts_retry = None
+        self._on_stage_end = None
+        self._on_llm_chunk = None
         self._media_sequence_lock = RLock()
         self._media_sequences = {}
         self.__loadcustom()
@@ -148,14 +153,46 @@ class BaseAvatar:
         media_guard,
         on_stale_drop,
         on_fragment_queued=None,
+        fragment_playback_committed=None,
+        on_tts_onset_preroll_ms=None,
+        on_tts_retry=None,
+        on_stage_end=None,
+        on_llm_chunk=None,
     ):
         """Attach the voice session's generation authority to media boundaries."""
         self._media_guard = media_guard
         self._on_stale_drop = on_stale_drop
         self._on_fragment_queued = on_fragment_queued
+        self._fragment_playback_committed = fragment_playback_committed
+        self._on_tts_onset_preroll_ms = on_tts_onset_preroll_ms
+        self._on_tts_retry = on_tts_retry
+        self._on_stage_end = on_stage_end
+        self._on_llm_chunk = on_llm_chunk
         if not hasattr(self, "_media_sequence_lock"):
             self._media_sequence_lock = RLock()
             self._media_sequences = {}
+
+    def fragment_playback_committed(self, eventpoint: dict) -> bool:
+        checker = self._fragment_playback_committed
+        if not callable(checker):
+            return False
+        return bool(checker(eventpoint))
+
+    def observe_tts_onset_preroll_ms(self, milliseconds: float) -> None:
+        if self._on_tts_onset_preroll_ms is not None:
+            self._on_tts_onset_preroll_ms(milliseconds)
+
+    def observe_tts_retry(self, *, after_commit: bool) -> None:
+        if self._on_tts_retry is not None:
+            self._on_tts_retry(after_commit=after_commit)
+
+    def mark_stage_end(self, stage: str) -> None:
+        if self._on_stage_end is not None:
+            self._on_stage_end(stage)
+
+    def notify_llm_chunk(self, text: str, eventpoint: dict | None = None) -> None:
+        if self._on_llm_chunk is not None:
+            self._on_llm_chunk(text, dict(eventpoint or {}))
 
     def accepts_media(self, eventpoint, stage: str) -> bool:
         if not (isinstance(eventpoint, dict) and eventpoint.get("turn_id")):
@@ -388,6 +425,15 @@ class BaseAvatar:
                 audio_track, "prepare_speech_start", None
             )
             if speech_starts and callable(prepare_speech_start):
+                logger.info(
+                    "[AVSync] speech start queued audio=%d video=%d",
+                    getattr(audio_track, "_queue", None).qsize()
+                    if getattr(audio_track, "_queue", None) is not None
+                    else -1,
+                    getattr(video_track, "_queue", None).qsize()
+                    if getattr(video_track, "_queue", None) is not None
+                    else -1,
+                )
                 if not wait_media_coroutine(
                     prepare_speech_start(), loop, quit_event
                 ):

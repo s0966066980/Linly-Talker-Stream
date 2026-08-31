@@ -110,6 +110,10 @@ class SemanticFragmenter:
         if boundary >= len(self._buffer):
             return not self._is_ascii_word_character(left)
         right = self._buffer[boundary]
+        # Prefer the punctuation boundary that follows this content instead
+        # of emitting a fragment that leaves a sentence-final mark behind.
+        if right in STRONG_PUNCTUATION | WEAK_PUNCTUATION:
+            return False
         if self._is_ascii_word_character(left) and self._is_ascii_word_character(right):
             return False
         return True

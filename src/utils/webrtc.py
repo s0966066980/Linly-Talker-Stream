@@ -20,10 +20,15 @@ VIDEO_PTIME = 0.040 #1 / 25  # 30fps
 VIDEO_TIME_BASE = fractions.Fraction(1, VIDEO_CLOCK_RATE)
 SAMPLE_RATE = 16000
 AUDIO_TIME_BASE = fractions.Fraction(1, SAMPLE_RATE)
-# 排程暫停超過這個時間後，不再高速補送媒體包；重新定位牆鐘基準，讓 RTP
-# 時間戳保持連續，同時讓後續 audio/video 包恢復正常節奏。
+# Video may skip late frames after this stall. Audio does not use this
+# threshold to catch up: any overdue audio frame rebases the wall clock.
 MAX_PACING_LAG = 0.100
+# Ignore tiny clock noise so every frame does not rebase, but never large
+# enough to swallow a full 20 ms audio packet.
+AUDIO_PACING_JITTER = 0.002
 # Keep only a short, equal-duration A/V runway.  A large idle runway makes the
+# first spoken frame wait behind old silence after STT finishes.
+# Keep a short, equal-duration A/V runway.  A large idle runway makes the
 # first spoken frame wait behind old silence after STT finishes.
 MAX_MEDIA_BUFFER_SECONDS = 0.240
 SPEECH_START_RUNWAY_SECONDS = 0.080
@@ -44,6 +49,7 @@ class _MediaPacingClock:
 
     def __init__(self):
         self._start: Optional[float] = None
+        self.rebase_count = 0
 
     def ensure_started(self, now: float) -> float:
         if self._start is None:
@@ -58,6 +64,7 @@ class _MediaPacingClock:
 
     def rebase(self, lag: float) -> None:
         self._start = self.start + lag
+        self.rebase_count += 1
 
 
 class PlayerStreamTrack(MediaStreamTrack):
@@ -87,6 +94,11 @@ class PlayerStreamTrack(MediaStreamTrack):
         self.timelist = [] #記錄最近包的時間戳
         self.current_frame_count = 0
         self._last_video_item = None
+        self._last_audio_release_at: Optional[float] = None
+        self._audio_late_release = False
+        self.catch_up_burst_count = 0
+        self.last_audio_lag_seconds = 0.0
+        self.min_audio_release_interval_seconds: Optional[float] = None
         if self.kind == 'video':
             self.framecount = 0
             self.lasttime = time.perf_counter()
@@ -185,33 +197,37 @@ class PlayerStreamTrack(MediaStreamTrack):
             time_base = AUDIO_TIME_BASE
 
         now = time.monotonic()
+        late_release = False
         if hasattr(self, "_timestamp"):
             self._timestamp += int(packet_time * clock_rate)
             self.current_frame_count += 1
             deadline = self._start + self.current_frame_count * packet_time
             lag = now - deadline
-            if lag > MAX_PACING_LAG:
-                # 執行緒／event loop 曾被 ASR 或模型推論暫停。若保留舊基準，
-                # wait 會長時間為負值，音訊和影像便以最快速度追幀。只平移
-                # 牆鐘基準，不改 RTP PTS，下一包開始恢復固定 20/40ms 節奏。
-                if self.kind == "audio":
+            if self.kind == "audio":
+                self.last_audio_lag_seconds = lag
+                if lag > AUDIO_PACING_JITTER:
+                    # Overdue audio is released immediately, then the shared
+                    # wall-clock origin moves so the next frame is 20 ms later.
+                    # RTP PTS stay monotonic; video must not call rebase().
                     self._pacing_clock.rebase(lag)
                     deadline = now
-                    mylogger.warning(
-                        "[AVSync] audio pacing stalled %.0fms; rebased audio clock",
-                        lag * 1000.0,
-                    )
-                else:
-                    skipped = max(1, math.ceil(lag / packet_time))
-                    ticks = int(packet_time * clock_rate)
-                    self.current_frame_count += skipped
-                    self._timestamp += skipped * ticks
-                    deadline = self._start + self.current_frame_count * packet_time
-                    mylogger.warning(
-                        "[AVSync] video pacing stalled %.0fms; skipped %d late frames",
-                        lag * 1000.0,
-                        skipped,
-                    )
+                    late_release = True
+                    if lag > MAX_PACING_LAG:
+                        mylogger.warning(
+                            "[AVSync] audio pacing stalled %.0fms; rebased audio clock",
+                            lag * 1000.0,
+                        )
+            elif lag > MAX_PACING_LAG:
+                skipped = max(1, math.ceil(lag / packet_time))
+                ticks = int(packet_time * clock_rate)
+                self.current_frame_count += skipped
+                self._timestamp += skipped * ticks
+                deadline = self._start + self.current_frame_count * packet_time
+                mylogger.warning(
+                    "[AVSync] video pacing stalled %.0fms; skipped %d late frames",
+                    lag * 1000.0,
+                    skipped,
+                )
             wait = deadline - now
             if wait > 0:
                 await asyncio.sleep(wait)
@@ -220,6 +236,28 @@ class PlayerStreamTrack(MediaStreamTrack):
             self._timestamp = 0
             self.timelist.append(self._start)
             mylogger.info("%s start:%f", self.kind, self._start)
+
+        if self.kind == "audio":
+            released_at = time.monotonic()
+            if self._last_audio_release_at is not None:
+                interval = released_at - self._last_audio_release_at
+                if (
+                    self.min_audio_release_interval_seconds is None
+                    or interval < self.min_audio_release_interval_seconds
+                ):
+                    self.min_audio_release_interval_seconds = interval
+                if self._audio_late_release and interval < AUDIO_PACING_JITTER:
+                    self.catch_up_burst_count += 1
+            self._last_audio_release_at = released_at
+            self._audio_late_release = late_release
+            notify_pacing = getattr(self._player, "notify_audio_pacing", None)
+            if callable(notify_pacing):
+                notify_pacing(
+                    lag_seconds=self.last_audio_lag_seconds,
+                    rebase_count=self._pacing_clock.rebase_count,
+                    min_release_interval_seconds=self.min_audio_release_interval_seconds,
+                    catch_up_burst_count=self.catch_up_burst_count,
+                )
 
         return self._timestamp, time_base
 
@@ -324,6 +362,7 @@ class HumanPlayer:
         on_audio_activity=None,
         on_audio_frame=None,
         on_media_timing=None,
+        on_audio_pacing=None,
         media_guard=None,
         on_stale_drop=None,
     ):
@@ -355,8 +394,26 @@ class HumanPlayer:
         self.__on_audio_activity = on_audio_activity
         self.__on_audio_frame = on_audio_frame
         self.__on_media_timing = on_media_timing
+        self.__on_audio_pacing = on_audio_pacing
         self.__media_positions = {}
         self.__media_update_times = {}
+
+    def notify_audio_pacing(
+        self,
+        *,
+        lag_seconds: float,
+        rebase_count: int,
+        min_release_interval_seconds: Optional[float],
+        catch_up_burst_count: int,
+    ) -> None:
+        if self.__on_audio_pacing is None:
+            return
+        self.__on_audio_pacing(
+            lag_seconds=lag_seconds,
+            rebase_count=rebase_count,
+            min_release_interval_seconds=min_release_interval_seconds,
+            catch_up_burst_count=catch_up_burst_count,
+        )
 
     def notify_audio_activity(self, active: bool):
         if self.__on_audio_activity is not None:

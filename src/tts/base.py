@@ -106,6 +106,8 @@ class BaseTTS:
             self._synthesis_active.set()
             try:
                 self.txt_to_audio(msg)
+            except Exception:
+                logger.exception("TTS synthesis failed")
             finally:
                 self._synthesis_active.clear()
         logger.info("ttsreal thread stop")

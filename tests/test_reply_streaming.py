@@ -106,6 +106,17 @@ class TurnMetricsTests(unittest.TestCase):
         clock.advance(0.25)
         metrics.mark_listening_resumed()
         metrics.record_stale_drop("audio", "cancelled")
+        metrics.observe_audio_pacing(
+            lag_seconds=0.09,
+            rebase_count=1,
+            min_release_interval_seconds=0.02,
+            catch_up_burst_count=0,
+        )
+        metrics.observe_tts_onset_preroll_ms(80.0)
+        metrics.observe_tts_retry(after_commit=False)
+        metrics.mark_stage_start("llm_first_token")
+        clock.advance(0.05)
+        metrics.mark_stage_end("llm_first_token")
 
         self.assertEqual(
             metrics.snapshot(),
@@ -117,8 +128,42 @@ class TurnMetricsTests(unittest.TestCase):
                 "max_media_debt_seconds": 1.6,
                 "max_abs_av_offset_seconds": 0.07,
                 "stale_drops": {"audio:cancelled": 1},
+                "audio_pacing_lag_ms": 90.0,
+                "audio_pacing_rebase_count": 1,
+                "audio_release_interval_ms": 20.0,
+                "audio_catch_up_burst_count": 0,
+                "tts_onset_preroll_ms": 80.0,
+                "tts_retry_after_pcm_count": 1,
+                "tts_retry_after_playback_commit_count": 0,
+                "stage_seconds": {
+                    "vad_endpoint": None,
+                    "asr": None,
+                    "llm_first_token": 0.05,
+                    "llm_total": None,
+                    "first_fragment": None,
+                    "tts_first_encoded": None,
+                    "tts_first_pcm": None,
+                    "musetalk_first_batch": None,
+                    "avatar_to_webrtc_commit": None,
+                },
             },
         )
+
+    def test_stage_markers_are_fixed_and_idempotent(self):
+        clock = FakeClock()
+        metrics = TurnMetrics("anonymous-turn", clock=clock)
+
+        metrics.mark_stage_start("asr")
+        clock.advance(0.1)
+        metrics.mark_stage_end("asr")
+        clock.advance(0.1)
+        metrics.mark_stage_start("asr")
+        metrics.mark_stage_end("asr")
+        clock.advance(0.2)
+
+        self.assertEqual(metrics.snapshot()["stage_seconds"]["asr"], 0.1)
+        with self.assertRaises(ValueError):
+            metrics.mark_stage_start("transcript")
 
     def test_output_stop_is_ignored_until_interrupt_begins(self):
         clock = FakeClock()
@@ -131,6 +176,15 @@ class TurnMetricsTests(unittest.TestCase):
         metrics.mark_output_stopped()
 
         self.assertEqual(metrics.snapshot()["interrupt_stop_seconds"], 0.1)
+
+    def test_snapshot_exposes_pacing_aggregates_without_content_fields(self):
+        metrics = TurnMetrics("anonymous-turn")
+        snapshot = metrics.snapshot()
+        self.assertEqual(snapshot["audio_catch_up_burst_count"], 0)
+        self.assertEqual(snapshot["tts_retry_after_playback_commit_count"], 0)
+        self.assertTrue(
+            {"text", "transcript", "pcm", "samples", "content"}.isdisjoint(snapshot)
+        )
 
 
 class MediaDebtBudgetTests(unittest.TestCase):
@@ -272,10 +326,14 @@ class BaselineReplayHarnessTests(unittest.TestCase):
                     "first_audio_seconds": 1.0,
                     "interrupt_stop_seconds": 0.18 if index % 10 == 0 else None,
                     "listening_resume_seconds": 0.45 if index % 10 == 0 else None,
-                    "max_media_debt_seconds": 1.8,
-                    "max_abs_av_offset_seconds": 0.07,
-                    "stale_drops": {},
-                }
+                "max_media_debt_seconds": 1.8,
+                "max_abs_av_offset_seconds": 0.07,
+                "stale_drops": {},
+                "stage_seconds": {
+                    "llm_first_token": 0.08,
+                    "tts_first_pcm": 0.4,
+                },
+            }
             )
 
         report = build_soak_report(
@@ -287,6 +345,7 @@ class BaselineReplayHarnessTests(unittest.TestCase):
 
         self.assertTrue(report["slo_pass"])
         self.assertEqual(report["turns"], 50)
+        self.assertEqual(report["metrics"]["stage_seconds"]["tts_first_pcm"]["p95"], 0.4)
         serialized = json.dumps(report, ensure_ascii=False)
         self.assertNotIn("transcript", serialized)
         self.assertNotIn("assistant_text", serialized)
@@ -330,6 +389,36 @@ class TurnContextTests(unittest.TestCase):
 
 
 class LLMGenerationFenceTests(unittest.TestCase):
+    def test_turn_aware_streaming_emits_short_strong_sentence_immediately(self):
+        class FakeLLM(BaseLLM):
+            def chat_stream(self, message, system_prompt=None):
+                del message, system_prompt
+                yield "好的。"
+                yield "稍後補充。"
+
+        class FakeAvatar:
+            def __init__(self):
+                self.fragments = []
+                self.deltas = []
+
+            def put_msg_txt(self, text, data):
+                self.fragments.append((text, data))
+
+            def notify_llm_chunk(self, text, data):
+                self.deltas.append((text, data))
+
+        avatar = FakeAvatar()
+        response = FakeLLM(Config()).generate_response(
+            "fixture",
+            avatar,
+            datainfo={"turn_id": "turn-1", "generation": 1},
+        )
+
+        self.assertEqual(response, "好的。稍後補充。")
+        self.assertEqual([item[0] for item in avatar.fragments], ["好的。", "稍後補充。"])
+        self.assertEqual([item[0] for item in avatar.deltas], ["好的。", "稍後補充。"])
+        self.assertEqual([item[1]["llm_sequence"] for item in avatar.deltas], [0, 1])
+
     def test_rejected_token_never_reaches_text_processor_or_avatar(self):
         class FakeLLM(BaseLLM):
             def chat_stream(self, message, system_prompt=None):

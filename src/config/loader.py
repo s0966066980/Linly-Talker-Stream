@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any
 from .schema import (
     Config, AppConfig, ModelConfig, TTSConfig, ASRConfig, VADConfig, LLMConfig,
     AudioConfig, VideoConfig, CustomVideoConfig, ERNeRfConfig, TalkingGaussianConfig,
-    ReplyStreamingConfig,
+    MuseTalkQualityConfig, Wav2LipQualityConfig, ReplyStreamingConfig,
 )
 
 
@@ -86,10 +86,22 @@ def dict_to_config(config_dict: Dict) -> Config:
     
     # 建立 TalkingGaussianConfig
     talkinggaussian_config = TalkingGaussianConfig(**model_dict.get('talkinggaussian', {}))
-    
+    musetalk_config = MuseTalkQualityConfig(**model_dict.get('musetalk', {}))
+    wav2lip_config = Wav2LipQualityConfig(**model_dict.get('wav2lip', {}))
+
     # 建立 ModelConfig
-    model_dict_for_init = {k: v for k, v in model_dict.items() if k not in ['ernerf', 'talkinggaussian']}
-    model_config = ModelConfig(**model_dict_for_init, ernerf=ernerf_config, talkinggaussian=talkinggaussian_config)
+    model_dict_for_init = {
+        k: v
+        for k, v in model_dict.items()
+        if k not in ['ernerf', 'talkinggaussian', 'musetalk', 'wav2lip']
+    }
+    model_config = ModelConfig(
+        **model_dict_for_init,
+        ernerf=ernerf_config,
+        talkinggaussian=talkinggaussian_config,
+        musetalk=musetalk_config,
+        wav2lip=wav2lip_config,
+    )
     
     tts_config = TTSConfig(**config_dict.get('tts', {}))
     asr_config = ASRConfig(**config_dict.get('asr', {}))
