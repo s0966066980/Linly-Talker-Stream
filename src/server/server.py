@@ -9,6 +9,7 @@ import aiohttp_cors
 from src.utils.logging import logger
 from src.server.state import state
 from src.server import routes
+from src.llm.llamacpp import shutdown_llama_server
 
 
 async def on_shutdown(app):
@@ -16,6 +17,7 @@ async def on_shutdown(app):
     coros = [pc.close() for pc in state.pcs]
     await asyncio.gather(*coros)
     state.pcs.clear()
+    shutdown_llama_server()
 
 
 def create_app():

@@ -17,6 +17,7 @@ from src.llm.llamacpp import (
     gguf_block_count,
     resolve_gguf,
     stop_llama_on_port,
+    shutdown_llama_server,
     suggest_gpu_layers,
 )
 
@@ -95,6 +96,50 @@ class StopLlamaOnPortTests(unittest.TestCase):
                 with patch("src.llm.llamacpp.os.kill", side_effect=fake_kill):
                     stop_llama_on_port(8080)
         self.assertEqual(killed[0][0], 335955)
+
+
+class ShutdownOwnedServerTests(unittest.TestCase):
+    def test_shutdown_stops_only_owned_process_and_is_idempotent(self):
+        import src.llm.llamacpp as llamacpp
+
+        class Process:
+            def __init__(self):
+                self.terminate_count = 0
+                self.kill_count = 0
+
+            def poll(self):
+                return None if self.terminate_count == 0 else 0
+
+            def terminate(self):
+                self.terminate_count += 1
+
+            def wait(self, timeout):
+                return 0
+
+            def kill(self):
+                self.kill_count += 1
+
+        process = Process()
+        with patch.object(llamacpp, "_server_proc", process), patch.object(
+            llamacpp, "_loaded_model", "LFM"
+        ):
+            shutdown_llama_server()
+            shutdown_llama_server()
+
+        self.assertEqual(process.terminate_count, 1)
+        self.assertEqual(process.kill_count, 0)
+        self.assertIsNone(llamacpp._server_proc)
+        self.assertEqual(llamacpp._loaded_model, "")
+
+    def test_shutdown_does_not_discover_or_kill_external_server(self):
+        import src.llm.llamacpp as llamacpp
+
+        with patch.object(llamacpp, "_server_proc", None), patch.object(
+            llamacpp, "stop_llama_on_port"
+        ) as stop:
+            shutdown_llama_server()
+
+        stop.assert_not_called()
 
 
 class LlamaServerLaunchEnvTests(unittest.TestCase):

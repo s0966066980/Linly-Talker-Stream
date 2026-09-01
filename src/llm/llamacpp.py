@@ -1,6 +1,7 @@
 """掃描本機 GGUF，並按需拉起 llama-server（OpenAI 相容介面）。"""
 from __future__ import annotations
 
+import atexit
 import os
 import re
 import shutil
@@ -482,6 +483,29 @@ def _stop_owned_server() -> None:
             _server_proc.kill()
     _server_proc = None
     _loaded_model = ""
+
+
+def shutdown_llama_server() -> None:
+    """Stop only the llama-server process started by this application.
+
+    An externally managed server is deliberately left untouched.  The helper
+    is safe to call from shutdown hooks more than once.
+    """
+    _stop_owned_server()
+
+
+def install_shutdown_handlers() -> None:
+    """Ensure Ctrl-C/termination also releases an owned llama-server."""
+    def _handle_shutdown(signum, _frame):
+        logger.info("收到關閉訊號 %s，正在停止 llama-server", signum)
+        shutdown_llama_server()
+        raise SystemExit(128 + int(signum))
+
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(signum, _handle_shutdown)
+
+
+atexit.register(shutdown_llama_server)
 
 
 def _has_cuda() -> bool:

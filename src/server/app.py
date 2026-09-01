@@ -39,6 +39,13 @@ def main():
     state.config_path = args.config
     state.config = load_config(config_file=args.config)
     logger.info(f"已載入配置: {state.config}")
+
+    # The llama.cpp child belongs to this backend when ensure_server starts it;
+    # register termination cleanup before model loading so even Ctrl-C during
+    # startup cannot leave the GPU process behind.
+    from src.llm.llamacpp import install_shutdown_handlers
+
+    install_shutdown_handlers()
     
     # 載入自定義影片配置
     state.config.customopt = []
