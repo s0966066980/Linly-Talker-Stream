@@ -709,7 +709,7 @@ Gate：350 ms 沒有增加 premature cut 或句尾遺失才可成為建議值。
 
 - [x] renderer 改為 audio-first。
 - [x] video blocked / paste-back blocked regression 通過。
-- [ ] 快速實機 A/B 改善且無 A/V 退化（目前 audio commit 改善，但 A/V P95 仍 238 ms）。
+- [x] 快速實機 A/B 改善且無 A/V 退化（coupled renderer path：A/V P95 40 ms）。
 
 ### Phase 10.2
 
@@ -750,8 +750,8 @@ Gate：350 ms 沒有增加 premature cut 或句尾遺失才可成為建議值。
 - [ ] watermark/idle frame cache。
 - [ ] hot log 降頻與診斷碼清理。
 - [ ] session lifecycle leak 測試。
-- [ ] Python/Web 完整回歸通過。
-- [ ] 50 輪正式 soak 通過。
+- [x] Python/Web 完整回歸通過。
+- [x] 50 輪正式 soak 通過。
 - [ ] 人工驗收通過。
 - [ ] 乾淨 commit 上產生正式報告。
 
@@ -791,3 +791,6 @@ Gate：350 ms 沒有增加 premature cut 或句尾遺失才可成為建議值。
 | stale drop | 0 | 379 | direct audio 收尾時 MuseTalk backlog 仍會被 generation fence 丟棄；無 stale output，但需在正式 50 輪前處理資源回收 |
 
 自動驗證：後端 `unittest discover` 221/221、前端 Node tests 23/23、Vite production build、Python compileall 與 `git diff --check` 全部通過。實機 3 輪不是正式 SLO gate；50 輪、interrupt/resume 與人工首字驗收仍列為未完成。
+
+- 2026-09-01：針對實機「斷續電子音與嘴型錯位」完成故障修復。根因是未通過 A/V gate 的 direct PCM fan-out 被 `reply_streaming.enabled` 隱式啟用，與 renderer 音訊形成雙 producer；改為 `decoupled_audio_clock` 明確 opt-in 且預設關閉，恢復單一 coupled audio master。另移除 MuseTalk result queue 的重複 idle backlog，idle queue 滿時不再阻塞 inference，speech-start WebRTC 成對 runway 由 80–120 ms 降至一個 40 ms video frame。
+- 2026-09-01：正式 50 輪 WebRTC 實機 soak `real-soak-audio-quality-fix-final-50.json` 全部 gate 通過：first audio P50 1.153 s / P95 1.706 s、A/V offset P95 40 ms、interrupt stop P95 0.61 ms、listening resume P95 302 ms、max media debt 240 ms、stale output 0；涵蓋 4 次播放中斷、3 次 LLM 中斷與 2 次重連。後端回歸 226/226、前端 23/23、production build、compileall 與 diff check 通過。direct PCM 實驗路徑仍維持預設關閉，ticket 其他 Phase 10 資源最佳化與人工聽感 gate 尚未完成，因此狀態維持 in-progress。

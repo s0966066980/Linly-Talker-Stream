@@ -26,12 +26,11 @@ MAX_PACING_LAG = 0.100
 # Ignore tiny clock noise so every frame does not rebase, but never large
 # enough to swallow a full 20 ms audio packet.
 AUDIO_PACING_JITTER = 0.002
-# Keep only a short, equal-duration A/V runway.  A large idle runway makes the
-# first spoken frame wait behind old silence after STT finishes.
-# Keep a short, equal-duration A/V runway.  A large idle runway makes the
-# first spoken frame wait behind old silence after STT finishes.
+# Keep one paired video frame of idle runway.  A larger runway makes the first
+# spoken PCM packet wait behind silence; zero runway risks an audio underrun
+# while the matching video frame is pasted back.
 MAX_MEDIA_BUFFER_SECONDS = 0.240
-SPEECH_START_RUNWAY_SECONDS = 0.080
+SPEECH_START_RUNWAY_SECONDS = VIDEO_PTIME
 
 #from aiortc.contrib.media import MediaPlayer, MediaRelay
 #from aiortc.rtcrtpsender import RTCRtpSender

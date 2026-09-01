@@ -138,6 +138,8 @@ class BaseAvatar:
         self._direct_audio_quit = Event()
         self._media_sequence_lock = RLock()
         self._media_sequences = {}
+        # Optional visual-only seam installed by model-specific avatars.
+        self._mouth_continuity = None
         self.__loadcustom()
 
     def put_msg_txt(self,msg,datainfo:dict={}):
@@ -329,6 +331,34 @@ class BaseAvatar:
             drain_media_queue(result_queue)
         with self._media_sequence_lock:
             self._media_sequences.clear()
+        mouth_continuity = getattr(self, "_mouth_continuity", None)
+        if mouth_continuity is not None:
+            mouth_continuity.reset()
+
+    def _compose_mouth_continuity(
+        self,
+        frame,
+        *,
+        index: int,
+        is_speech: bool,
+        eventpoint: dict | None,
+    ):
+        """Apply the model-owned mouth transition without touching media timing."""
+        controller = getattr(self, "_mouth_continuity", None)
+        if controller is None:
+            return frame
+        try:
+            return controller.compose(
+                frame,
+                index=index,
+                is_speech=is_speech,
+                eventpoint=eventpoint,
+            )
+        except Exception as exc:
+            # A visual enhancement must never stop the audio/video pipeline.
+            logger.warning("mouth continuity fallback: %s", exc)
+            self._mouth_continuity = None
+            return frame
 
     def is_speaking(self)->bool:
         return self.speaking
@@ -530,6 +560,12 @@ class BaseAvatar:
                 else:
                     combine_frame = current_frame
 
+            combine_frame = self._compose_mouth_continuity(
+                combine_frame,
+                index=idx,
+                is_speech=self.speaking,
+                eventpoint=video_eventpoint,
+            )
             cv2.putText(combine_frame, "Linly-Talker-Stream", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (128,128,128), 1)
            
             image = combine_frame

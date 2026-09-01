@@ -44,6 +44,13 @@ def persist_runtime_overrides(config) -> None:
             "enabled": bool(
                 getattr(getattr(config, "reply_streaming", None), "enabled", False)
             ),
+            "decoupled_audio_clock": bool(
+                getattr(
+                    getattr(config, "reply_streaming", None),
+                    "decoupled_audio_clock",
+                    False,
+                )
+            ),
         },
     }
 

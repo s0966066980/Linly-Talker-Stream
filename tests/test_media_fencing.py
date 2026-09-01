@@ -424,6 +424,57 @@ class MuseTalkEnvelopePropagationTests(unittest.TestCase):
 
 
 class DirectAudioFanoutTests(unittest.IsolatedAsyncioTestCase):
+    async def test_streaming_keeps_validated_coupled_audio_clock_by_default(self):
+        from src.server.voice_session import VoiceTurnSession
+
+        configured = []
+
+        class Avatar:
+            @staticmethod
+            def configure_audio_output(track, loop):
+                configured.append((track, loop))
+
+        player = SimpleNamespace(audio=object())
+        session = VoiceTurnSession.__new__(VoiceTurnSession)
+        session.avatar = Avatar()
+        session.config = SimpleNamespace(
+            reply_streaming=SimpleNamespace(
+                enabled=True,
+                decoupled_audio_clock=False,
+            )
+        )
+
+        session.attach_media_player(player)
+
+        self.assertIs(session._media_player, player)
+        self.assertEqual(configured, [])
+
+    async def test_decoupled_audio_clock_can_only_be_enabled_explicitly(self):
+        from src.server.voice_session import VoiceTurnSession
+
+        configured = []
+
+        class Avatar:
+            @staticmethod
+            def configure_audio_output(track, loop):
+                configured.append((track, loop))
+
+        player = SimpleNamespace(audio=object())
+        session = VoiceTurnSession.__new__(VoiceTurnSession)
+        session.avatar = Avatar()
+        session.config = SimpleNamespace(
+            reply_streaming=SimpleNamespace(
+                enabled=True,
+                decoupled_audio_clock=True,
+            )
+        )
+
+        session.attach_media_player(player)
+
+        self.assertEqual(len(configured), 1)
+        self.assertIs(configured[0][0], player.audio)
+        self.assertIs(configured[0][1], asyncio.get_running_loop())
+
     async def test_tts_pcm_is_fanned_out_before_avatar_result(self):
         from src.avatars.base import BaseAvatar
 
@@ -652,7 +703,11 @@ class WebRTCMediaFenceTests(unittest.IsolatedAsyncioTestCase):
         for generation in (1, 2):
             audio_frames = [
                 (
-                    np.ones(320, dtype=np.float32),
+                    np.full(
+                        320,
+                        (sequence + 1) / 10,
+                        dtype=np.float32,
+                    ),
                     0,
                     event(generation, sequence),
                 )
@@ -678,13 +733,113 @@ class WebRTCMediaFenceTests(unittest.IsolatedAsyncioTestCase):
             [2, 2],
         )
         self.assertEqual(
+            [item[1]["media_sequence"] for item in audio_track.items],
+            [0, 1],
+        )
+        self.assertEqual(
+            [item[0].sample_rate for item in audio_track.items],
+            [16000, 16000],
+        )
+        self.assertEqual(
+            [item[0].samples for item in audio_track.items],
+            [320, 320],
+        )
+        self.assertEqual(
+            [int(item[0].to_ndarray().reshape(-1)[0]) for item in audio_track.items],
+            [3276, 6553],
+        )
+        self.assertEqual(
             [item[1]["generation"] for item in video_track.items],
             [2],
         )
+        self.assertEqual(video_track.items[0][1]["media_sequence"], 0)
         self.assertEqual(
             stale_drops,
             [("musetalk_result_consume", "stale_generation")],
         )
+
+    async def test_renderer_keeps_mouth_continuous_when_result_is_followed_by_idle(self):
+        """The real renderer seam must mask-only blend a speech/idle boundary."""
+        from threading import Event
+
+        from src.avatars.base import BaseAvatar
+        from src.avatars.musetalk.mouth_continuity import MouthContinuityController
+
+        quit_event = Event()
+
+        class Track:
+            def __init__(self, kind):
+                self.kind = kind
+                self.items = []
+
+            async def enqueue(self, frame, eventpoint=None):
+                self.items.append((frame, eventpoint))
+                if self.kind == "video" and len(self.items) >= 2:
+                    quit_event.set()
+                return True
+
+        eventpoint = {
+            "turn_id": "turn-1",
+            "generation": 1,
+            "fragment_sequence": 0,
+            "media_sequence": 0,
+        }
+        source = np.zeros((8, 8, 3), dtype=np.uint8)
+        mask = np.zeros((8, 8), dtype=np.uint8)
+        mask[2:6, 2:6] = 255
+        generated = np.full((8, 8, 3), 200, dtype=np.uint8)
+
+        avatar = BaseAvatar.__new__(BaseAvatar)
+        avatar.config = SimpleNamespace(sessionid=7)
+        avatar.res_frame_queue = queue.Queue()
+        avatar.frame_list_cycle = [source]
+        avatar.custom_index = {}
+        avatar.custom_img_cycle = {}
+        avatar.speaking = False
+        avatar._direct_audio_track = None
+        avatar._direct_audio_loop = None
+        avatar.record_video_data = lambda _frame: None
+        avatar.record_audio_data = lambda _frame: None
+        avatar.paste_back_frame = lambda _frame, _index: generated.copy()
+        avatar._mouth_continuity = MouthContinuityController([source], [mask], gap_grace_frames=1)
+        avatar.configure_media_fence(
+            media_guard=lambda _eventpoint, _stage: True,
+            on_stale_drop=lambda _stage, _reason: None,
+        )
+
+        speech_audio = [
+            (np.ones(320, dtype=np.float32), 0, eventpoint),
+            (np.ones(320, dtype=np.float32), 0, eventpoint),
+        ]
+        idle_audio = [
+            (np.zeros(320, dtype=np.float32), 1, None),
+            (np.zeros(320, dtype=np.float32), 1, None),
+        ]
+        avatar.res_frame_queue.put((generated, 0, speech_audio))
+        avatar.res_frame_queue.put((source, 0, idle_audio))
+
+        audio_track = Track("audio")
+        video_track = Track("video")
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                avatar.process_frames,
+                quit_event,
+                asyncio.get_running_loop(),
+                audio_track,
+                video_track,
+            ),
+            timeout=1,
+        )
+
+        self.assertEqual(len(video_track.items), 2)
+        first = video_track.items[0][0].to_ndarray()
+        second = video_track.items[1][0].to_ndarray()
+        roi = (slice(2, 6), slice(2, 6))
+        self.assertLessEqual(
+            abs(float(first[roi].mean()) - float(second[roi].mean())),
+            50.0,
+        )
+        self.assertEqual(int(second[0, 0].mean()), 0)
 
     async def test_commit_boundary_skips_queued_frame_after_generation_changes(self):
         from src.utils.webrtc import PlayerStreamTrack

@@ -189,7 +189,13 @@ class OverridePersistTests(unittest.TestCase):
             self.assertEqual(data["model"]["mouth_sharpen"], 0.5)
             self.assertEqual(data["model"]["paste_interpolation"], "lanczos")
             self.assertEqual(data["model"]["musetalk"]["extra_margin"], 10)
-            self.assertEqual(data["reply_streaming"], {"enabled": True})
+            self.assertEqual(
+                data["reply_streaming"],
+                {
+                    "enabled": True,
+                    "decoupled_audio_clock": False,
+                },
+            )
 
 
 class DefaultPromptSettingsTests(unittest.TestCase):

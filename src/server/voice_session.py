@@ -146,8 +146,11 @@ class VoiceTurnSession:
     def attach_media_player(self, player) -> None:
         self._media_player = player
         configure_audio_output = getattr(self.avatar, "configure_audio_output", None)
-        if callable(configure_audio_output) and bool(
-            getattr(getattr(self.config, "reply_streaming", None), "enabled", False)
+        reply_streaming = getattr(self.config, "reply_streaming", None)
+        if (
+            callable(configure_audio_output)
+            and bool(getattr(reply_streaming, "enabled", False))
+            and bool(getattr(reply_streaming, "decoupled_audio_clock", False))
         ):
             try:
                 configure_audio_output(player.audio, asyncio.get_running_loop())

@@ -44,11 +44,25 @@ class ReplyStreamingConfigTests(unittest.TestCase):
         config = Config()
 
         self.assertFalse(config.reply_streaming.enabled)
+        self.assertFalse(config.reply_streaming.decoupled_audio_clock)
 
     def test_reply_streaming_can_be_enabled_from_config_dict(self):
         config = dict_to_config({"reply_streaming": {"enabled": True}})
 
         self.assertTrue(config.reply_streaming.enabled)
+        self.assertFalse(config.reply_streaming.decoupled_audio_clock)
+
+    def test_decoupled_audio_clock_requires_an_explicit_opt_in(self):
+        config = dict_to_config(
+            {
+                "reply_streaming": {
+                    "enabled": True,
+                    "decoupled_audio_clock": True,
+                }
+            }
+        )
+
+        self.assertTrue(config.reply_streaming.decoupled_audio_clock)
 
     def test_main_yaml_explicitly_keeps_reply_streaming_disabled(self):
         config_path = Path(__file__).resolve().parents[1] / "config" / "config.yaml"

@@ -39,8 +39,74 @@ MIN_VIDEO_BUFFER_FRAMES = 5
 MOUTH_ACTIVITY_THRESHOLD = 1e-4
 
 
+def _result_audio_frames(item):
+    if not isinstance(item, tuple) or len(item) < 3:
+        return ()
+    audio_frames = item[2]
+    return audio_frames if isinstance(audio_frames, (list, tuple)) else ()
+
+
+def _starts_speech(item) -> bool:
+    return any(
+        isinstance(eventpoint, dict) and eventpoint.get("status") == "start"
+        for _frame, _frame_type, eventpoint in _result_audio_frames(item)
+    )
+
+
+def _is_unscoped_idle_result(item) -> bool:
+    audio_frames = _result_audio_frames(item)
+    return bool(audio_frames) and all(
+        frame_type != 0
+        and not (
+            isinstance(eventpoint, dict) and eventpoint.get("turn_id")
+        )
+        for _frame, frame_type, eventpoint in audio_frames
+    )
+
+
+def _discard_leading_idle_results(result_queue) -> int:
+    """Remove only pre-speech idle runway already superseded by an onset.
+
+    MuseTalk can render ahead by the full bounded result queue while idle. A
+    first speech result appended behind that runway waits roughly 0.5 seconds
+    before its paired PCM and mouth frame reach WebRTC. The WebRTC tracks
+    already own a bounded idle runway, so retaining this second copy adds
+    latency without preventing starvation.
+    """
+    mutex = getattr(result_queue, "mutex", None)
+    storage = getattr(result_queue, "queue", None)
+    if mutex is None or storage is None:
+        return 0
+    with mutex:
+        discarded = 0
+        while storage and _is_unscoped_idle_result(storage[0]):
+            storage.popleft()
+            discarded += 1
+        if discarded:
+            unfinished = getattr(result_queue, "unfinished_tasks", 0)
+            result_queue.unfinished_tasks = max(0, unfinished - discarded)
+            result_queue.not_full.notify_all()
+            if result_queue.unfinished_tasks == 0:
+                result_queue.all_tasks_done.notify_all()
+        return discarded
+
+
 def put_result_frame(result_queue, item, quit_event) -> bool:
     """Bounded put that lets MuseTalk inference stop even when playback is gone."""
+    if quit_event.is_set():
+        return False
+    if _starts_speech(item):
+        _discard_leading_idle_results(result_queue)
+    elif _is_unscoped_idle_result(item):
+        # Idle rendering may run faster than the 25 fps WebRTC consumer. A
+        # full idle queue already contains enough runway, so blocking the
+        # inference thread here only prevents a newly ready speech batch from
+        # overtaking redundant idle work.
+        try:
+            result_queue.put_nowait(item)
+        except queue.Full:
+            pass
+        return True
     while not quit_event.is_set():
         try:
             result_queue.put(item, block=True, timeout=0.1)
@@ -343,6 +409,27 @@ class MuseTalkAvatar(BaseAvatar):
 
         self.vae, self.unet, self.pe, self.timesteps, self.audio_processor = model
         self.frame_list_cycle,self.mask_list_cycle,self.coord_list_cycle,self.mask_coords_list_cycle, self.input_latent_list_cycle = avatar
+        from .mouth_continuity import MouthContinuityController
+
+        mouth_continuity_enabled = bool(
+            getattr(
+                getattr(config.model, "musetalk", None),
+                "mouth_continuity",
+                True,
+            )
+        )
+        self._mouth_continuity = (
+            MouthContinuityController(
+                self.frame_list_cycle,
+                self.mask_list_cycle,
+                self.mask_coords_list_cycle,
+                gap_grace_frames=2,
+                opening_frames=2,
+                closing_frames=4,
+            )
+            if mouth_continuity_enabled
+            else None
+        )
         #self.__loadavatar()
 
         self.audio_stream = MuseAudioStreamHandler(config, self, self.audio_processor)

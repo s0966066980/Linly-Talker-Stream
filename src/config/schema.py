@@ -144,6 +144,8 @@ class MuseTalkQualityConfig:
     upper_boundary_ratio: float = 0.5
     expand: float = 1.5
     mask_blur_ratio: float = 0.05
+    # Keep the generated mouth temporally continuous across streamed fragments.
+    mouth_continuity: bool = True
 
 
 @dataclass
@@ -273,6 +275,10 @@ class CustomVideoConfig:
 class ReplyStreamingConfig:
     """回覆語音串流配置"""
     enabled: bool = False
+    # Phase 10 direct PCM fan-out has not passed the real-device A/V and
+    # listening-quality gates. Keep the validated renderer-owned audio path
+    # unless an isolated soak explicitly opts into the experiment.
+    decoupled_audio_clock: bool = False
 
 
 @dataclass

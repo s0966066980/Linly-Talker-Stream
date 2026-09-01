@@ -63,8 +63,10 @@ class WebRTCPacingTests(unittest.IsolatedAsyncioTestCase):
 
         await player.prepare_speech_start()
 
-        self.assertLessEqual(audio.buffered_duration, 0.10)
-        self.assertLessEqual(video.buffered_duration, 0.10)
+        # Keep at most one paired 40 ms idle runway.  A longer runway is
+        # audible as avoidable silence before the first spoken PCM packet.
+        self.assertLessEqual(audio.buffered_duration, 0.06)
+        self.assertLessEqual(video.buffered_duration, 0.06)
         self.assertLessEqual(
             abs(audio.buffered_duration - video.buffered_duration),
             VIDEO_PTIME,
@@ -420,6 +422,69 @@ class MuseTalkShutdownTests(unittest.TestCase):
 
         self.assertFalse(worker.is_alive())
         self.assertEqual(outcome, [False])
+
+
+class MuseTalkResultQueuePolicyTests(unittest.TestCase):
+    @staticmethod
+    def _idle_result(index):
+        idle_audio = [
+            (np.zeros(320, dtype=np.float32), 1, None),
+            (np.zeros(320, dtype=np.float32), 1, None),
+        ]
+        return (None, index, idle_audio)
+
+    def test_full_idle_queue_does_not_block_the_inference_thread(self):
+        from src.avatars.musetalk.avatar import put_result_frame
+
+        result_queue = queue.Queue(maxsize=1)
+        result_queue.put(self._idle_result(0))
+        quit_event = Event()
+        outcome = []
+        worker = Thread(
+            target=lambda: outcome.append(
+                put_result_frame(result_queue, self._idle_result(1), quit_event)
+            )
+        )
+
+        worker.start()
+        worker.join(timeout=0.2)
+        if worker.is_alive():
+            quit_event.set()
+            worker.join(timeout=0.3)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(outcome, [True])
+        self.assertEqual(result_queue.qsize(), 1)
+
+    def test_first_speech_result_does_not_wait_behind_idle_backlog(self):
+        from src.avatars.musetalk.avatar import put_result_frame
+
+        result_queue = queue.Queue(maxsize=16)
+        for index in range(12):
+            result_queue.put(self._idle_result(index))
+
+        speech_event = {
+            "turn_id": "turn-1",
+            "generation": 1,
+            "fragment_sequence": 0,
+            "media_sequence": 0,
+            "status": "start",
+        }
+        speech_audio = [
+            (np.ones(320, dtype=np.float32) * 0.1, 0, speech_event),
+            (np.ones(320, dtype=np.float32) * 0.1, 0, speech_event),
+        ]
+
+        accepted = put_result_frame(
+            result_queue,
+            (object(), 12, speech_audio),
+            Event(),
+        )
+
+        self.assertTrue(accepted)
+        self.assertEqual(result_queue.qsize(), 1)
+        queued = result_queue.get_nowait()
+        self.assertEqual(queued[2], speech_audio)
 
 
 class MuseTalkSpeechOnsetTests(unittest.TestCase):
