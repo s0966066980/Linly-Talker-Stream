@@ -463,13 +463,13 @@
   <main id="main-content">
     <section class="hero" id="top">
       <div class="container">
-        <p class="eyebrow">Project map · 2026.08</p>
+        <p class="eyebrow">Project map · 2026.09</p>
         <h1>讓 AI 回覆，<span>真的開口說話。</span></h1>
         <p class="hero-lead">這是一套本機優先的即時數字人系統：瀏覽器送出語音，後端負責判斷發話、理解內容、產生回覆、合成聲音，再把有嘴型的影音即時傳回來。</p>
         <div class="hero-actions">
           <a class="button primary" href="#flow">先看一次完整流程</a>
           <a class="button" href="../README.md">閱讀 README</a>
-          <a class="button" href="project-roadmap.html">查看功能與串流規劃</a>
+          <a class="button" href="project-status.md">查看目前完成度</a>
         </div>
         <div class="facts" aria-label="專案重點">
           <div class="fact"><span>前端</span><strong>Vue 3 + Vite</strong></div>
@@ -519,9 +519,9 @@
           <article class="flow-step"><h3>傳送麥克風</h3><p>可收音時持續送出上行音軌。</p></article>
           <article class="flow-step"><h3>Silero 切段</h3><p>在後端判斷一段<strong>完整發話</strong>。</p></article>
           <article class="flow-step"><h3>STT 辨識</h3><p>Whisper 或 FunASR 產生文字。</p></article>
-          <article class="flow-step"><h3>LLM 回覆</h3><p>Ollama 或 llama.cpp 根據 Prompt 與歷史回答。</p></article>
-          <article class="flow-step"><h3>TTS 合成</h3><p>把回覆排入語音佇列並產生音訊。</p></article>
-          <article class="flow-step"><h3>Avatar 渲染</h3><p>模型依聲音驅動嘴型與畫面。</p></article>
+          <article class="flow-step"><h3>LLM 回覆</h3><p>Ollama 或 llama.cpp 產生 chunk，串流模式依語意邊界形成可播片段。</p></article>
+          <article class="flow-step"><h3>TTS 合成</h3><p>片段經有界背壓依序產生音訊，所有資料保留輪次 envelope。</p></article>
+          <article class="flow-step"><h3>Avatar 渲染</h3><p>模型依聲音驅動嘴型；MuseTalk 在段落邊界只平滑嘴部 ROI。</p></article>
           <article class="flow-step"><h3>回傳影音</h3><p>前端播放並依發話狀態暫停或恢復收音。</p></article>
         </div>
         <div class="callout">
@@ -542,7 +542,7 @@
           <article class="layer"><div class="layer-name">互動層</div><div class="layer-path">web/src/</div><p>Vue 畫面、設定面板、字幕、錄音控制、i18n 與 WebRTC composables。</p></article>
           <article class="layer"><div class="layer-name">會話層</div><div class="layer-path">src/server/</div><p>aiohttp API、WebRTC 協商、事件推送、單一對話輪次與插話取消。</p></article>
           <article class="layer"><div class="layer-name">理解層</div><div class="layer-path">src/vad/ · src/asr/</div><p>Silero 判斷發話邊界，再由 STT 將完整發話轉成文字。</p></article>
-          <article class="layer"><div class="layer-name">回覆層</div><div class="layer-path">src/llm/</div><p>Prompt、歷史、模型連線、回覆長度、chunk 接收與句界緩衝。</p></article>
+          <article class="layer"><div class="layer-name">回覆層</div><div class="layer-path">src/llm/ · src/server/reply_streaming/</div><p>Prompt、交易式歷史、模型 chunk、語意切片、媒體背壓與輪次隔離。</p></article>
           <article class="layer"><div class="layer-name">聲音／渲染層</div><div class="layer-path">src/tts/ · src/avatars/</div><p>語音合成佇列、固定音訊幀、嘴型同步與數字人畫面生成。</p></article>
           <article class="layer"><div class="layer-name">設定層</div><div class="layer-path">src/config/ · runtime_settings.py</div><p>設定 schema、試聽、執行時套用、資源切換守門與 YAML 持久化。</p></article>
         </div>
@@ -553,32 +553,32 @@
       <div class="container">
         <div class="section-heading">
           <p class="kicker">Streaming reality</p>
-          <h2>目前有即時傳輸，但語音路徑還不是完整逐句</h2>
-          <p class="intro">「WebRTC 在串流」「LLM 在串流」「TTS 在串流」是三件不同的事。專案現況必須分路徑看。</p>
+          <h2>可靠回覆語音串流已完成主力組合驗證</h2>
+          <p class="intro">串流模式已把 LLM chunk、語意切片、TTS、MuseTalk 與 WebRTC 串成同一個可取消輪次；舊有模式仍保留作為跨引擎回退。</p>
         </div>
         <div class="status-grid">
           <article class="card status-card">
-            <div class="status-head"><span class="pill done">目前已完成</span><h3>文字輸入逐句管線</h3></div>
+            <div class="status-head"><span class="pill done">已完成</span><h3>文字與語音共用串流管線</h3></div>
             <ul class="status-list">
               <li>LLM 回覆以 chunk 方式接收。</li>
-              <li>句界緩衝器等到句號、問號或驚嘆號。</li>
-              <li>完整句立即排入 Avatar 的 TTS 佇列。</li>
-              <li>TTS 音訊切成 20 ms 幀持續送往渲染層。</li>
+              <li>語意切片器支援強／弱標點與長無標點回答。</li>
+              <li>可播片段立即排入有界 TTS／Avatar 管線。</li>
+              <li>generation fence、播放提交、字幕與 history 只接受有效且已播資料。</li>
             </ul>
           </article>
           <article class="card status-card">
-            <div class="status-head"><span class="pill next">下一步</span><h3>免按語音對話逐句化</h3></div>
+            <div class="status-head"><span class="pill next">限制</span><h3>正式保證範圍</h3></div>
             <ul class="status-list">
-              <li>目前 `VoiceTurnSession` 先等待完整 LLM 回覆。</li>
-              <li>之後才將整段文字一次放入 TTS 佇列。</li>
-              <li>應改成 session 直接消費 LLM chunk 並產生句子事件。</li>
-              <li>插話時需同時取消 LLM、待合成句子與舊音訊幀。</li>
+              <li>50 回合 SLO 目前涵蓋 Edge TTS＋MuseTalk、單一會話。</li>
+              <li><code>reply_streaming.enabled</code> 預設仍為 false。</li>
+              <li>其他 TTS／Avatar 保持相容，但尚未逐一取得同等 SLO。</li>
+              <li>direct PCM 實驗路徑關閉，正式路徑使用單一音訊 producer。</li>
             </ul>
           </article>
         </div>
         <div class="callout">
           <strong>舊有模式與串流模式的 TTS 時機</strong>
-          串流模式在完整句號後立即把句子送入 TTS 與數字人；舊有模式等 LLM 全文結束後一次合成。兩者都不是引擎邊推理邊吐波形的增量 TTS。
+          串流模式在可播語意片段形成後立即送入 TTS 與數字人；舊有模式等 LLM 全文結束後一次合成。兩者都不是引擎邊推理邊吐波形的增量 TTS。
         </div>
       </div>
     </section>
@@ -613,7 +613,7 @@
           <p class="intro">前端送出設定後，後端先驗證，再預熱或試聽，成功才替換執行中資源並寫回 `config/config.yaml`。</p>
         </div>
         <div class="grid three">
-          <article class="card settings-card"><h3>對話模型</h3><p>切換 Ollama／llama.cpp、模型、預設 Prompt 與約略回覆字數。</p><div class="tagline">可在線更新 LLM session</div></article>
+          <article class="card settings-card"><h3>對話與回覆</h3><p>切換 Ollama／llama.cpp、模型、Prompt、回覆字數與舊有／串流模式。</p><div class="tagline">下一輪套用新回覆模式</div></article>
           <article class="card settings-card"><h3>數字人</h3><p>查看可用引擎與角色、預覽角色，並匯入新角色素材。</p><div class="tagline">有會話時禁止切換</div></article>
           <article class="card settings-card"><h3>語音辨識</h3><p>選擇 STT 引擎、模型、語言與 CPU／CUDA 裝置。</p><div class="tagline">引擎切換需中斷會話</div></article>
           <article class="card settings-card"><h3>語音合成</h3><p>設定引擎、聲音、模型、說話者、語言、裝置與風格指令。</p><div class="tagline">試聽成功後才保存</div></article>
@@ -633,7 +633,7 @@
 ├── config/                 服務與模型設定
 ├── docs/
 │   ├── adr/                已接受的架構決策
-│   ├── research/           技術研究紀錄
+│   ├── project-status.md   完成度、驗證與限制
 │   ├── project-overview.html
 │   └── project-roadmap.html
 ├── scripts/                安裝、憑證、下載、啟動
@@ -690,13 +690,13 @@ https://localhost:3000</code></pre>
       <div class="container">
         <div class="section-heading">
           <p class="kicker">Recommended next</p>
-          <h2>接下來最值得新增的能力</h2>
-          <p class="intro">優先順序以「先縮短第一次開口時間，再提高可觀測性與部署可靠性」排列。</p>
+          <h2>接下來最值得完成的能力</h2>
+          <p class="intro">核心串流已達成主力 SLO，下一步轉向資源效率、跨引擎驗證與部署可靠性。</p>
         </div>
         <div class="next-list">
-          <article class="next-item"><div class="priority">P0</div><div><h3>語音路徑真正逐句化</h3><p>讓 `VoiceTurnSession` 直接消費 LLM chunk，完整句立即進入 TTS。</p></div><div class="impact">直接降低等待</div></article>
-          <article class="next-item"><div class="priority">P0</div><div><h3>跨層取消權杖</h3><p>插話時一次取消 LLM、句子佇列、TTS worker 與尚未播放的音訊。</p></div><div class="impact">避免舊回覆外洩</div></article>
-          <article class="next-item"><div class="priority">P1</div><div><h3>延遲儀表板</h3><p>量測 VAD 結束、STT、LLM 首 chunk、首句、TTS 首音與首影格。</p></div><div class="impact">能精準優化</div></article>
+          <article class="next-item"><div class="priority">P0</div><div><h3>完成 Phase 10 資源工作</h3><p>Edge persistent worker、bounded prefetch、idle cache 與 session leak gate。</p></div><div class="impact">降低資源抖動</div></article>
+          <article class="next-item"><div class="priority">P0</div><div><h3>跨引擎 50 回合驗證</h3><p>對其他 TTS／Avatar 組合套用同一組首音、A/V、插話與 stale-output gate。</p></div><div class="impact">擴大正式保證</div></article>
+          <article class="next-item"><div class="priority">P1</div><div><h3>延遲與資源儀表板</h3><p>呈現 VAD、STT、LLM、TTS、Avatar、WebRTC 與 GPU 資源。</p></div><div class="impact">能精準優化</div></article>
           <article class="next-item"><div class="priority">P1</div><div><h3>設定匯入／匯出與預設檔</h3><p>把一組 Prompt、模型、聲音與 Avatar 保存成可切換情境。</p></div><div class="impact">方便重複部署</div></article>
           <article class="next-item"><div class="priority">P2</div><div><h3>正式部署套件</h3><p>加入 Docker Compose、健康檢查、GPU 檢測、反向代理與受信任 HTTPS。</p></div><div class="impact">降低安裝門檻</div></article>
         </div>
@@ -709,7 +709,8 @@ https://localhost:3000</code></pre>
       <p>Linly-Talker-Stream · 專案架構快覽</p>
       <div class="footer-links">
         <a href="../README.md">README</a>
-        <a href="project-roadmap.html">功能與串流規劃</a>
+        <a href="project-status.md">目前完成度</a>
+        <a href="project-roadmap.html">後續路線圖</a>
         <a href="adr/">架構決策</a>
       </div>
     </div>

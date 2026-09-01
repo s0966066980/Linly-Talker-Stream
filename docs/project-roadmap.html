@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Linly-Talker-Stream 專案現況、README 規劃、功能路線圖與真正逐句串流設計草案。">
-  <title>Linly-Talker-Stream｜專案規劃與逐句串流設計</title>
+  <meta name="description" content="Linly-Talker-Stream 已完成能力、可靠串流交付狀態與後續功能路線圖。">
+  <title>Linly-Talker-Stream｜目前進度與後續路線圖</title>
   <style>
     :root {
       color-scheme: light;
@@ -601,19 +601,19 @@
   <main id="main-content">
     <section class="hero" id="top">
       <div class="container">
-        <p class="eyebrow">Project review · 2026.08</p>
-        <h1>先讓數位人<br><span>更快開口。</span></h1>
-        <p class="hero-lead">這份閱讀版規劃把專案現況、全新 README、功能優先級，以及真正逐句串流的實作方式放在同一張地圖上。</p>
+        <p class="eyebrow">Project review · 2026.09</p>
+        <h1>核心串流已完成，<br><span>下一步是產品化。</span></h1>
+        <p class="hero-lead">這份路線圖記錄可靠回覆語音串流已交付的範圍、正式實機證據，以及尚待完成的跨引擎、資源效率與部署工作。</p>
         <div class="hero-actions">
           <a class="button primary" href="#streaming">
-            查看逐句串流方案
+            查看串流交付狀態
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </a>
           <a class="button" href="#roadmap">查看開發順序</a>
         </div>
         <div class="summary-strip" aria-label="建議摘要">
-          <div class="summary-item"><span class="summary-label">第一優先</span><span class="summary-value">逐句 LLM → TTS → Avatar</span></div>
-          <div class="summary-item"><span class="summary-label">產品化下一步</span><span class="summary-value">Persona ＋對話媒體庫</span></div>
+          <div class="summary-item"><span class="summary-label">已完成</span><span class="summary-value">可靠 LLM → TTS → Avatar 串流</span></div>
+          <div class="summary-item"><span class="summary-label">第一優先</span><span class="summary-value">Phase 10 資源效率＋跨引擎 SLO</span></div>
           <div class="summary-item"><span class="summary-label">公開部署前</span><span class="summary-value">驗證、CORS 與資源限制</span></div>
         </div>
       </div>
@@ -624,7 +624,7 @@
         <div class="section-heading">
           <p class="section-kicker">01 · Project status</p>
           <h2>專案已經跨過 Demo 階段</h2>
-          <p class="section-intro">現在的價值不是只有模型多，而是已經能完成一整個即時語音回合；下一階段應聚焦延遲、可觀測性與持久化。</p>
+          <p class="section-intro">核心單機對話與主力串流 SLO 已完成；下一階段聚焦資源效率、跨引擎驗證、可觀測性與部署。</p>
         </div>
         <div class="grid three">
           <article class="card card-pad card-success">
@@ -639,17 +639,17 @@
             <p>LLM、語音、角色、VAD 與預設 Prompt 可從前端調整，不必重啟整套系統。</p>
             <div class="pill-row"><span class="pill">Ollama</span><span class="pill">llama.cpp</span><span class="pill">Prompt</span></div>
           </article>
-          <article class="card card-pad card-warning">
+          <article class="card card-pad card-success">
             <div class="icon-box" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M3 12h18" stroke-linecap="round"/></svg></div>
-            <h3>適合擴充</h3>
-            <p>多種 STT、TTS 與 Avatar adapter 已存在，現在需要統一註冊與能力描述。</p>
-            <div class="pill-row"><span class="pill">3 種 STT</span><span class="pill">7 種 TTS</span><span class="pill">5 種 Avatar</span></div>
+            <h3>主力串流已驗證</h3>
+            <p>Edge TTS＋MuseTalk 已完成 50 回合真實 WebRTC soak，首音、A/V、插話、恢復與 stale output 全部達標。</p>
+            <div class="pill-row"><span class="pill">50 turns</span><span class="pill">A/V P95 60 ms</span><span class="pill">stale 0</span></div>
           </article>
         </div>
 
         <div class="callout">
           <svg class="callout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 4.4 2.6 18a2 2 0 0 0 1.74 3h15.32a2 2 0 0 0 1.74-3L13.7 4.4a2 2 0 0 0-3.4 0Z" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <div><h3>現在的主要缺口</h3><p>LLM 仍先收完整回覆再交給 TTS；對話與錄影沒有索引；設定畫面與執行期設定檔過大；公開部署尚無驗證與嚴格 CORS。</p></div>
+          <div><h3>現在的主要缺口</h3><p>串流正式 SLO 尚未覆蓋其他 TTS／Avatar；Edge persistent worker、資源儀表板、session leak gate、多使用者 GPU 排程、驗證與正式部署仍待完成。</p></div>
         </div>
       </div>
     </section>
@@ -657,9 +657,9 @@
     <section class="section" id="readme">
       <div class="container">
         <div class="section-heading">
-          <p class="section-kicker">02 · README blueprint</p>
-          <h2>README 只負責讓人快速理解與啟動</h2>
-          <p class="section-intro">主文件使用繁體中文，詳細設定拆入 docs。每個主題只保留一個真實來源，避免引擎矩陣與 Roadmap 再次過期。</p>
+          <p class="section-kicker">02 · Documentation</p>
+          <h2>README 與狀態文件已同步目前實作</h2>
+          <p class="section-intro">README 負責快速理解與啟動；<code>project-status.md</code> 保存完成度、實機證據與限制；ADR 記錄不可破壞的架構決策。</p>
         </div>
         <div class="readme-map">
           <aside class="readme-preview" aria-label="README 首屏預覽">
@@ -672,17 +672,17 @@
             <span class="pill">快速開始</span> <span class="pill">支援矩陣</span>
           </aside>
           <div class="card outline">
-            <div class="outline-item"><span class="outline-number">01</span><div><h3>Hero 與一句定位</h3><p>標題、價值主張、截圖或短影片、語言切換與 CI／License 徽章。</p></div></div>
-            <div class="outline-item"><span class="outline-number">02</span><div><h3>60 秒看懂</h3><p>全雙工、本機優先、可切換引擎、角色匯入、錄影與預設 Prompt。</p></div></div>
-            <div class="outline-item"><span class="outline-number">03</span><div><h3>快速開始</h3><p>明列 Python 3.10–3.11、Node、FFmpeg、CUDA 與最短啟動路徑。</p></div></div>
-            <div class="outline-item"><span class="outline-number">04</span><div><h3>引擎支援矩陣</h3><p>區分穩定、選用、實驗性、本機與需要網路，不把 Edge TTS 誤稱為離線。</p></div></div>
-            <div class="outline-item"><span class="outline-number">05</span><div><h3>架構與資料流</h3><p>以一張圖解釋 Browser → VAD → STT → LLM → TTS → Avatar → WebRTC。</p></div></div>
-            <div class="outline-item"><span class="outline-number">06</span><div><h3>隱私、限制與 Roadmap</h3><p>麥克風預設不保存；清楚寫出單機狀態、硬體需求及尚未完成的項目。</p></div></div>
+            <div class="outline-item"><span class="outline-number">01</span><div><h3>定位與 30 秒資料流</h3><p>先說明本機即時數字人用途，再用 Mermaid 呈現 Browser → VAD → STT → LLM → TTS → Avatar。</p></div></div>
+            <div class="outline-item"><span class="outline-number">02</span><div><h3>已完成能力</h3><p>列出引擎、執行期設定、可靠串流、嘴型連續與 owned llama-server 清理。</p></div></div>
+            <div class="outline-item"><span class="outline-number">03</span><div><h3>回覆模式與正式範圍</h3><p>明確區分 legacy／streaming，並揭露 Edge TTS＋MuseTalk 單會話的 SLO 邊界。</p></div></div>
+            <div class="outline-item"><span class="outline-number">04</span><div><h3>快速開始與設定</h3><p>列出 Python、uv、Node、FFmpeg、CUDA、啟動腳本與設定頁套用語意。</p></div></div>
+            <div class="outline-item"><span class="outline-number">05</span><div><h3>測試與實機證據</h3><p>提供回歸命令、50 回合 soak 命令與目前通過的主要指標。</p></div></div>
+            <div class="outline-item"><span class="outline-number">06</span><div><h3>限制與文件入口</h3><p>說明跨引擎、部署、多使用者與實驗音訊路徑限制，連到狀態頁、roadmap 與 ADR。</p></div></div>
           </div>
         </div>
         <div class="callout success">
           <svg class="callout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <div><h3>文件拆分建議</h3><p><code>getting-started.md</code>、<code>engine-matrix.md</code>、<code>configuration.md</code>、<code>architecture.md</code>、<code>api.md</code>、<code>troubleshooting.md</code>。</p></div>
+          <div><h3>目前文件入口</h3><p><code>README.md</code>、<code>docs/project-status.md</code>、<code>docs/project-overview.html</code>、本路線圖與 <code>docs/adr/</code>。</p></div>
         </div>
       </div>
     </section>
@@ -690,114 +690,113 @@
     <section class="section alt" id="streaming">
       <div class="container">
         <div class="section-heading">
-          <p class="section-kicker">03 · True sentence streaming</p>
-          <h2>真正的逐句串流，不只是一個布林開關</h2>
-          <p class="section-intro">目標是讓第一句在 LLM 尚未完成整段回答前就開始合成與播放，同時保證插話後不會再冒出舊回合音訊。</p>
+          <p class="section-kicker">03 · Reliable reply streaming</p>
+          <h2>逐片段串流已從設計草案變成可驗證管線</h2>
+          <p class="section-intro">LLM 尚未完成全文時即可播放已確認的語意片段；插話後舊 token、片段、音訊與影格會在跨層 generation fence 被拒絕。</p>
         </div>
 
         <div class="grid two">
           <article class="card flow-card">
-            <div class="flow-title"><h3>目前流程</h3><span class="status-tag current">完整回覆後才說話</span></div>
-            <div class="flow" aria-label="目前語音流程">
+            <div class="flow-title"><h3>舊有模式</h3><span class="status-tag current">保留作為回退</span></div>
+            <div class="flow" aria-label="舊有語音流程">
               <div class="flow-node"><strong>STT</strong><span>完整辨識</span></div><div class="flow-arrow" aria-hidden="true">→</div>
               <div class="flow-node bottleneck"><strong>LLM</strong><span>收集所有 token</span></div><div class="flow-arrow" aria-hidden="true">→</div>
               <div class="flow-node"><strong>TTS</strong><span>整段文字入列</span></div><div class="flow-arrow" aria-hidden="true">→</div>
               <div class="flow-node"><strong>Avatar</strong><span>開始播放</span></div>
             </div>
-            <p class="flow-note">瓶頸：<code>stream_to_avatar=False</code>，而且 <code>assistant_text</code> 只在最後送一次。</p>
+            <p class="flow-note">等待 LLM 全文後一次交給 TTS；適合尚未完成 streaming SLO 的引擎組合。</p>
           </article>
           <article class="card flow-card">
-            <div class="flow-title"><h3>建議流程</h3><span class="status-tag proposed">首句就開始說話</span></div>
-            <div class="flow" aria-label="建議的逐句串流流程">
+            <div class="flow-title"><h3>串流模式</h3><span class="status-tag proposed">已實作並通過主力 SLO</span></div>
+            <div class="flow" aria-label="已實作的逐片段串流流程">
               <div class="flow-node"><strong>LLM delta</strong><span>持續產生</span></div><div class="flow-arrow" aria-hidden="true">→</div>
               <div class="flow-node key"><strong>Segmenter</strong><span>語意分句</span></div><div class="flow-arrow" aria-hidden="true">→</div>
-              <div class="flow-node key"><strong>有界佇列</strong><span>最多 2 段</span></div><div class="flow-arrow" aria-hidden="true">→</div>
+              <div class="flow-node key"><strong>媒體背壓</strong><span>2 秒高水位</span></div><div class="flow-arrow" aria-hidden="true">→</div>
               <div class="flow-node"><strong>TTS / Avatar</strong><span>邊合成邊播</span></div>
             </div>
-            <p class="flow-note">每個 delta、句子與音訊 frame 都攜帶 <code>turn_id</code>，取消後立即失效。</p>
+            <p class="flow-note">每個 delta、片段、音訊與影格都攜帶 <code>turn_id</code>、generation 與 sequence，取消後立即失效。</p>
           </article>
         </div>
 
         <div class="callout">
           <svg class="callout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 4.4 2.6 18a2 2 0 0 0 1.74 3h15.32a2 2 0 0 0 1.74-3L13.7 4.4a2 2 0 0 0-3.4 0Z" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <div><h3>為什麼不能直接改成 True？</h3><p>LLM 現在跑在 executor。取消 asyncio task 不會停止底層同步 <code>chat_stream</code>；若 callback 直接送 TTS，插話後舊 worker 仍可能繼續排入句子。因此必須把取消令牌與 generation 檢查放進 token → 分句 → TTS 的每一個關卡。</p></div>
+          <div><h3>為什麼預設仍是 false？</h3><p>Edge TTS＋MuseTalk 已完成正式驗證，但其他 TTS／Avatar 尚未逐一通過相同 50 回合 SLO。功能旗標保留跨引擎回退，不代表主力串流仍未實作。</p></div>
         </div>
 
         <div class="stream-layout" style="margin-top: 24px;">
           <div class="card card-pad">
-            <h3>建議建立深層 TurnPipeline 模組</h3>
-            <p>讓 <code>VoiceTurnSession</code> 只知道「開始一個回合」與「取消回合」。同步 LLM、分句、有界佇列、事件順序、錯誤與清理全部藏在模組 implementation 裡。</p>
-            <pre aria-label="TurnPipeline 介面範例"><code>class TurnPipeline:
-    async def run(
-        self,
-        request: TurnRequest,
-        event_sink: Callable[[TurnEvent], None],
-    ) -&gt; TurnResult: ...
-
-    async def cancel(self, turn_id: str) -&gt; None: ...</code></pre>
-            <p class="source-ref">外部 interface 維持兩個動作；ASR、LLM、TTS 與 Avatar adapter 是 implementation 內部 seam。</p>
+            <h3>目前可靠管線的模組邊界</h3>
+            <p><code>VoiceTurnSession</code> 擁有輪次；<code>src/server/reply_streaming/</code> 封裝 producer、語意切片、turn context、背壓、circuit breaker、指標與 soak report。</p>
+            <pre aria-label="目前串流模組"><code>VoiceTurnSession
+├── ReplyProducer
+├── SemanticFragmenter
+├── BoundedSpeechChannel
+├── TurnContext / TurnEnvelope
+├── ReplyCircuitBreaker
+└── TurnMetrics / SoakReport</code></pre>
+            <p class="source-ref">回合協調留在既有 <code>VoiceTurnSession</code>，可靠性能力集中於 <code>src/server/reply_streaming/</code>，避免把協議散落到每個引擎 adapter。</p>
 
             <div class="step-list">
-              <div class="step"><div><h4>LLM producer</h4><p>同步 <code>chat_stream</code> 在 worker thread 產生 delta，透過 thread-safe bridge 放進有界 asyncio queue；每次放入前後檢查 cancellation token。</p></div></div>
-              <div class="step"><div><h4>SentenceSegmenter</h4><p>硬標點達最小長度立即提交；軟標點、等待時間與最大字數作為無標點回答的保險。</p></div></div>
-              <div class="step"><div><h4>Speech consumer</h4><p>依序送入 TTS，每段附帶 <code>turn_id</code>、<code>segment_id</code> 與序號；佇列滿時反壓 LLM producer。</p></div></div>
-              <div class="step"><div><h4>Cancellation fence</h4><p>插話時先使 token 失效，再清文字佇列、TTS 佇列與 Avatar 音訊；任何舊 frame 都必須在輸出前再次驗證。</p></div></div>
-              <div class="step"><div><h4>Incremental events</h4><p>前端先收到 <code>assistant_delta</code> 更新字幕，完成時再收到 <code>assistant_final</code>，顯示文字與實際語音保持一致。</p></div></div>
+              <div class="step"><div><h4>ReplyProducer</h4><p>在 worker thread 讀取同步 <code>chat_stream</code>，以 thread-safe bridge 導入 asyncio；每次交付前後都驗證取消狀態。</p></div></div>
+              <div class="step"><div><h4>SemanticFragmenter</h4><p>以強／弱標點和 24／32 字無標點門檻形成可播片段，避免逐字電子音與過長首句等待。</p></div></div>
+              <div class="step"><div><h4>BoundedSpeechChannel</h4><p>以待播媒體時間計算債務；2 秒停止接納、降回 1 秒才恢復，將背壓傳回 LLM producer。</p></div></div>
+              <div class="step"><div><h4>Generation fence</h4><p>插話時使舊 generation 失效；文字、TTS chunk、MuseTalk batch 與 WebRTC frame 在輸出邊界再次驗證。</p></div></div>
+              <div class="step"><div><h4>Playback commit</h4><p>第一個非靜音 WebRTC 音訊幀才提交字幕與 history，確保畫面與使用者真正聽到的內容一致。</p></div></div>
             </div>
           </div>
 
           <aside class="card card-pad sticky-note">
-            <h3>現有程式可直接利用</h3>
+            <h3>目前已接入</h3>
             <ul class="fact-list">
               <li><code>BaseLLM.chat_stream</code> 已提供 token 串流。</li>
-              <li><code>TextStreamProcessor</code> 已有標點緩衝雛形。</li>
-              <li><code>BaseTTS.msgqueue</code> 已能依序處理文字。</li>
-              <li><code>turn_id / generation</code> 已存在。</li>
-              <li><code>flush_talk</code> 已能停止多數 TTS 輸出。</li>
-              <li>WebRTC 已能回報 speaking start／end。</li>
+              <li><code>SemanticFragmenter</code> 處理強／弱標點與長無標點回答。</li>
+              <li>bounded channel 以媒體債務施加背壓。</li>
+              <li><code>turn_id / generation / sequence</code> 貫穿輸出邊界。</li>
+              <li>播放 commit 決定字幕與已播 history。</li>
+              <li>WebRTC 以音訊主時鐘輸出並量測 A/V。</li>
             </ul>
           </aside>
         </div>
 
         <div class="table-wrap">
           <table>
-            <thead><tr><th>議題</th><th>建議預設</th><th>理由</th><th>必測情境</th></tr></thead>
+            <thead><tr><th>契約</th><th>目前實作</th><th>保證</th><th>主要驗證</th></tr></thead>
             <tbody>
-              <tr><td><strong>硬分隔符</strong></td><td>。！？!?；與換行</td><td>語意完整，適合立即交給 TTS</td><td>中英混合、連續標點</td></tr>
-              <tr><td><strong>軟分隔符</strong></td><td>，、：；達 18 字才切</td><td>縮短首句延遲，但避免語音過碎</td><td>短問句與列舉</td></tr>
-              <tr><td><strong>等待上限</strong></td><td>約 700 ms</td><td>模型長時間不吐標點時仍能開口</td><td>無標點長回答</td></tr>
-              <tr><td><strong>長度上限</strong></td><td>約 48 個可發音字元</td><td>限制單次 TTS 成本與等待</td><td>URL、數字、小數與英文縮寫</td></tr>
-              <tr><td><strong>待說佇列</strong></td><td>最多 2 段</td><td>控制延遲與插話後殘留量</td><td>LLM 快、TTS 慢</td></tr>
-              <tr><td><strong>顯示文字</strong></td><td>delta 累加、final 校正</td><td>畫面立即有反應且保留完整 Markdown</td><td>取消、重試與事件亂序</td></tr>
+              <tr><td><strong>強分隔符</strong></td><td><code>。！？；.!?;</code></td><td>非空片段可立即送出</td><td>中英混合、連續標點</td></tr>
+              <tr><td><strong>弱分隔符</strong></td><td><code>，、：, :</code>，至少 12 字</td><td>降低首音延遲而不把語音切碎</td><td>短問句、列舉、token 邊界</td></tr>
+              <tr><td><strong>無標點保底</strong></td><td>24 字找安全界限，32 字強制切片</td><td>模型長時間不吐標點仍能開口</td><td>英文單字、數字、URL</td></tr>
+              <tr><td><strong>媒體背壓</strong></td><td>高水位 2 秒、低水位 1 秒</td><td>所有待播資料維持有界</td><td>LLM 快、TTS／GPU 慢</td></tr>
+              <tr><td><strong>輪次隔離</strong></td><td>turn／generation／sequence envelope</td><td>取消後舊資料不能 commit</td><td>插話、失敗、重連</td></tr>
+              <tr><td><strong>字幕與 history</strong></td><td>首個非靜音音訊幀後 commit</td><td>只記錄真正已播放的內容</td><td>取消、重試、事件亂序</td></tr>
             </tbody>
           </table>
         </div>
 
         <div class="option-tabs">
-          <div class="tab-list" role="tablist" aria-label="逐句串流方案比較">
-            <button class="tab-button" id="tab-min" role="tab" aria-selected="false" aria-controls="panel-min" tabindex="-1">最小改動</button>
-            <button class="tab-button" id="tab-rec" role="tab" aria-selected="true" aria-controls="panel-rec">推薦方案</button>
-            <button class="tab-button" id="tab-deep" role="tab" aria-selected="false" aria-controls="panel-deep" tabindex="-1">完整重構</button>
+          <div class="tab-list" role="tablist" aria-label="串流架構決策狀態">
+            <button class="tab-button" id="tab-min" role="tab" aria-selected="false" aria-controls="panel-min" tabindex="-1">未採用</button>
+            <button class="tab-button" id="tab-rec" role="tab" aria-selected="true" aria-controls="panel-rec">目前實作</button>
+            <button class="tab-button" id="tab-deep" role="tab" aria-selected="false" aria-controls="panel-deep" tabindex="-1">後續演進</button>
           </div>
           <section class="card tab-panel" id="panel-min" role="tabpanel" aria-labelledby="tab-min" hidden>
-            <h3>開啟現有分句 callback，再補 generation guard</h3>
-            <p>適合快速驗證首句延遲，但 executor 取消、TTS 完成回報、反壓與舊音訊隔離仍較脆弱。應視為 prototype，不建議直接當最終架構。</p>
-            <div class="option-meta"><span class="pill">工程量：低</span><span class="pill">風險：中高</span><span class="pill">可觀測性：低</span></div>
+            <h3>只開啟分句 callback 並清除 queue</h3>
+            <p>這種作法無法涵蓋 executor 取消、下游 batch、播放 commit 與 generation 隔離，因此未作為正式架構。</p>
+            <div class="option-meta"><span class="pill">狀態：已排除</span><span class="pill">原因：取消邊界不完整</span></div>
           </section>
           <section class="card tab-panel" id="panel-rec" role="tabpanel" aria-labelledby="tab-rec">
-            <h3>TurnPipeline ＋取消令牌＋有界佇列</h3>
-            <p>保留現有引擎 adapter，但把回合協調集中到一個深層模組。能同時處理串流、插話、反壓、事件與指標，是目前最好的投入報酬。</p>
-            <div class="option-meta"><span class="pill">工程量：中</span><span class="pill">風險：可控</span><span class="pill">可測試性：高</span><span class="pill">建議採用</span></div>
+            <h3>VoiceTurnSession ＋可靠串流模組</h3>
+            <p>保留既有引擎 adapter，由獨立模組提供 producer、切片、媒體背壓、取消柵欄、播放提交、指標與 circuit breaker；主力組合已通過 50 輪 SLO。</p>
+            <div class="option-meta"><span class="pill">狀態：已交付</span><span class="pill">主力 SLO：通過</span><span class="pill">預設：關閉</span></div>
           </section>
           <section class="card tab-panel" id="panel-deep" role="tabpanel" aria-labelledby="tab-deep" hidden>
             <h3>所有 LLM／TTS adapter 改成原生 async stream</h3>
-            <p>長期最乾淨，但會同時碰觸所有語音引擎與 Avatar。除非近期要做多使用者 GPU 排程，否則現在投入過大。</p>
-            <div class="option-meta"><span class="pill">工程量：高</span><span class="pill">風險：高</span><span class="pill">長期一致性：最高</span></div>
+            <p>在跨引擎與多人 GPU 排程成為正式需求時再評估；目前優先補齊 persistent Edge worker、資源界限與跨引擎 SLO。</p>
+            <div class="option-meta"><span class="pill">狀態：未排程</span><span class="pill">前置：跨引擎量測</span></div>
           </section>
         </div>
 
         <div style="margin-top: 28px;">
-          <h3>驗收條件</h3>
+          <h3>主力組合已通過的驗收條件</h3>
           <div class="grid two" style="margin-top: 16px;">
             <details open><summary>首句必須早於完整回答</summary><div class="details-body">測試 LLM 尚未結束時，第一個 TTS segment 已送出；記錄 LLM TTFT、首句提交與首音訊延遲。</div></details>
             <details open><summary>插話後零舊音訊</summary><div class="details-body">取消回合後，即使 executor 還在退 token，任何舊 segment 或 audio frame 都不能抵達 Avatar 輸出。</div></details>
@@ -812,15 +811,15 @@
       <div class="container">
         <div class="section-heading">
           <p class="section-kicker">04 · Delivery roadmap</p>
-          <h2>先縮短等待，再累積產品價值</h2>
-          <p class="section-intro">每個階段都產出可驗證成果，不同時展開過多大型功能。</p>
+          <h2>從主力 SLO 擴展到跨引擎與正式部署</h2>
+          <p class="section-intro">可靠串流與嘴型連續性已完成；下一階段聚焦資源界限、長期實機驗收和部署品質。</p>
         </div>
         <div class="roadmap">
-          <div class="phase"><div class="phase-label">Phase 1</div><article class="card phase-card card-accent"><h3>逐句串流與延遲指標</h3><ul><li>TurnPipeline、SentenceSegmenter、取消令牌</li><li>assistant_delta／final 事件</li><li>STT、LLM TTFT、TTS 首音訊與總延遲</li></ul></article></div>
-          <div class="phase"><div class="phase-label">Phase 2</div><article class="card phase-card"><h3>引擎註冊與前端拆分</h3><ul><li>EngineRegistry：list／validate／activate／health</li><li>SettingsPanel 按 AI、語音、角色、體驗拆成獨立模組</li><li>由註冊資料產生 README 引擎矩陣</li></ul></article></div>
-          <div class="phase"><div class="phase-label">Phase 3</div><article class="card phase-card"><h3>Persona 與對話媒體庫</h3><ul><li>一鍵套用 Avatar、Prompt、LLM、STT、TTS、VAD</li><li>SQLite 保存逐字稿、模型、延遲與錄影路徑</li><li>搜尋、播放、刪除與匯出</li></ul></article></div>
-          <div class="phase"><div class="phase-label">Phase 4</div><article class="card phase-card"><h3>字幕與本機知識庫</h3><ul><li>SRT／WebVTT 即時字幕</li><li>PDF、Markdown、文字檔 RAG</li><li>回答來源引用與知識庫管理</li></ul></article></div>
-          <div class="phase"><div class="phase-label">Later</div><article class="card phase-card"><h3>多模態、情緒與多人部署</h3><ul><li>表情、動作與結構化 AvatarAction</li><li>相機／圖片理解與 Omni 模型</li><li>使用者隔離、GPU 排程、驗證與 Rate limit</li></ul></article></div>
+          <div class="phase"><div class="phase-label">Delivered</div><article class="card phase-card card-accent"><h3>可靠回覆串流與嘴型連續性</h3><ul><li>語意切片、媒體背壓與 generation fence</li><li>播放提交、字幕／history 一致性與指標</li><li>50 輪 Edge TTS＋MuseTalk SLO 全數通過</li></ul></article></div>
+          <div class="phase"><div class="phase-label">Phase 10</div><article class="card phase-card"><h3>資源界限與跨引擎驗證</h3><ul><li>persistent Edge worker、bounded prefetch、idle cache</li><li>hot-path log 與 session leak 檢查</li><li>其他 TTS／Avatar 重跑相同 SLO</li></ul></article></div>
+          <div class="phase"><div class="phase-label">Acceptance</div><article class="card phase-card"><h3>長時間真人與裝置矩陣</h3><ul><li>連續對話、頻繁插話與網路抖動</li><li>瀏覽器、麥克風、喇叭與 GPU 組合</li><li>主觀自然度與嘴型交界驗收</li></ul></article></div>
+          <div class="phase"><div class="phase-label">Deploy</div><article class="card phase-card"><h3>正式部署與可觀測性</h3><ul><li>TLS、反向代理、認證與 rate limit</li><li>指標匯出、告警與容量基線</li><li>故障復原及 llama.cpp process ownership</li></ul></article></div>
+          <div class="phase"><div class="phase-label">Later</div><article class="card phase-card"><h3>產品能力擴充</h3><ul><li>Persona、媒體庫與本機知識庫</li><li>多模態輸入、表情與 AvatarAction</li><li>多使用者隔離與 GPU 公平排程</li></ul></article></div>
         </div>
       </div>
     </section>
@@ -828,19 +827,19 @@
     <section class="section alt" id="decisions">
       <div class="container">
         <div class="section-heading">
-          <p class="section-kicker">05 · Decisions to discuss</p>
-          <h2>開始實作前，先確認四個產品選擇</h2>
-          <p class="section-intro">技術可以調整，但這四項會直接決定語音體感、事件設計與測試範圍。</p>
+          <p class="section-kicker">05 · Recorded decisions</p>
+          <h2>已落地的產品與架構選擇</h2>
+          <p class="section-intro">後續引擎接入必須遵守相同契約，並重跑同一組 SLO 與取消情境。</p>
         </div>
         <div class="decision-grid">
-          <article class="card decision"><h3>首句偏快，還是語意偏完整？</h3><p>太短會像機器逐片念字，太長又失去串流價值。</p><span class="choice">建議：硬標點優先，700 ms／48 字保底</span></article>
-          <article class="card decision"><h3>Markdown 要不要直接念？</h3><p>畫面需要保留 Markdown，但 TTS 不應朗讀星號、網址與程式碼符號。</p><span class="choice">建議：顯示文字與可發音文字分離</span></article>
-          <article class="card decision"><h3>插話要多徹底？</h3><p>只清 TTS queue 不夠；LLM worker 與已產生音訊也必須失效。</p><span class="choice">建議：以 turn_id 形成端到端取消柵欄</span></article>
-          <article class="card decision"><h3>先支援哪些 TTS？</h3><p>所有引擎一次改完風險高，應先選一個快且一個本機引擎驗證。</p><span class="choice">建議：Edge TTS ＋目前主力本機 TTS</span></article>
+          <article class="card decision"><h3>首句偏快，還是語意偏完整？</h3><p>太短會像機器逐片念字，太長又失去串流價值。</p><span class="choice">已採用：強／弱標點＋24／32 字無標點保底</span></article>
+          <article class="card decision"><h3>Markdown 要不要直接念？</h3><p>畫面需要保留 Markdown，但 TTS 不應朗讀星號、網址與程式碼符號。</p><span class="choice">已採用：顯示文字與可發音文字分離</span></article>
+          <article class="card decision"><h3>插話要多徹底？</h3><p>只清 TTS queue 不夠；LLM worker 與已產生音訊也必須失效。</p><span class="choice">已採用：turn_id／generation 端到端取消柵欄</span></article>
+          <article class="card decision"><h3>先正式支援哪些組合？</h3><p>所有引擎一次改完風險高，必須以同一驗收門檻逐步擴充。</p><span class="choice">目前：Edge TTS＋MuseTalk；其他組合相容但未完成相同 SLO</span></article>
         </div>
         <div class="callout success">
           <svg class="callout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <div><h3>我的建議結論</h3><p>採用「推薦方案」：先為現有引擎建立 TurnPipeline，不大改每個 adapter；先把取消、事件順序、反壓與指標做對，再逐步把高使用量引擎改成原生 async stream。</p></div>
+          <div><h3>目前結論</h3><p>可靠串流架構已落地並通過主力實機門檻。功能旗標仍預設關閉，直到跨引擎、長時間真人與正式部署驗收完成後再評估全面啟用。</p></div>
         </div>
       </div>
     </section>
@@ -848,7 +847,7 @@
 
   <footer>
     <div class="container footer-inner">
-      <span>Linly-Talker-Stream 專案分析與設計草案</span>
+      <span>Linly-Talker-Stream 專案進度與交付路線圖</span>
       <a href="#top">回到頁首</a>
     </div>
   </footer>

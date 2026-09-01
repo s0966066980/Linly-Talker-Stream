@@ -18,3 +18,11 @@ status: accepted
 - TTS、MuseTalk 與 WebRTC 邊界必須接受並驗證同一份輪次 envelope，不能把 `turn_id` 當成純 metadata。
 - 第一階段只保證 Edge TTS＋MuseTalk 的單一活躍會話；其他引擎維持相容但不承諾相同串流 SLO。
 - 新管線以功能旗標漸進啟用，達成自動回歸與真實 soak 門檻後才成為預設。
+
+## Implementation Status — 2026-09-01
+
+- Edge TTS＋MuseTalk 的單一會話可靠串流管線已實作：語意切片、有界背壓、generation fence、播放提交、字幕／history、錯誤恢復與分階段指標均已接入。
+- 50 回合真實 WebRTC soak 已達成首音、插話、恢復、A/V、媒體債務與 stale-output SLO；正式報告為 `.scratch/reply-voice-streaming/real-soak-mouth-continuity-50-rerun.json`。
+- `reply_streaming.enabled` 仍預設關閉，因其他 TTS／Avatar 組合尚未取得同等 SLO；legacy 路徑保留為明確回退。
+- direct PCM／decoupled audio clock 實驗路徑未通過聽感與 A/V gate，預設關閉。正式路徑維持單一 renderer-owned audio producer。
+- MuseTalk 段落交界的視覺落差由嘴型連續控制器處理；控制器位於音訊 enqueue 之後，只改嘴部 ROI，不改變本 ADR 的音訊主時鐘。

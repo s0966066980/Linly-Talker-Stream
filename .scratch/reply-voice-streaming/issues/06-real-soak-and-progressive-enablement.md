@@ -34,3 +34,5 @@ Scheduling: deferred by user on 2026-08-28
 - 2026-08-31: 第二次完整 50-turn 實機 soak 已完成並保存至 `real-soak-report.json`。50/50 回合、所有情境、中斷停止／恢復、media debt、stale output 均通過；首音 P50 1.991518s（目標 1.2s）、P95 3.928302s（目標 2.5s），A/V P95 0.095s（目標 0.08s），故整體 `slo_pass=false`。
 - 2026-08-31: blocker 為 Edge TTS 外部 websocket 首音／retry 延遲及媒體節拍殘餘偏移；未以放寬門檻或改寫指標掩蓋。`reply_streaming.enabled` 仍維持預設 `false`，等待人工作業決定是否改用低延遲 TTS、調整產品 SLO，或繼續媒體時鐘優化。
 - 2026-08-31: 設定面板新增可持久化的「舊有／串流」回覆模式選擇，於下一回合生效；預設仍為舊有模式，環境變數 canary override 行為保留。另在共用 TTS 入口統一移除 Markdown 標記與 emoji，避免朗讀「星號星號」等格式符號。回歸更新為 187 Python tests、22 Web tests 與 Vite production build 全數通過；上述實機 SLO blocker 不變。
+- 2026-09-01: 修正 direct PCM 雙 producer、MuseTalk idle backlog 與 speech-start runway 後，重新執行正式 50-turn soak；報告 `real-soak-mouth-continuity-50-rerun.json` 的全部 gate 通過：首音 P50 1.185525s／P95 1.691548s、A/V P95 0.06s、interrupt-stop P95 0.000345s、listening-resume P95 0.301517s、media debt 0.24s、stale output 0。主力 Edge TTS＋MuseTalk 的 SLO blocker 已解除。
+- 2026-09-01: 任務仍維持 `ready-for-human`，因跨裝置人工聽感、其他 TTS／Avatar SLO 與漸進式預設啟用尚未完成；checked-in `reply_streaming.enabled` 保持 `false`。

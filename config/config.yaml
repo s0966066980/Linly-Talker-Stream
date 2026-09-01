@@ -92,7 +92,7 @@ llm:
   extra_body:
     reasoning_effort: "none"  # 僅 Ollama：關閉思考鏈，降低首字延遲
 
-# 回覆語音串流仍在分階段實作，默認保留現有路徑。
+# 回覆語音串流已通過 Edge TTS＋MuseTalk 單會話 SLO；跨引擎驗證完成前預設保留舊有路徑。
 reply_streaming:
   enabled: false
 

@@ -1,15 +1,16 @@
 # Reliable Reply Voice Streaming
 
-Status: implementation-complete-real-soak-slo-blocked
+Status: implementation-complete-main-slo-passed-default-off
 
 ## Current Implementation Snapshot
 
-截至 2026-08-31，Phase 0–5 已實作並通過完整回歸測試；Phase 6 已完成 50 輪實機 soak，但首音與 A/V SLO 未達標。
+截至 2026-09-01，Phase 0–6 已實作；Edge TTS＋MuseTalk 的 50 輪實機 soak 已通過全部 SLO，可靠串流架構在主力組合完成。
 
-- 目前正式使用的仍是 legacy 語音路徑。
-- `config/config.yaml` 的 `reply_streaming.enabled` 必須維持 `false`。
-- 在 Phase 4–6 的 gate 與 50 輪實機 soak 全數通過前，不得將新管線接到正式輸出，也不得改為預設開啟。
-- Phase 5 已完成；Phase 6 報告與 blocker 記錄在 `issues/06-real-soak-and-progressive-enablement.md` 與 `real-soak-report.json`。
+- 串流管線已接入正式執行路徑，可由 `reply_streaming.enabled` 選用；schema 與設定檔仍預設 `false`，保留 legacy 作為跨引擎回退。
+- 50 輪正式報告為 `real-soak-mouth-continuity-50-rerun.json`：首音 P50 1.185525 秒、P95 1.691548 秒，A/V P95 0.06 秒，插話停止 0.000345 秒，恢復收音 0.301517 秒，媒體債務 0.24 秒，stale output 0。
+- MuseTalk 嘴型連續控制已預設開啟，以視覺 ROI 緩衝處理片段交界，不改寫 TTS PCM，也不新增音訊 producer。
+- 直接 PCM／解耦音訊時鐘實驗維持預設關閉；已驗證路徑由 renderer 單一擁有音訊輸出，避免斷續電子音。
+- 後續工作轉入 Phase 10：資源界限、跨引擎 SLO、長時間真人驗收與正式部署。
 
 ## Objective
 
@@ -32,9 +33,9 @@ Status: implementation-complete-real-soak-slo-blocked
 - 多租戶 GPU 公平排程。
 - WebRTC 重連後續播舊輪次音訊。
 
-## Current Baseline and Gaps
+## Original Baseline Gaps (Resolved for the Main Pipeline)
 
-現有程式已具備 LLM token streaming、句尾文字切分、TTS queue、Edge 音訊 chunk 解碼及 20 ms WebRTC 音訊幀，但可靠性契約尚未跨層成立：
+下列項目是規格建立時的基線缺口；目前已由 turn context、generation fence、bounded channel、playback commit 與下游 envelope 在 Edge TTS＋MuseTalk 主力管線中處理。保留此清單作為其他引擎接入時的驗收檢查表：
 
 - `VoiceTurnSession.interrupt()` 取消 asyncio task，不能停止 executor 內仍在執行的 LLM 串流。
 - 舊 LLM 串流可在 `flush_talk()` 後重新把文字加入 TTS queue。
@@ -159,10 +160,11 @@ LLM token 先進入增量語意切片器，再形成可播回覆片段：
 
 ## Rollout
 
-- 新管線由 `reply_streaming.enabled` 類型的設定旗標控制，初始預設關閉。
+- 新管線由 `reply_streaming.enabled` 設定旗標控制；目前仍預設關閉。
 - legacy 與新管線共享外部 WebRTC／設定介面，避免前端維護兩套協議。
 - 開發與測試期間可做相同輸入的差異量測，但不得讓 shadow 路徑產生使用者可見音訊或寫入正式 history。
-- 自動測試與 50 輪真實 soak 全部達標後改為預設開啟。
+- Edge TTS＋MuseTalk 的自動測試與 50 輪真實 soak 已達標；其他正式支援組合須重跑相同門檻。
+- 完成跨引擎、長時間真人與正式部署驗收後，才評估改為預設開啟。
 - 穩定觀察期結束後才移除 legacy；不永久維護雙模式。
 
 ## Delivery Phases and Gates
@@ -222,7 +224,7 @@ Gate：只記已播內容、字幕不領先語音、取消不殘留、三次錯�
 - 涵蓋短／長回答、弱標點、無標點、插話、Edge 抖動、LLM 中斷、GPU 降速與 WebRTC 重連。
 - 產出 SLO histogram 與 failure summary，不保存內容或音訊。
 
-Gate：所有 SLO 達標、無 stale output、無 queue 無界增長、完整測試零 regression，才將 feature flag 改為預設開啟。
+Gate（Edge TTS＋MuseTalk 已達成）：所有 SLO 達標、無 stale output、無 queue 無界增長、完整測試零 regression。是否預設開啟另受跨引擎與正式部署驗收約束。
 
 ## Acceptance Criteria
 
