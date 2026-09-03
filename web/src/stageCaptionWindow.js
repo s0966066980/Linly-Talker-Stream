@@ -37,9 +37,13 @@ export class StageCaptionWindow {
     this.fragments.push(added)
     const removed = []
     while (this.fragments.length > 1 && this.totalChars > this.maxChars) {
-      removed.push(this.fragments.shift())
+      removed.push(this.evictOldest())
     }
     return { newTurn, added, removed }
+  }
+
+  evictOldest() {
+    return this.fragments.shift() ?? null
   }
 
   clear() {

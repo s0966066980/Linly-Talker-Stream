@@ -138,26 +138,33 @@
   }
   .said.on{opacity:1; transform:none}
   .said::before{content:"「"} .said::after{content:"」"}
+  .reply-wrap{position:relative; width:100%; max-width:100%; display:flex; justify-content:center}
   .reply{
     font-size:clamp(17px, 2.4vh, 23px);
     line-height:1.62;
     font-weight:500;
     letter-spacing:.01em;
     text-shadow:0 2px 18px rgba(0,0,0,.85);
-    max-height:20vh; overflow-y:auto;   /* 再高就會頂到 62% 的按鈕 */
+    --caption-lines:5;
+    max-height:calc(var(--caption-lines) * 1.62em);
+    overflow:clip;
     opacity:0; transform:translateY(8px);
     transition:opacity .35s, transform .35s;
-    scrollbar-width:none;
   }
-  .reply::-webkit-scrollbar{display:none}
   .reply.on{opacity:1; transform:none}
   .reply-fragment{
-    display:inline-block;
-    transition:opacity .26s ease, transform .26s ease;
+    display:inline;
   }
-  .reply-fragment.leaving{
+  .reply-exit-layer{
+    position:absolute; inset:0;
+    pointer-events:none; text-align:center; z-index:1;
+  }
+  .reply-fragment-exit{
+    position:absolute; left:0; right:0;
+    opacity:1; transition:opacity .22s ease;
+  }
+  .reply-fragment-exit.is-exiting{
     opacity:0;
-    transform:translateY(-6px);
   }
 
   /* ── 模式徽章 ─────────────────────────────── */
@@ -236,7 +243,10 @@
 
     <div class="captions">
       <div class="said" id="said"></div>
-      <div class="reply" id="reply"></div>
+      <div class="reply-wrap">
+        <div class="reply-exit-layer" id="replyExitLayer" aria-hidden="true"></div>
+        <div class="reply" id="reply"></div>
+      </div>
     </div>
 
     <div class="veil" id="veil">
@@ -253,13 +263,14 @@ import {
   DEFAULT_STAGE_CAPTION_MAX_CHARS,
   StageCaptionWindow
 } from '/src/stageCaptionWindow.js';
+import { StageCaptionView } from '/src/stageCaptionView.js';
 
 (() => {
   'use strict';
 
   const $ = (id) => document.getElementById(id);
   const stage=$('stage'), video=$('video'), mic=$('mic'), hint=$('hint');
-  const said=$('said'), reply=$('reply'), modeText=$('modeText');
+  const said=$('said'), reply=$('reply'), replyExitLayer=$('replyExitLayer'), modeText=$('modeText');
   const veil=$('veil'), veilTitle=$('veilTitle'), veilText=$('veilText'),
         veilBtn=$('veilBtn'), veilAlt=$('veilAlt');
 
@@ -275,6 +286,7 @@ import {
   let replyTurnId=null, replyRevision=0;
   let configuredCaptionMaxChars=DEFAULT_STAGE_CAPTION_MAX_CHARS;
   let captionWindow=null;
+  let captionView=null;
 
   // ── 舞台狀態 ────────────────────────────────
   // 後端 12 種 state 壓成 4 種視覺語言，異常態走覆蓋層
@@ -310,30 +322,24 @@ import {
       clearReply();
       replyTurnId = normalizedTurnId;
       captionWindow = new StageCaptionWindow(configuredCaptionMaxChars);
+      captionView = new StageCaptionView({
+        container:reply,
+        exitLayer:replyExitLayer,
+        captionWindow
+      });
     }
-    if(!captionWindow){
+    if(!captionWindow || !captionView){
       captionWindow = new StageCaptionWindow(configuredCaptionMaxChars);
+      captionView = new StageCaptionView({
+        container:reply,
+        exitLayer:replyExitLayer,
+        captionWindow
+      });
       replyTurnId = normalizedTurnId;
     }
-    const result = captionWindow.append(text, normalizedTurnId);
-    result.removed.forEach(removeReplyFragment);
-    if(result.added) appendReplyFragment(result.added);
+    captionView.append(text, normalizedTurnId);
     replyRevision++;
     reply.classList.add('on');
-    reply.scrollTop = reply.scrollHeight;
-  }
-  function appendReplyFragment(fragment){
-    const node = document.createElement('span');
-    node.className = 'reply-fragment';
-    node.dataset.fragmentId = String(fragment.id);
-    node.textContent = fragment.text;
-    reply.append(node);
-  }
-  function removeReplyFragment(fragment){
-    const node = reply.querySelector(`[data-fragment-id="${fragment.id}"]`);
-    if(!node) return;
-    node.classList.add('leaving');
-    setTimeout(() => node.remove(), 260);
   }
   function fadeReply(turnId=replyTurnId){
     clearTimeout(replyTimer);
@@ -349,7 +355,11 @@ import {
     replyRevision++;
     replyTurnId = null;
     captionWindow = null;
+    captionView?.clear();
+    captionView?.destroy();
+    captionView = null;
     reply.textContent = '';
+    replyExitLayer.textContent = '';
     reply.classList.remove('on');
   }
   function showSaid(text){

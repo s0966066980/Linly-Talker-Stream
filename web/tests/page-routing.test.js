@@ -54,8 +54,12 @@ test('舞台字幕只接受播放提交事件並取消舊淡出計時', () => {
     /if\(ev\.type === 'turn_cancelled'\)\{[\s\S]*?clearReply\(\);[\s\S]*?\}/
   )
   assert.match(stage, /StageCaptionWindow/)
+  assert.match(stage, /StageCaptionView/)
   assert.match(stage, /fetch\('\/api\/stage'/)
-  assert.match(stage, /reply\.scrollTop = reply\.scrollHeight/)
+  assert.doesNotMatch(stage, /reply\.scrollTop\s*=/)
+  assert.match(stage, /overflow:clip/)
+  assert.match(stage, /reply-exit-layer/)
+  assert.doesNotMatch(stage, /overflow-y:auto/)
 })
 
 test('控制台提供獨立舞台字幕設定與套用操作', () => {
