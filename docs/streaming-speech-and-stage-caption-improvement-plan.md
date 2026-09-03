@@ -494,3 +494,21 @@ git diff --check
 - 離場動畫完全脫離保留字幕的正常排版。
 - 自動化測試能重現原問題並防止回歸。
 - 真實聽感和多尺寸畫面驗證均通過。
+
+## 15. 追加修正：TTS 逾時造成播放錯誤與畫面凍結
+
+2026-09-03 使用「和我說說大陸的歷史」進行真實 WebRTC 測試時，確認長回答會放大 Edge TTS 首包長尾延遲。原流程在片段進入 TTS 前便登記片段，但兩次合成都失敗時沒有回報終止事件；後續片段雖可播放，輪次仍保留永遠不會結束的片段，最後由播放 watchdog 產生 `playback_error_after_commit`。
+
+同一時間，MuseTalk 為避免在部分語音批次中插入靜音，會在 TTS 尚有工作但 PCM 不足時暫停 `audio_stream.run_step()`。遠端 TTS 等待數秒時，這會讓影片輸出停在上一張嘴型並造成 WebRTC 延遲幀丟棄。
+
+追加修正流程：
+
+1. Edge TTS 最終無首包時，透過 BaseTTS、BaseAvatar 將失敗片段 envelope 回報給 `VoiceTurnSession`。
+2. 回報由 TTS worker thread 切回會話 event loop，並再次驗證 `turn_id` 與 generation。
+3. 有效失敗片段立即以 `tts_error_before_commit` 或 `tts_error_after_commit` 結束輪次、清空後續媒體，且只提交已播放文字；不得靜默跳過句子，也不得等待播放 watchdog。
+4. MuseTalk 對不足 PCM 的合併等待上限為 200ms；超過後允許待機／部分批次繼續推進，避免停留在中間嘴型。
+5. Edge 第一次首包等待維持 1.5 秒以快速重連；沒有額外 retry budget 時，第二次等待提高為 10 秒，以承接實測最高 8.33 秒的長尾。明確的一秒共享 retry budget 仍維持原上限。
+
+回歸測試必須涵蓋：最終 TTS 逾時回報、worker-to-event-loop 終止、只提交已播放文字、200ms 有界等待，以及預設／受限 retry timeout。真實驗收要求指定句子連續三輪均為 `completed`，沒有 fragment 序號缺口，最大影音偏移不超過 250ms，且最大音訊 pacing 落後不超過 500ms。
+
+本次三輪驗收結果全部完成；最大影音偏移依序為 40ms、40ms、120ms，最大音訊 pacing 落後為 88ms、58ms、191ms，影片延遲丟幀為 3、2、4。第三輪第二次 Edge 首包約 7.1 秒才到達，但期間沒有再出現秒級數字人凍結。

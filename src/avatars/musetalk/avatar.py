@@ -36,6 +36,7 @@ from tqdm import tqdm
 from src.utils.logging import logger
 
 MIN_VIDEO_BUFFER_FRAMES = 5
+MAX_TTS_AUDIO_WAIT_SECONDS = 0.20
 MOUTH_ACTIVITY_THRESHOLD = 1e-4
 
 
@@ -121,10 +122,12 @@ def should_wait_for_tts_audio(
     queued_audio_frames: int,
     required_audio_frames: int,
     queued_video_frames: int,
+    pending_wait_seconds: float = 0.0,
 ) -> bool:
-    """Keep incomplete speech batches from being padded with mid-sentence silence."""
+    """Briefly protect a partial batch without freezing idle video output."""
     return (
         tts_pending
+        and pending_wait_seconds < MAX_TTS_AUDIO_WAIT_SECONDS
         and queued_audio_frames < required_audio_frames
         and (
             queued_audio_frames > 0
@@ -512,6 +515,7 @@ class MuseTalkAvatar(BaseAvatar):
         count=0
         totaltime=0
         _starttime=time.perf_counter()
+        tts_wait_started_at = None
         #_totalframe=0
         while not quit_event.is_set(): #todo
             # update texture every frame
@@ -522,14 +526,31 @@ class MuseTalkAvatar(BaseAvatar):
                 if self.audio_stream.startup_batch_emitted
                 else self.audio_stream.startup_batch_size * 2
             )
+            tts_pending = self.tts.has_pending_work()
+            queued_audio_frames = self.audio_stream.queue.qsize()
+            now = time.perf_counter()
+            if not tts_pending or queued_audio_frames >= required_audio_frames:
+                tts_wait_started_at = None
+            elif tts_wait_started_at is None:
+                tts_wait_started_at = now
+            pending_wait_seconds = (
+                0.0
+                if tts_wait_started_at is None
+                else now - tts_wait_started_at
+            )
             if should_wait_for_tts_audio(
-                self.tts.has_pending_work(),
-                self.audio_stream.queue.qsize(),
+                tts_pending,
+                queued_audio_frames,
                 required_audio_frames,
                 video_queue_size,
+                pending_wait_seconds,
             ):
                 time.sleep(0.01)
                 continue
+            if tts_pending and queued_audio_frames < required_audio_frames:
+                # Let one idle/partial batch advance after the bounded hold,
+                # then grant the next fragment a fresh short coalescing window.
+                tts_wait_started_at = None
 
             t = time.perf_counter()
             self.audio_stream.run_step()

@@ -363,6 +363,31 @@ class MuseTalkBufferPolicyTests(unittest.TestCase):
             should_wait_for_tts_audio(True, 8, 32, queued_video_frames=4)
         )
 
+    def test_pending_tts_wait_is_bounded_to_keep_idle_video_advancing(self):
+        from src.avatars.musetalk.avatar import (
+            MAX_TTS_AUDIO_WAIT_SECONDS,
+            should_wait_for_tts_audio,
+        )
+
+        self.assertTrue(
+            should_wait_for_tts_audio(
+                True,
+                8,
+                32,
+                queued_video_frames=5,
+                pending_wait_seconds=MAX_TTS_AUDIO_WAIT_SECONDS - 0.001,
+            )
+        )
+        self.assertFalse(
+            should_wait_for_tts_audio(
+                True,
+                8,
+                32,
+                queued_video_frames=5,
+                pending_wait_seconds=MAX_TTS_AUDIO_WAIT_SECONDS,
+            )
+        )
+
     def test_does_not_starve_idle_playback_or_delay_ready_audio(self):
         from src.avatars.musetalk.avatar import should_wait_for_tts_audio
 
@@ -798,6 +823,39 @@ class EdgeTTSStreamingTests(unittest.TestCase):
         ]
         self.assertEqual(len(start_events), 1)
 
+    def test_terminal_timeout_before_audio_reports_fragment_failure(self):
+        failures = []
+
+        class Parent:
+            def put_audio_frame(self, _frame, _eventpoint):
+                raise AssertionError("failed synthesis must not emit audio")
+
+            def notify_fragment_synthesis_failed(self, eventpoint, reason):
+                failures.append((dict(eventpoint), reason))
+
+        class TimeoutCommunicate:
+            async def stream(self):
+                if False:
+                    yield None
+                raise asyncio.TimeoutError
+
+        metadata = {
+            "turn_id": "turn-1",
+            "generation": 3,
+            "fragment_sequence": 4,
+        }
+        tts = self._make_tts(Parent())
+        with patch(
+            "src.tts.engines.edge.edge_tts.Communicate",
+            side_effect=lambda *_args: TimeoutCommunicate(),
+        ):
+            tts.txt_to_audio(("測試最終失敗。", metadata))
+
+        self.assertEqual(
+            failures,
+            [(metadata, "tts_exhausted_before_audio")],
+        )
+
     def test_timeout_after_partial_audio_does_not_sample_splice(self):
         calls = []
 
@@ -974,6 +1032,48 @@ class EdgeTTSStreamingTests(unittest.TestCase):
             )
 
         self.assertEqual(timeouts, [1.5, 1.0])
+
+    def test_default_retry_allows_a_slow_edge_first_byte(self):
+        from src.tts.engines.edge import (
+            EDGE_INITIAL_STREAM_TIMEOUT_SECONDS,
+            EDGE_RETRY_STREAM_TIMEOUT_SECONDS,
+        )
+
+        class Parent:
+            def put_audio_frame(self, _frame, _eventpoint):
+                raise AssertionError("timed out attempts must not emit audio")
+
+        class HangingCommunicate:
+            async def stream(self):
+                await asyncio.Event().wait()
+                if False:
+                    yield None
+
+        timeouts = []
+
+        async def immediate_timeout(awaitable, *, timeout):
+            timeouts.append(timeout)
+            awaitable.close()
+            raise asyncio.TimeoutError
+
+        tts = self._make_tts(Parent())
+        with (
+            patch(
+                "src.tts.engines.edge.edge_tts.Communicate",
+                side_effect=lambda *_args: HangingCommunicate(),
+            ),
+            patch("src.tts.engines.edge.asyncio.wait_for", new=immediate_timeout),
+        ):
+            tts.txt_to_audio(("測試慢速首包。", {}))
+
+        self.assertEqual(
+            timeouts,
+            [
+                EDGE_INITIAL_STREAM_TIMEOUT_SECONDS,
+                EDGE_RETRY_STREAM_TIMEOUT_SECONDS,
+            ],
+        )
+        self.assertGreaterEqual(EDGE_RETRY_STREAM_TIMEOUT_SECONDS, 10.0)
 
 
 if __name__ == "__main__":

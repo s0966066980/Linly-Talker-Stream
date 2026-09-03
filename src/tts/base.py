@@ -90,6 +90,18 @@ class BaseTTS:
         """Return whether text is queued or an engine is currently synthesizing it."""
         return self._synthesis_active.is_set() or not self.msgqueue.empty()
 
+    def notify_fragment_synthesis_failed(
+        self,
+        eventpoint: dict,
+        reason: str,
+    ) -> None:
+        """Report a terminal, pre-audio synthesis failure to the owning turn."""
+        if not eventpoint.get("turn_id"):
+            return
+        notify = getattr(self.parent, "notify_fragment_synthesis_failed", None)
+        if callable(notify):
+            notify(dict(eventpoint), str(reason))
+
     def render(self, quit_event) -> None:
         """啟動獨立執行緒持續消費佇列，呼叫具體引擎的 txt_to_audio。"""
         process_thread = Thread(target=self.process_tts, args=(quit_event,))

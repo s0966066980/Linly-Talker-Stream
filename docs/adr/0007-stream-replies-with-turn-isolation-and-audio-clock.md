@@ -26,3 +26,5 @@ status: accepted
 - `reply_streaming.enabled` 仍預設關閉，因其他 TTS／Avatar 組合尚未取得同等 SLO；legacy 路徑保留為明確回退。
 - direct PCM／decoupled audio clock 實驗路徑未通過聽感與 A/V gate，預設關閉。正式路徑維持單一 renderer-owned audio producer。
 - MuseTalk 段落交界的視覺落差由嘴型連續控制器處理；控制器位於音訊 enqueue 之後，只改嘴部 ROI，不改變本 ADR 的音訊主時鐘。
+- Edge TTS 無首包且重試耗盡時，失敗 envelope 會切回會話 event loop 立即終止輪次，只提交已播回覆；不得留下等待 watchdog 的未結束片段。
+- MuseTalk 等待不足 PCM 的時間限制為 200ms；遠端 TTS 長尾期間必須持續推進待機影格，不能凍結上一張說話嘴型。

@@ -15,9 +15,10 @@ from src.server.reply_streaming.retry import RetryBudget
 from src.utils.logging import logger
 
 
-# Keep the first retry budget bounded so a transient websocket stall does not
-# consume the entire first-audio SLO before the fallback attempt starts.
-EDGE_STREAM_TIMEOUT_SECONDS = 1.5
+# Fail over quickly once, then tolerate Edge's observed long-tail first-byte
+# latency without opening additional websocket requests in a retry storm.
+EDGE_INITIAL_STREAM_TIMEOUT_SECONDS = 1.5
+EDGE_RETRY_STREAM_TIMEOUT_SECONDS = 10.0
 EDGE_MAX_ATTEMPTS = 2
 ACTIVITY_THRESHOLD = 1e-4
 ONSET_THRESHOLD = 1e-5
@@ -334,6 +335,10 @@ class EdgeTTS(BaseTTS):
             )
         except Exception:
             logger.exception("Edge TTS streaming failed")
+            self.notify_fragment_synthesis_failed(
+                textevent,
+                "tts_exhausted_before_audio",
+            )
         finally:
             logger.info(
                 "-------edge tts total stream time:%.4fs",
@@ -372,6 +377,10 @@ class EdgeTTS(BaseTTS):
             )
         except Exception:
             logger.exception("Edge TTS fragment streaming failed")
+            self.notify_fragment_synthesis_failed(
+                textevent,
+                "tts_exhausted_before_audio",
+            )
 
     def _fragment_committed_predicate(
         self, textevent: dict
@@ -440,7 +449,7 @@ class EdgeTTS(BaseTTS):
         start_event_sent = False
         first_audio_logged = False
         first_encoded_logged = False
-        retry_timeout_seconds = EDGE_STREAM_TIMEOUT_SECONDS
+        retry_timeout_seconds = EDGE_RETRY_STREAM_TIMEOUT_SECONDS
         for attempt in range(1, EDGE_MAX_ATTEMPTS + 1):
             emitter = _EdgePCMEmitter(
                 self,
@@ -468,7 +477,7 @@ class EdgeTTS(BaseTTS):
                         item = await asyncio.wait_for(
                             iterator.__anext__(),
                             timeout=(
-                                EDGE_STREAM_TIMEOUT_SECONDS
+                                EDGE_INITIAL_STREAM_TIMEOUT_SECONDS
                                 if attempt == 1
                                 else retry_timeout_seconds
                             ),

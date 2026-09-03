@@ -24,6 +24,7 @@ class FakeClock:
 class FakeAvatar:
     def __init__(self):
         self.on_fragment_queued = None
+        self.on_fragment_failed = None
         self.flush_count = 0
 
     def configure_media_fence(
@@ -32,11 +33,13 @@ class FakeAvatar:
         media_guard,
         on_stale_drop,
         on_fragment_queued=None,
+        on_fragment_failed=None,
         **_unused,
     ):
         self.media_guard = media_guard
         self.on_stale_drop = on_stale_drop
         self.on_fragment_queued = on_fragment_queued
+        self.on_fragment_failed = on_fragment_failed
 
     def flush_talk(self):
         self.flush_count += 1
@@ -230,6 +233,46 @@ class PlaybackCommitTests(unittest.IsolatedAsyncioTestCase):
         commit.assert_not_called()
         self.assertEqual(session._silent_output_frames, 0)
         self.assertEqual(session._turn_id, "turn-1")
+        await session.close()
+
+    async def test_tts_failure_after_commit_fails_turn_without_waiting_for_watchdog(self):
+        session, avatar, events = self.make_session()
+        session._event_loop = asyncio.get_running_loop()
+        first = {
+            "turn_id": "turn-1",
+            "generation": 0,
+            "fragment_sequence": 0,
+            "fragment_end": True,
+        }
+        failed = {
+            "turn_id": "turn-1",
+            "generation": 0,
+            "fragment_sequence": 1,
+        }
+        avatar.on_fragment_queued("已播放。", first)
+        avatar.on_fragment_queued("合成失敗。", failed)
+        session.on_output_audio_frame(first, True)
+        session.on_output_audio(True)
+
+        with patch(
+            "src.server.voice_session.commit_session_history",
+            return_value=True,
+        ) as commit:
+            avatar.on_fragment_failed(failed, "tts_exhausted_before_audio")
+            await asyncio.sleep(0)
+
+        commit.assert_called_once_with(
+            9,
+            "turn-1",
+            assistant_text="已播放。",
+            terminal_reason="tts_error_after_commit",
+        )
+        self.assertEqual(avatar.flush_count, 1)
+        error = next(event for event in events if event.get("state") == "error")
+        self.assertEqual(error["error"], "tts_error_after_commit")
+        metrics = next(event for event in events if event["type"] == "turn_metrics")
+        self.assertEqual(metrics["terminal_reason"], "tts_error_after_commit")
+        self.assertIsNone(session._turn_id)
         await session.close()
 
     async def test_completed_turn_emits_content_free_soak_metrics(self):

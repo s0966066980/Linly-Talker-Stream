@@ -93,6 +93,7 @@ class VoiceTurnSession:
                 media_guard=self.accepts_media,
                 on_stale_drop=self.record_stale_drop,
                 on_fragment_queued=self.register_fragment,
+                on_fragment_failed=self.on_fragment_synthesis_failed,
                 fragment_playback_committed=self.fragment_playback_committed,
                 on_tts_onset_preroll_ms=self.observe_tts_onset_preroll_ms,
                 on_tts_retry=self.observe_tts_retry,
@@ -552,6 +553,58 @@ class VoiceTurnSession:
         self.mark_stage_start("webrtc_audio_commit")
         return True
 
+    def on_fragment_synthesis_failed(
+        self,
+        eventpoint: dict,
+        reason: str,
+    ) -> None:
+        """Marshal a TTS-worker failure onto the session event loop."""
+        failed_event = dict(eventpoint or {})
+        if not self.accepts_media(failed_event, "fragment_synthesis_failure"):
+            self.record_stale_drop(
+                "fragment_synthesis_failure",
+                "stale_generation",
+            )
+            return
+        loop = self._event_loop
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(
+                self._handle_fragment_synthesis_failure,
+                failed_event,
+                str(reason),
+            )
+            return
+        self._handle_fragment_synthesis_failure(failed_event, str(reason))
+
+    def _handle_fragment_synthesis_failure(
+        self,
+        eventpoint: dict,
+        reason: str,
+    ) -> None:
+        if not self.accepts_media(eventpoint, "fragment_synthesis_failure"):
+            self.record_stale_drop(
+                "fragment_synthesis_failure",
+                "stale_generation",
+            )
+            return
+        try:
+            sequence = int(eventpoint["fragment_sequence"])
+        except (KeyError, TypeError, ValueError):
+            return
+        with self._fragment_lock:
+            if sequence not in self._fragment_texts:
+                return
+            if sequence in self._ended_fragment_sequences:
+                return
+        logger.warning(
+            "TTS fragment failed turn=%s generation=%s fragment=%s reason=%s",
+            eventpoint.get("turn_id"),
+            eventpoint.get("generation"),
+            sequence,
+            reason,
+        )
+        self._fail_playback_turn(reason_prefix="tts_error")
+
     def fragment_playback_committed(self, eventpoint: dict) -> bool:
         """True after a non-silent WebRTC frame for this fragment has been sent."""
         try:
@@ -633,14 +686,14 @@ class VoiceTurnSession:
         has_pending_work = getattr(tts, "has_pending_work", None)
         return bool(has_pending_work()) if callable(has_pending_work) else False
 
-    def _fail_playback_turn(self) -> None:
+    def _fail_playback_turn(self, *, reason_prefix: str = "playback_error") -> None:
         turn_id = self._turn_id
         if not turn_id:
             return
         reason = (
-            "playback_error_after_commit"
+            f"{reason_prefix}_after_commit"
             if self.played_assistant_text
-            else "playback_error_before_commit"
+            else f"{reason_prefix}_before_commit"
         )
         if self._turn_context is not None and not self._turn_context.terminal:
             self._turn_context.fail(reason)

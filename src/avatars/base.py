@@ -128,6 +128,7 @@ class BaseAvatar:
         self._media_guard = None
         self._on_stale_drop = None
         self._on_fragment_queued = None
+        self._on_fragment_failed = None
         self._fragment_playback_committed = None
         self._on_tts_onset_preroll_ms = None
         self._on_tts_retry = None
@@ -158,6 +159,7 @@ class BaseAvatar:
         media_guard,
         on_stale_drop,
         on_fragment_queued=None,
+        on_fragment_failed=None,
         fragment_playback_committed=None,
         on_tts_onset_preroll_ms=None,
         on_tts_retry=None,
@@ -168,6 +170,7 @@ class BaseAvatar:
         self._media_guard = media_guard
         self._on_stale_drop = on_stale_drop
         self._on_fragment_queued = on_fragment_queued
+        self._on_fragment_failed = on_fragment_failed
         self._fragment_playback_committed = fragment_playback_committed
         self._on_tts_onset_preroll_ms = on_tts_onset_preroll_ms
         self._on_tts_retry = on_tts_retry
@@ -244,6 +247,15 @@ class BaseAvatar:
         if not callable(checker):
             return False
         return bool(checker(eventpoint))
+
+    def notify_fragment_synthesis_failed(
+        self,
+        eventpoint: dict,
+        reason: str,
+    ) -> None:
+        callback = self._on_fragment_failed
+        if callable(callback):
+            callback(dict(eventpoint), str(reason))
 
     def observe_tts_onset_preroll_ms(self, milliseconds: float) -> None:
         if self._on_tts_onset_preroll_ms is not None:
