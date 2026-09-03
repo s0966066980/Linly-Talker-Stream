@@ -43,6 +43,10 @@ from src.utils.logging import logger
 
 _SWITCH_LOCK = threading.Lock()
 
+DEFAULT_STAGE_CAPTION_MAX_CHARS = 120
+MIN_STAGE_CAPTION_MAX_CHARS = 20
+MAX_STAGE_CAPTION_MAX_CHARS = 2000
+
 
 class SettingsError(Exception):
     def __init__(self, message: str, status: int = 400, extra: Optional[Dict[str, Any]] = None):
@@ -126,7 +130,46 @@ def current_snapshot(config) -> Dict[str, Any]:
         "characters": characters,
         "vad": vad_snapshot(config),
         "speech": speech_snapshot(config),
+        "stage": stage_snapshot(config),
     }
+
+
+def validate_stage_caption_max_chars(value) -> int:
+    """驗證舞台字幕顯示上限。"""
+    if isinstance(value, bool):
+        raise ValueError("舞台字幕顯示上限必須是整數")
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("舞台字幕顯示上限必須是整數") from exc
+    if isinstance(value, float) and not value.is_integer():
+        raise ValueError("舞台字幕顯示上限必須是整數")
+    if not MIN_STAGE_CAPTION_MAX_CHARS <= normalized <= MAX_STAGE_CAPTION_MAX_CHARS:
+        raise ValueError(
+            f"舞台字幕顯示上限必須介於 {MIN_STAGE_CAPTION_MAX_CHARS} 到 "
+            f"{MAX_STAGE_CAPTION_MAX_CHARS} 之間"
+        )
+    return normalized
+
+
+def stage_snapshot(config) -> Dict[str, Any]:
+    stage = getattr(config, "stage", None)
+    value = getattr(stage, "caption_max_chars", DEFAULT_STAGE_CAPTION_MAX_CHARS)
+    return {"caption_max_chars": validate_stage_caption_max_chars(value)}
+
+
+def apply_stage_settings(config, params: Dict[str, Any]) -> Dict[str, Any]:
+    """更新並持久化數字人舞台顯示設定。"""
+    stage = getattr(config, "stage", None)
+    if stage is None:
+        raise SettingsError("當前配置不支援舞台設定，請更新 config.yaml", status=400)
+    value = (params or {}).get("caption_max_chars", stage.caption_max_chars)
+    try:
+        stage.caption_max_chars = validate_stage_caption_max_chars(value)
+    except ValueError as exc:
+        raise SettingsError(str(exc)) from exc
+    persist_runtime_overrides(config)
+    return stage_snapshot(config)
 
 
 async def fetch_ollama_models(base_url: str) -> Dict[str, Any]:

@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any
 from .schema import (
     Config, AppConfig, ModelConfig, TTSConfig, ASRConfig, VADConfig, LLMConfig,
     AudioConfig, VideoConfig, CustomVideoConfig, ERNeRfConfig, TalkingGaussianConfig,
-    MuseTalkQualityConfig, Wav2LipQualityConfig, ReplyStreamingConfig,
+    MuseTalkQualityConfig, Wav2LipQualityConfig, ReplyStreamingConfig, StageConfig,
 )
 
 
@@ -111,6 +111,7 @@ def dict_to_config(config_dict: Dict) -> Config:
     video_config = VideoConfig(**config_dict.get('video', {}))
     custom_video_config = CustomVideoConfig(**config_dict.get('custom_video', {}))
     reply_streaming_config = ReplyStreamingConfig(**config_dict.get('reply_streaming', {}))
+    stage_config = StageConfig(**config_dict.get('stage', {}))
 
     return Config(
         app=app_config,
@@ -123,6 +124,7 @@ def dict_to_config(config_dict: Dict) -> Config:
         video=video_config,
         custom_video=custom_video_config,
         reply_streaming=reply_streaming_config,
+        stage=stage_config,
     )
 
 

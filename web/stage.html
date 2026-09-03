@@ -151,6 +151,14 @@
   }
   .reply::-webkit-scrollbar{display:none}
   .reply.on{opacity:1; transform:none}
+  .reply-fragment{
+    display:inline-block;
+    transition:opacity .26s ease, transform .26s ease;
+  }
+  .reply-fragment.leaving{
+    opacity:0;
+    transform:translateY(-6px);
+  }
 
   /* ── 模式徽章 ─────────────────────────────── */
   .mode{
@@ -240,7 +248,12 @@
   </main>
 </div>
 
-<script>
+<script type="module">
+import {
+  DEFAULT_STAGE_CAPTION_MAX_CHARS,
+  StageCaptionWindow
+} from '/src/stageCaptionWindow.js';
+
 (() => {
   'use strict';
 
@@ -260,6 +273,8 @@
   let live=false;
   let replyTimer=null, saidTimer=null;
   let replyTurnId=null, replyRevision=0;
+  let configuredCaptionMaxChars=DEFAULT_STAGE_CAPTION_MAX_CHARS;
+  let captionWindow=null;
 
   // ── 舞台狀態 ────────────────────────────────
   // 後端 12 種 state 壓成 4 種視覺語言，異常態走覆蓋層
@@ -289,12 +304,36 @@
 
   function showReply(text, turnId){
     clearTimeout(replyTimer);
-    const sameTurn = Boolean(turnId) && turnId === replyTurnId;
-    reply.textContent = sameTurn ? reply.textContent + text : text;
-    replyTurnId = turnId || null;
+    const normalizedTurnId = turnId || null;
+    const newTurn = normalizedTurnId !== replyTurnId;
+    if(newTurn){
+      clearReply();
+      replyTurnId = normalizedTurnId;
+      captionWindow = new StageCaptionWindow(configuredCaptionMaxChars);
+    }
+    if(!captionWindow){
+      captionWindow = new StageCaptionWindow(configuredCaptionMaxChars);
+      replyTurnId = normalizedTurnId;
+    }
+    const result = captionWindow.append(text, normalizedTurnId);
+    result.removed.forEach(removeReplyFragment);
+    if(result.added) appendReplyFragment(result.added);
     replyRevision++;
     reply.classList.add('on');
-    reply.scrollTop = 0;
+    reply.scrollTop = reply.scrollHeight;
+  }
+  function appendReplyFragment(fragment){
+    const node = document.createElement('span');
+    node.className = 'reply-fragment';
+    node.dataset.fragmentId = String(fragment.id);
+    node.textContent = fragment.text;
+    reply.append(node);
+  }
+  function removeReplyFragment(fragment){
+    const node = reply.querySelector(`[data-fragment-id="${fragment.id}"]`);
+    if(!node) return;
+    node.classList.add('leaving');
+    setTimeout(() => node.remove(), 260);
   }
   function fadeReply(turnId=replyTurnId){
     clearTimeout(replyTimer);
@@ -309,6 +348,7 @@
     clearTimeout(replyTimer);
     replyRevision++;
     replyTurnId = null;
+    captionWindow = null;
     reply.textContent = '';
     reply.classList.remove('on');
   }
@@ -362,6 +402,18 @@
       if(live) setCapture(autoMode && !speaking);
       setMode(); refreshAffordance();
     }catch(_){ /* 後台不可達時維持現有模式 */ }
+  }
+
+  async function syncStageSettings(){
+    try{
+      const r = await fetch('/api/stage', {cache:'no-store'});
+      if(!r.ok) return;
+      const payload = await r.json();
+      const next = Number(payload?.data?.caption_max_chars);
+      if(Number.isInteger(next) && next >= 20 && next <= 2000){
+        configuredCaptionMaxChars = next;
+      }
+    }catch(_){ /* 後台不可達時維持現有舞台設定 */ }
   }
 
   // ── 會話事件 ────────────────────────────────
@@ -543,6 +595,7 @@
   veilBtn.onclick = async () => {
     veilBtn.hidden = true;
     await syncVadMode();
+    await syncStageSettings();
     await connect();
     try{ await video.play(); }catch(_){}
   };
@@ -550,7 +603,7 @@
   addEventListener('beforeunload', teardown);
 
   // 後台改 VAD 開關後，這裡最多 5 秒跟上
-  setInterval(syncVadMode, 5000);
+  setInterval(() => { syncVadMode(); syncStageSettings(); }, 5000);
   setMode();
 })();
 </script>

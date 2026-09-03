@@ -656,6 +656,61 @@
           </section>
 
           <section
+            v-show="activeSettingsTab === 'stage'"
+            id="settings-panel-stage"
+            class="settings-tab-panel"
+            role="tabpanel"
+            aria-labelledby="settings-tab-stage"
+            tabindex="0"
+          >
+            <div class="settings-section">
+              <h4><i class="bi bi-badge-cc"></i> {{ t('settings.stage.title') }}</h4>
+              <p class="section-hint">{{ t('settings.stage.desc') }}</p>
+
+              <div class="setting-item setting-item-stack">
+                <div class="setting-label">
+                  <label for="stage-caption-max-chars">{{ t('settings.stage.captionMaxChars') }}</label>
+                  <span id="stage-caption-max-chars-hint" class="setting-desc">
+                    {{ t('settings.stage.captionMaxCharsDesc') }}
+                  </span>
+                </div>
+                <div class="setting-control setting-control-grow">
+                  <input
+                    id="stage-caption-max-chars"
+                    v-model.number="selectedStageCaptionMaxChars"
+                    type="number"
+                    min="20"
+                    max="2000"
+                    step="1"
+                    :disabled="applyingStage || loadingSettings"
+                    :aria-invalid="stageCaptionLengthError"
+                    aria-describedby="stage-caption-max-chars-hint stage-caption-max-chars-meta"
+                  >
+                  <div id="stage-caption-max-chars-meta" class="field-meta">
+                    <span v-if="stageCaptionLengthError" class="field-error" role="alert">
+                      {{ t('settings.stage.captionMaxCharsRange') }}
+                    </span>
+                    <span class="character-count">
+                      {{ selectedStageCaptionMaxChars || '—' }} {{ t('settings.stage.unit') }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <p v-if="stageError" class="inline-error" role="alert">{{ stageError }}</p>
+              <button
+                class="btn-apply"
+                type="button"
+                :disabled="!stageDirty || applyingStage || stageCaptionLengthError"
+                @click="handleApplyStage"
+              >
+                <i :class="applyingStage ? 'bi bi-hourglass-split spin' : 'bi bi-check-lg'"></i>
+                {{ applyingStage ? t('settings.stage.applying') : t('settings.stage.apply') }}
+              </button>
+            </div>
+          </section>
+
+          <section
             v-show="activeSettingsTab === 'experience'"
             id="settings-panel-experience"
             class="settings-tab-panel"
@@ -1151,6 +1206,7 @@ const settingsContentRef = ref(null)
 const settingsTabs = computed(() => [
   { id: 'ai', icon: 'bi bi-cpu', label: t('settings.tabs.ai') },
   { id: 'avatar', icon: 'bi bi-person-video3', label: t('settings.tabs.avatar') },
+  { id: 'stage', icon: 'bi bi-badge-cc', label: t('settings.tabs.stage') },
   { id: 'voice', icon: 'bi bi-mic', label: t('settings.tabs.voice') },
   { id: 'experience', icon: 'bi bi-sliders2', label: t('settings.tabs.experience') }
 ])
@@ -1172,6 +1228,7 @@ const {
   loadingModels,
   applyingLlm,
   applyingAvatar,
+  applyingStage,
   applyMouthQuality,
   qualityDraft,
   qualityDirty,
@@ -1179,19 +1236,24 @@ const {
   qualityError,
   settingsError,
   modelsError,
+  stageError,
   selectedEngine,
   selectedAvatarId,
   selectedLlm,
   selectedSystemPrompt,
   selectedResponseMaxChars,
   selectedReplyMode,
+  selectedStageCaptionMaxChars,
   responseLengthError,
+  stageCaptionLengthError,
   filteredCharacters,
   llmDirty,
+  stageDirty,
   avatarDirty,
   loadRuntimeSettings,
   loadOllamaModels,
   applyLlmModel,
+  applyStageSettings,
   selectProvider,
   applyAvatar,
   importCharacter,
@@ -1393,6 +1455,15 @@ const handleApplyLlm = async () => {
   try {
     await applyLlmModel()
     emit('notification', t('notifications.llmSettingsUpdated'), 'success')
+  } catch (error) {
+    emit('notification', error.message, 'error')
+  }
+}
+
+const handleApplyStage = async () => {
+  try {
+    await applyStageSettings()
+    emit('notification', t('notifications.stageSettingsUpdated'), 'success')
   } catch (error) {
     emit('notification', error.message, 'error')
   }

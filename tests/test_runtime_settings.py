@@ -23,7 +23,10 @@ from src.avatars.catalog import (
 from src.config.overrides import load_runtime_overrides, persist_runtime_overrides
 from src.llm.base import with_response_length_instruction
 from src.server.runtime_settings import (
+    MAX_STAGE_CAPTION_MAX_CHARS,
+    MIN_STAGE_CAPTION_MAX_CHARS,
     SettingsError,
+    apply_stage_settings,
     _is_embedding_model,
     apply_llm_model,
     apply_avatar,
@@ -34,6 +37,7 @@ from src.server.runtime_settings import (
     apply_stt_settings,
     apply_tts_settings,
     speech_snapshot,
+    stage_snapshot,
 )
 from src.config.schema import Config
 
@@ -196,6 +200,7 @@ class OverridePersistTests(unittest.TestCase):
                     "decoupled_audio_clock": False,
                 },
             )
+            self.assertEqual(data["stage"], {"caption_max_chars": 120})
 
 
 class DefaultPromptSettingsTests(unittest.TestCase):
@@ -269,6 +274,43 @@ class DefaultPromptSettingsTests(unittest.TestCase):
             snapshot = current_snapshot(config)
 
         self.assertEqual(snapshot["llm"]["response_max_chars"], 240)
+
+    def test_snapshot_exposes_stage_caption_limit(self):
+        config = Config()
+        config.stage.caption_max_chars = 240
+        with patch(
+            "src.server.runtime_settings.list_avatar_characters", return_value=[]
+        ), patch("src.server.runtime_settings.list_engines", return_value=[]):
+            snapshot = current_snapshot(config)
+
+        self.assertEqual(snapshot["stage"]["caption_max_chars"], 240)
+
+    def test_apply_stage_settings_updates_and_persists(self):
+        config = Config()
+
+        with patch("src.server.runtime_settings.persist_runtime_overrides") as persist:
+            result = apply_stage_settings(config, {"caption_max_chars": 360})
+
+        self.assertEqual(config.stage.caption_max_chars, 360)
+        self.assertEqual(result, {"caption_max_chars": 360})
+        persist.assert_called_once_with(config)
+
+    def test_apply_stage_settings_rejects_invalid_values(self):
+        for value in (
+            MIN_STAGE_CAPTION_MAX_CHARS - 1,
+            MAX_STAGE_CAPTION_MAX_CHARS + 1,
+            120.5,
+            True,
+            "not-a-number",
+        ):
+            with self.subTest(value=value), self.assertRaises(SettingsError):
+                apply_stage_settings(Config(), {"caption_max_chars": value})
+
+    def test_stage_snapshot_rejects_invalid_config_value(self):
+        config = Config()
+        config.stage.caption_max_chars = 19
+        with self.assertRaises(ValueError):
+            stage_snapshot(config)
 
     def test_apply_llm_updates_response_length_and_token_budget(self):
         config = Config()

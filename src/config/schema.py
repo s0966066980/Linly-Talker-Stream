@@ -282,6 +282,12 @@ class ReplyStreamingConfig:
 
 
 @dataclass
+class StageConfig:
+    """數字人舞台顯示配置。"""
+    caption_max_chars: int = 120
+
+
+@dataclass
 class Config:
     """全域性配置"""
     app: AppConfig = field(default_factory=AppConfig)
@@ -294,6 +300,7 @@ class Config:
     video: VideoConfig = field(default_factory=VideoConfig)
     custom_video: CustomVideoConfig = field(default_factory=CustomVideoConfig)
     reply_streaming: ReplyStreamingConfig = field(default_factory=ReplyStreamingConfig)
+    stage: StageConfig = field(default_factory=StageConfig)
     
     # 其他動態配置
     sessionid: int = 0

@@ -52,6 +52,11 @@ def persist_runtime_overrides(config) -> None:
                 )
             ),
         },
+        "stage": {
+            "caption_max_chars": int(
+                getattr(getattr(config, "stage", None), "caption_max_chars", 120)
+            ),
+        },
     }
 
     vad = getattr(config, "vad", None)

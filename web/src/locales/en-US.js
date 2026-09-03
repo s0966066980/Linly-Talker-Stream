@@ -78,6 +78,7 @@ export default {
       label: 'Settings categories',
       ai: 'AI Models',
       avatar: 'Avatar',
+      stage: 'Stage',
       voice: 'Voice',
       experience: 'Experience'
     },
@@ -134,6 +135,17 @@ export default {
       needDisconnect: 'Switching the digital human will disconnect the current session. Reconnect after it finishes loading.',
       confirmTitle: 'Switch digital human',
       confirmMessage: 'This will disconnect the current session and reload the model or character assets. It may take tens of seconds. Continue?'
+    },
+
+    stage: {
+      title: 'Stage captions',
+      desc: 'Keep a rolling window of the latest reply fragments on the digital human stage. This does not change model output length.',
+      captionMaxChars: 'Caption display limit',
+      captionMaxCharsDesc: 'Counts user-perceived characters. The oldest complete fragment is removed when the limit is exceeded; applies from the next turn.',
+      captionMaxCharsRange: 'Enter a whole number from 20 to 2000.',
+      unit: 'characters',
+      apply: 'Apply stage settings',
+      applying: 'Saving stage settings...'
     },
 
     quality: {
@@ -336,6 +348,7 @@ export default {
     vadSwitched: 'VAD updated',
     avatarImported: 'Character created. Select it above and apply',
     qualityApplied: 'Mouth settings saved; they apply on the next spoken reply',
+    stageSettingsUpdated: 'Stage caption settings updated; they apply on the next turn',
     backendReady: 'Backend is ready, you can start connecting',
     backendTimeout: 'Backend startup timeout, please check service status',
     connectSuccess: 'Connected successfully! You can now start chatting with me.',

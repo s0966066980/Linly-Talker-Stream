@@ -18,11 +18,13 @@ from src.server.runtime_settings import (
     apply_stt_settings,
     apply_tts_settings,
     apply_vad_settings,
+    apply_stage_settings,
     current_snapshot,
     fetch_llm_catalog,
     quality_from_model,
     vad_snapshot,
     speech_snapshot,
+    stage_snapshot,
 )
 from src.server.state import state
 from src.utils.logging import logger
@@ -112,6 +114,26 @@ async def get_speech_settings(request):
     if not state.config:
         return _json({"code": -1, "msg": "服務尚未就緒"}, status=503)
     return _json({"code": 0, "data": speech_snapshot(state.config)})
+
+
+async def get_stage_settings(request):
+    if not state.config:
+        return _json({"code": -1, "msg": "服務尚未就緒"}, status=503)
+    return _json({"code": 0, "data": stage_snapshot(state.config)})
+
+
+async def set_stage_settings(request):
+    if not state.config:
+        return _json({"code": -1, "msg": "服務尚未就緒"}, status=503)
+    try:
+        params = await request.json()
+        result = apply_stage_settings(state.config, params)
+        return _json({"code": 0, "msg": "ok", "data": result})
+    except SettingsError as exc:
+        return _json({"code": -1, "msg": exc.message, **exc.extra}, status=exc.status)
+    except Exception as exc:
+        logger.exception("更新舞台設定失敗")
+        return _json({"code": -1, "msg": str(exc)}, status=500)
 
 
 async def set_stt_settings(request):

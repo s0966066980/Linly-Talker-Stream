@@ -11,6 +11,10 @@ const startup = readFileSync(
   new URL('../../scripts/start-all.sh', import.meta.url),
   'utf8'
 )
+const settingsPanel = readFileSync(
+  new URL('../src/components/SettingsPanel.vue', import.meta.url),
+  'utf8'
+)
 
 test('控制台與舞台 offer 帶有不同 client role', () => {
   assert.match(consoleWebRTC, /client_role:\s*['"]console['"]/) // console offer
@@ -49,6 +53,18 @@ test('舞台字幕只接受播放提交事件並取消舊淡出計時', () => {
     stage,
     /if\(ev\.type === 'turn_cancelled'\)\{[\s\S]*?clearReply\(\);[\s\S]*?\}/
   )
+  assert.match(stage, /StageCaptionWindow/)
+  assert.match(stage, /fetch\('\/api\/stage'/)
+  assert.match(stage, /reply\.scrollTop = reply\.scrollHeight/)
+})
+
+test('控制台提供獨立舞台字幕設定與套用操作', () => {
+  assert.match(settingsPanel, /id: 'stage'/)
+  assert.match(settingsPanel, /id="settings-panel-stage"/)
+  assert.match(settingsPanel, /id="stage-caption-max-chars"/)
+  assert.match(settingsPanel, /@click="handleApplyStage"/)
+  assert.match(settingsPanel, /min="20"/)
+  assert.match(settingsPanel, /max="2000"/)
 })
 
 test('控制台不會把舊模式完整回覆與播放提交片段重複顯示', () => {

@@ -9,6 +9,9 @@ const runtime = reactive({
     response_max_chars: 120,
     reply_mode: 'legacy'
   },
+  stage: {
+    caption_max_chars: 120
+  },
   avatar: {
     type: '',
     avatar_id: ''
@@ -153,10 +156,12 @@ const loadingSettings = ref(false)
 const loadingModels = ref(false)
 const applyingLlm = ref(false)
 const applyingAvatar = ref(false)
+const applyingStage = ref(false)
 const applyingVad = ref(false)
 const comparingVad = ref(false)
 const settingsError = ref('')
 const modelsError = ref('')
+const stageError = ref('')
 const vadError = ref('')
 const vadCompareError = ref('')
 const vadCompareResult = ref(null)
@@ -167,9 +172,15 @@ const selectedLlm = ref('')
 const selectedSystemPrompt = ref('')
 const selectedResponseMaxChars = ref(120)
 const selectedReplyMode = ref('legacy')
+const selectedStageCaptionMaxChars = ref(120)
 
 const responseLengthError = computed(() => {
   const value = Number(selectedResponseMaxChars.value)
+  return !Number.isInteger(value) || value < 20 || value > 2000
+})
+
+const stageCaptionLengthError = computed(() => {
+  const value = Number(selectedStageCaptionMaxChars.value)
   return !Number.isInteger(value) || value < 20 || value > 2000
 })
 
@@ -192,6 +203,11 @@ const llmDirty = computed(() => {
     selectedReplyMode.value !== (runtime.llm.reply_mode || 'legacy')
   )
 })
+
+const stageDirty = computed(() => (
+  !stageCaptionLengthError.value &&
+  Number(selectedStageCaptionMaxChars.value) !== Number(runtime.stage.caption_max_chars || 120)
+))
 
 const avatarDirty = computed(() => {
   const changed = (
@@ -515,6 +531,9 @@ async function applyMouthQuality() {
 
 function applySnapshot(data) {
   runtime.llm = data.llm
+  runtime.stage = {
+    caption_max_chars: Number(data.stage?.caption_max_chars || 120)
+  }
   runtime.avatar = data.avatar
   runtime.avatar_quality = mergeQuality(data.avatar_quality)
   assignQualityDraft(runtime.avatar_quality)
@@ -535,6 +554,7 @@ function applySnapshot(data) {
   selectedSystemPrompt.value = data.llm?.system_prompt || ''
   selectedResponseMaxChars.value = Number(data.llm?.response_max_chars || 120)
   selectedReplyMode.value = data.llm?.reply_mode || 'legacy'
+  selectedStageCaptionMaxChars.value = runtime.stage.caption_max_chars
 }
 
 async function loadRuntimeSettings() {
@@ -635,6 +655,28 @@ async function applyLlmModel(
     return data
   } finally {
     applyingLlm.value = false
+  }
+}
+
+async function applyStageSettings(
+  captionMaxChars = selectedStageCaptionMaxChars.value
+) {
+  applyingStage.value = true
+  stageError.value = ''
+  try {
+    const data = await parseJson(await fetch('/api/stage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ caption_max_chars: Number(captionMaxChars) })
+    }))
+    runtime.stage.caption_max_chars = Number(data.caption_max_chars)
+    selectedStageCaptionMaxChars.value = runtime.stage.caption_max_chars
+    return data
+  } catch (error) {
+    stageError.value = error.message
+    throw error
+  } finally {
+    applyingStage.value = false
   }
 }
 
@@ -749,22 +791,28 @@ export function useRuntimeSettings() {
     loadingModels,
     applyingLlm,
     applyingAvatar,
+    applyingStage,
     settingsError,
     modelsError,
+    stageError,
     selectedEngine,
     selectedAvatarId,
     selectedLlm,
     selectedSystemPrompt,
     selectedResponseMaxChars,
     selectedReplyMode,
+    selectedStageCaptionMaxChars,
     responseLengthError,
+    stageCaptionLengthError,
     filteredCharacters,
     llmDirty,
+    stageDirty,
     avatarDirty,
     selectedEngineInfo,
     loadRuntimeSettings,
     loadOllamaModels,
     applyLlmModel,
+    applyStageSettings,
     applyAvatar,
     applyMouthQuality,
     qualityDraft,

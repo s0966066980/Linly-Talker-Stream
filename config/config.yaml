@@ -96,6 +96,10 @@ llm:
 reply_streaming:
   enabled: false
 
+# 數字人舞台字幕顯示窗口；只影響舞台顯示，不限制模型生成長度
+stage:
+  caption_max_chars: 120
+
 # VAD 服務端語音端點檢測：固定使用 Silero；WebRTC 負責傳輸，不負責判定語音
 vad:
   enabled: true

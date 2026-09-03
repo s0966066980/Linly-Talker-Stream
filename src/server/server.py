@@ -48,6 +48,8 @@ def create_app():
     app.router.add_get("/api/speech", routes.get_speech_settings)
     app.router.add_post("/api/speech/stt", routes.set_stt_settings)
     app.router.add_post("/api/speech/tts", routes.set_tts_settings)
+    app.router.add_get("/api/stage", routes.get_stage_settings)
+    app.router.add_post("/api/stage", routes.set_stage_settings)
     app.router.add_get("/api/avatars/{avatar_id}/preview", routes.avatar_preview)
     app.router.add_post("/api/avatars/import", routes.import_avatar)
     app.router.add_get("/api/avatars/import/{job_id}", routes.import_avatar_status)

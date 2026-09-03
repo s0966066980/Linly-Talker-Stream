@@ -78,6 +78,7 @@ export default {
       label: '設定分類',
       ai: 'AI 模型',
       avatar: '數字人',
+      stage: '舞台',
       voice: '語音',
       experience: '使用體驗'
     },
@@ -134,6 +135,17 @@ export default {
       needDisconnect: '切換數位人會中斷目前連線，載入完成後請重新啟動連線。',
       confirmTitle: '切換數位人',
       confirmMessage: '切換數位人會中斷目前連線，並重新載入模型或角色素材，可能需要數十秒。確定繼續？'
+    },
+
+    stage: {
+      title: '舞台字幕',
+      desc: '設定數字人舞台保留的最新回覆片段。這不會改變模型生成的回覆長度。',
+      captionMaxChars: '字幕顯示上限',
+      captionMaxCharsDesc: '以使用者感知的字元計算，超過時移除最早的完整片段；設定從下一輪對話生效。',
+      captionMaxCharsRange: '請輸入 20 到 2000 之間的整數。',
+      unit: '字',
+      apply: '套用舞台設定',
+      applying: '正在儲存舞台設定...'
     },
 
     quality: {
@@ -336,6 +348,7 @@ export default {
     vadSwitched: 'VAD 已更新',
     avatarImported: '角色已製作完成，可在上方選擇後套用',
     qualityApplied: '嘴型參數已套用，下一句說話就會生效',
+    stageSettingsUpdated: '舞台字幕設定已更新，下一輪對話生效',
     backendReady: '後端已就緒，可以開始連線',
     backendTimeout: '後端啟動逾時，請檢查服務狀態',
     connectSuccess: '連線成功！現在你可以開始和我對話了。',
