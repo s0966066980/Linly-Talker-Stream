@@ -541,15 +541,22 @@ const handleVoiceEvent = (event) => {
       message => message.type === 'ai' && message.voiceTurnId === event.turn_id
     )
     if (!duplicate) {
-      addMessage(event.text, 'ai', { voiceTurnId: event.turn_id })
+      addMessage(event.text, 'ai', {
+        voiceTurnId: event.turn_id,
+        replyMode: event.mode || 'legacy',
+      })
     }
   } else if (event.type === 'assistant_fragment' && event.text) {
     isThinking.value = false
     const lastMessage = chatMessages.value[chatMessages.value.length - 1]
     if (lastMessage?.type === 'ai' && lastMessage.voiceTurnId === event.turn_id) {
-      // Streaming deltas already rendered this text.  Fragments remain the
-      // playback-commit signal and must not duplicate the chat transcript.
-      if (lastMessage.streamingPreview !== true || !lastMessage.text) {
+      // Fragments remain the playback-commit signal and must not duplicate
+      // either streamed previews or legacy complete transcripts.
+      const alreadyRendered = (
+        lastMessage.streamingPreview === true
+        || lastMessage.replyMode === 'legacy'
+      )
+      if (!alreadyRendered || !lastMessage.text) {
         lastMessage.text += event.text
       }
       scrollMessagesToEnd()

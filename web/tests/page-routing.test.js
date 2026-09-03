@@ -51,9 +51,11 @@ test('舞台字幕只接受播放提交事件並取消舊淡出計時', () => {
   )
 })
 
-test('控制台對話只從已播放片段累積助手文字', () => {
+test('控制台不會把舊模式完整回覆與播放提交片段重複顯示', () => {
   const app = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
   assert.doesNotMatch(app, /event\.type === 'assistant_text'/)
   assert.match(app, /event\.type === 'assistant_fragment'/)
   assert.match(app, /lastMessage\.voiceTurnId === event\.turn_id/)
+  assert.match(app, /replyMode:\s*event\.mode\s*\|\|\s*'legacy'/)
+  assert.match(app, /lastMessage\.replyMode === 'legacy'/)
 })

@@ -106,9 +106,9 @@ export default {
       ggufPlaceholder: '例如 LFM2.5-2.6B-Q4_K_M',
       replyMode: '回覆模式',
       legacyMode: '舊有模式（完整顯示）',
-      legacyModeDesc: '回覆生成完成後一次顯示；語音仍可盡早分段合成，但中斷保護較少。下一輪對話生效。',
+      legacyModeDesc: '模型先完整生成回覆，再一次交付語音與顯示；字幕、播放與錯誤恢復保證與串流模式相同。下一輪對話生效。',
       streamingMode: '串流模式（逐段播放）',
-      streamingModeDesc: '依實際播放進度逐段顯示，提供輪次隔離、已播內容提交與中斷復原。下一輪對話生效。',
+      streamingModeDesc: '模型邊生成邊分段交付語音與顯示；字幕、播放與錯誤恢復保證與舊有模式相同。下一輪對話生效。',
       unknown: '未選擇'
     },
 

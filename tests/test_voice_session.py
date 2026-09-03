@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import numpy as np
 
-from src.server.voice_session import VoiceTurnSession
+from src.server.voice_session import OUTPUT_STALL_FRAMES, VoiceTurnSession
 
 
 class FakeAvatar:
@@ -411,7 +411,41 @@ class ReplyModeBehaviorTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(calls[0][1].get("defer_history_commit", False))
         responses = [item for item in events if item["type"] == "assistant_response"]
         self.assertEqual([item["text"] for item in responses], ["完整回覆"])
-        self.assertEqual(avatar.messages, [("完整回覆", {})])
+        self.assertEqual(len(avatar.messages), 1)
+        text, eventpoint = avatar.messages[0]
+        self.assertEqual(text, "完整回覆")
+        self.assertEqual(eventpoint["turn_id"], started["turn_id"])
+        self.assertEqual(eventpoint["generation"], 0)
+        self.assertEqual(eventpoint["fragment_sequence"], 0)
+        self.assertNotIn("assistant_fragment", [item["type"] for item in events])
+
+        session.on_output_audio_frame(eventpoint, True)
+
+        fragments = [item for item in events if item["type"] == "assistant_fragment"]
+        self.assertEqual([item["text"] for item in fragments], ["完整回覆"])
+        await session.close()
+
+    async def test_legacy_no_first_audio_fails_and_releases_turn(self):
+        session, avatar, events = self.make_session(streaming=False)
+
+        with patch(
+            "src.server.voice_session.llm_response",
+            return_value="完整但沒有開始播放的回覆",
+        ):
+            await session.start_text_turn("測試舊模式無首音", interrupt=False)
+            await session._turn_task
+
+        for _ in range(OUTPUT_STALL_FRAMES):
+            session.on_output_audio(False)
+
+        errors = [
+            item
+            for item in events
+            if item["type"] == "state" and item.get("state") == "error"
+        ]
+        self.assertEqual(errors[-1]["error"], "playback_error_before_commit")
+        self.assertIsNone(session._turn_id)
+        self.assertEqual(avatar.flush_count, 1)
         await session.close()
 
     async def test_streaming_text_turn_uses_guarded_played_fragment_delivery(self):

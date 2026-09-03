@@ -427,7 +427,12 @@ class VoiceTurnSession:
             self._refresh_gate()
             return
         if self._pipeline_mode == "legacy":
-            self.avatar.put_msg_txt(response)
+            eventpoint = {
+                "turn_id": turn_id,
+                "generation": generation,
+                "fragment_sequence": 0,
+            }
+            self.avatar.put_msg_txt(response, eventpoint)
             self._emit(
                 "assistant_response",
                 text=response,
