@@ -624,24 +624,61 @@ class SemanticFragmenterTests(unittest.TestCase):
         self.assertEqual(fragmenter.feed("好"), [])
         self.assertEqual(fragmenter.feed("。"), ["好。"])
         self.assertEqual(fragmenter.feed("一二三四五六七八九十甲，"), [])
-        self.assertEqual(fragmenter.feed("乙，"), ["一二三四五六七八九十甲，乙，"])
+        self.assertEqual(fragmenter.feed("乙，"), [])
+        self.assertEqual(fragmenter.feed("完成。"), ["一二三四五六七八九十甲，乙，完成。"])
 
-    def test_unpunctuated_text_splits_at_safe_boundaries_without_breaking_words(self):
-        chinese = "一二三四五六七八九十" * 4
+    def test_weak_punctuation_does_not_split_a_natural_sentence(self):
+        text = "串流模式需要保留完整語意，否則語音會在不自然的位置停頓，而且下一段的語氣也會重新起頭。"
         fragmenter = SemanticFragmenter()
 
-        self.assertEqual(fragmenter.feed(chinese), [chinese[:24]])
-        self.assertEqual(fragmenter.flush(), [chinese[24:]])
+        self.assertEqual(fragmenter.feed(text), [text])
 
+    def test_sentence_closing_marks_stay_with_the_fragment(self):
+        fragmenter = SemanticFragmenter()
+
+        self.assertEqual(
+            fragmenter.feed("他回答：「今天會完成。」接著繼續說明。"),
+            ["他回答：「今天會完成。」", "接著繼續說明。"],
+        )
+
+    def test_sentence_closing_mark_can_arrive_in_a_later_token(self):
+        fragmenter = SemanticFragmenter()
+
+        self.assertEqual(fragmenter.feed("他回答：「今天會完成。"), [])
+        self.assertEqual(
+            fragmenter.feed("」接著繼續說明。"),
+            ["他回答：「今天會完成。」", "接著繼續說明。"],
+        )
+
+    def test_inline_punctuation_stays_inside_url_and_version(self):
+        fragmenter = SemanticFragmenter()
+
+        self.assertEqual(
+            fragmenter.feed("版本是 v1.2.3，請開啟 example.com 查看說明。"),
+            ["版本是 v1.2.3，請開啟 example.com 查看說明。"],
+        )
         fragmenter = SemanticFragmenter()
         self.assertEqual(
-            fragmenter.feed("alpha bravo charlie delta echo foxtrot golf"),
-            ["alpha bravo charlie delta echo"],
+            fragmenter.feed("請查看 https://example.com/path。"),
+            ["請查看 https://example.com/path。"],
         )
-        self.assertEqual(fragmenter.flush(), ["foxtrot golf"])
+
+    def test_unpunctuated_text_splits_at_safe_boundaries_without_breaking_words(self):
+        chinese = "一二三四五六七八九十" * 8
+        fragmenter = SemanticFragmenter()
+
+        self.assertEqual(fragmenter.feed(chinese), [chinese[:64]])
+        self.assertEqual(fragmenter.flush(), [chinese[64:]])
+
+        fragmenter = SemanticFragmenter(soft_limit_chars=24, hard_limit_chars=32)
+        self.assertEqual(
+            fragmenter.feed("alpha bravo charlie delta echo foxtrot golf"),
+            ["alpha bravo charlie delta echo foxtrot"],
+        )
+        self.assertEqual(fragmenter.flush(), ["golf"])
 
     def test_number_sequences_and_decimal_points_stay_intact(self):
-        fragmenter = SemanticFragmenter()
+        fragmenter = SemanticFragmenter(soft_limit_chars=24, hard_limit_chars=32)
         number = "12345678901234567890123456789012"
 
         fragments = fragmenter.feed(f"版本號碼 {number} 還有後續")

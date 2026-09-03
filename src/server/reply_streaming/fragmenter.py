@@ -1,13 +1,65 @@
 """Incremental semantic text fragmentation for reply speech."""
 from __future__ import annotations
 
+import re
+import unicodedata
 
-STRONG_PUNCTUATION = frozenset("。！？；.!?;")
-WEAK_PUNCTUATION = frozenset("，、：,:")
+STRONG_PUNCTUATION = frozenset("。！？.!?…")
+WEAK_PUNCTUATION = frozenset("，、：,:；;")
+CLOSING_PUNCTUATION = frozenset("\"'”’」』）》】〕〉>)]}")
+OPENING_DELIMITERS = {
+    "「": "」",
+    "『": "』",
+    "“": "”",
+    "‘": "’",
+    "（": "）",
+    "(": ")",
+    "[": "]",
+    "{": "}",
+}
+
+_PROTECTED_INLINE_TOKEN = re.compile(
+    r"(?:https?://|www\.)[^\s，、：,。！？；!?;）」』】》…]+"
+    r"|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}"
+    r"|(?<![A-Za-z])v?\d+(?:[.,]\d+)+(?![A-Za-z])"
+    r"|(?<![@\w])(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?:/[^\s]*)?"
+    r"|(?<![A-Za-z])(?:e\.g|i\.e|Mr|Mrs|Ms|Dr|vs)\.(?![A-Za-z])",
+    re.IGNORECASE,
+)
+
+
+def _grapheme_spans(text: str) -> list[tuple[int, int]]:
+    """Return approximate Unicode grapheme spans without splitting emoji marks."""
+    if not text:
+        return []
+    spans: list[tuple[int, int]] = []
+    start = 0
+    previous = ""
+    for index, character in enumerate(text):
+        if index and _starts_new_grapheme(previous, character):
+            spans.append((start, index))
+            start = index
+        previous = character
+    spans.append((start, len(text)))
+    return spans
+
+
+def _starts_new_grapheme(previous: str, character: str) -> bool:
+    if previous == "\u200d" or unicodedata.combining(character):
+        return False
+    codepoint = ord(character)
+    if 0xFE00 <= codepoint <= 0xFE0F or 0xE0100 <= codepoint <= 0xE01EF:
+        return False
+    if 0x1F3FB <= codepoint <= 0x1F3FF:
+        return False
+    return True
 
 
 def _content_length(text: str) -> int:
-    return sum(character.isalnum() for character in text)
+    return sum(
+        any(character.isalnum() for character in text[start:end])
+        for start, end in _grapheme_spans(text)
+    )
 
 
 class SemanticFragmenter:
@@ -16,9 +68,9 @@ class SemanticFragmenter:
     def __init__(
         self,
         *,
-        weak_min_chars: int = 12,
-        soft_limit_chars: int = 24,
-        hard_limit_chars: int = 32,
+        weak_min_chars: int = 20,
+        soft_limit_chars: int = 36,
+        hard_limit_chars: int = 64,
     ) -> None:
         if weak_min_chars < 1:
             raise ValueError("weak punctuation threshold must be positive")
@@ -40,15 +92,14 @@ class SemanticFragmenter:
             self._buffer += token
         fragments: list[str] = []
         while self._buffer:
-            boundaries = [
-                boundary
-                for boundary in (
-                    self._punctuation_boundary(),
-                    self._length_boundary(),
-                )
-                if boundary is not None
-            ]
-            split_at = min(boundaries) if boundaries else None
+            split_at = self._strong_boundary()
+            if split_at is None:
+                content_chars = _content_length(self._buffer)
+                if content_chars < self._soft_limit_chars:
+                    break
+                split_at = self._weak_boundary()
+            if split_at is None and _content_length(self._buffer) >= self._hard_limit_chars:
+                split_at = self._length_boundary()
             if split_at is None:
                 break
             fragment = self._buffer[:split_at].strip()
@@ -62,36 +113,84 @@ class SemanticFragmenter:
         self._buffer = ""
         return [fragment] if fragment else []
 
-    def _punctuation_boundary(self) -> int | None:
+    def _strong_boundary(self) -> int | None:
         for index, character in enumerate(self._buffer):
-            if self._is_numeric_punctuation(index):
+            if self._is_protected_punctuation(index):
                 continue
-            if character in STRONG_PUNCTUATION:
-                return index + 1
-            if (
-                character in WEAK_PUNCTUATION
-                and _content_length(self._buffer[: index + 1]) >= self._weak_min_chars
-            ):
-                return index + 1
+            if character not in STRONG_PUNCTUATION:
+                continue
+            boundary = index + 1
+            if boundary == len(self._buffer) and self._has_unclosed_delimiter(boundary):
+                continue
+            while boundary < len(self._buffer):
+                if self._buffer[boundary] in STRONG_PUNCTUATION | CLOSING_PUNCTUATION:
+                    boundary += 1
+                    continue
+                break
+            return boundary
         return None
+
+    def _weak_boundary(self) -> int | None:
+        candidates: list[int] = []
+        for index, character in enumerate(self._buffer):
+            if self._is_protected_punctuation(index) or character not in WEAK_PUNCTUATION:
+                continue
+            boundary = index + 1
+            if _content_length(self._buffer[:boundary]) >= self._weak_min_chars:
+                candidates.append(boundary)
+
+        in_window = [
+            boundary
+            for boundary in candidates
+            if self._soft_limit_chars <= _content_length(self._buffer[:boundary]) <= self._hard_limit_chars
+        ]
+        return in_window[-1] if in_window else None
 
     def _length_boundary(self) -> int | None:
         content_chars = 0
-        reached_hard_limit = False
-        for boundary, character in enumerate(self._buffer, start=1):
-            if character.isalnum():
-                content_chars += 1
-            if content_chars < self._soft_limit_chars:
+        hard_boundary = None
+        for start, end in _grapheme_spans(self._buffer):
+            content_chars += any(
+                character.isalnum() for character in self._buffer[start:end]
+            )
+            if content_chars < self._hard_limit_chars:
                 continue
-            if content_chars >= self._hard_limit_chars:
-                reached_hard_limit = True
-            if self._is_safe_boundary(boundary):
-                return boundary
-            # A long English word, numeric sequence, or marker may legitimately
-            # cross 32 characters. Keep reading only until its next safe edge.
-            if reached_hard_limit:
-                continue
-        return None
+            if hard_boundary is None:
+                hard_boundary = end
+            if self._is_safe_boundary(end):
+                return end
+        return hard_boundary
+
+    def _is_protected_punctuation(self, index: int) -> bool:
+        if self._buffer[index] not in STRONG_PUNCTUATION | WEAK_PUNCTUATION:
+            return False
+        if self._is_numeric_punctuation(index):
+            return True
+        prefix = self._buffer[:index]
+        if prefix.rfind("<") > prefix.rfind(">") or prefix.count("`") % 2:
+            return True
+        for match in _PROTECTED_INLINE_TOKEN.finditer(self._buffer):
+            end = match.end()
+            token = match.group(0).lower()
+            if (
+                self._buffer[index] == "."
+                and end == len(self._buffer)
+                and token.startswith(("http://", "https://", "www."))
+            ):
+                if match.start() <= index < end:
+                    return True
+            while end > match.start() and self._buffer[end - 1] in STRONG_PUNCTUATION:
+                end -= 1
+            if match.start() <= index < end:
+                return True
+        return False
+
+    def _has_unclosed_delimiter(self, boundary: int) -> bool:
+        prefix = self._buffer[:boundary]
+        for opening, closing in OPENING_DELIMITERS.items():
+            if prefix.count(opening) > prefix.count(closing):
+                return True
+        return prefix.count('"') % 2 == 1
 
     def _is_numeric_punctuation(self, index: int) -> bool:
         if self._buffer[index] not in STRONG_PUNCTUATION | WEAK_PUNCTUATION:
@@ -101,23 +200,10 @@ class SemanticFragmenter:
         return self._buffer[index - 1].isdigit() and self._buffer[index + 1].isdigit()
 
     def _is_safe_boundary(self, boundary: int) -> bool:
-        prefix = self._buffer[:boundary]
-        if prefix.count("`") % 2:
-            return False
-        if prefix.rfind("<") > prefix.rfind(">"):
+        if boundary <= 0 or boundary > len(self._buffer):
             return False
         left = self._buffer[boundary - 1]
         if boundary >= len(self._buffer):
-            return not self._is_ascii_word_character(left)
+            return left.isspace()
         right = self._buffer[boundary]
-        # Prefer the punctuation boundary that follows this content instead
-        # of emitting a fragment that leaves a sentence-final mark behind.
-        if right in STRONG_PUNCTUATION | WEAK_PUNCTUATION:
-            return False
-        if self._is_ascii_word_character(left) and self._is_ascii_word_character(right):
-            return False
-        return True
-
-    @staticmethod
-    def _is_ascii_word_character(character: str) -> bool:
-        return character.isascii() and (character.isalnum() or character in "_'-")
+        return left.isspace() or right.isspace()
