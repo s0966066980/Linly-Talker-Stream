@@ -633,6 +633,17 @@ class SemanticFragmenterTests(unittest.TestCase):
 
         self.assertEqual(fragmenter.feed(text), [text])
 
+    def test_commas_do_not_cut_a_sentence_while_tokens_are_still_arriving(self):
+        fragmenter = SemanticFragmenter()
+        clause = "一二三四五六七八九十" * 4
+        incoming = clause + "，後半句也還沒結束"
+        actual = []
+        for character in incoming:
+            actual.extend(fragmenter.feed(character))
+
+        self.assertEqual(actual, [])
+        self.assertEqual(fragmenter.feed("。"), [incoming + "。"])
+
     def test_sentence_closing_marks_stay_with_the_fragment(self):
         fragmenter = SemanticFragmenter()
 
@@ -664,11 +675,11 @@ class SemanticFragmenterTests(unittest.TestCase):
         )
 
     def test_unpunctuated_text_splits_at_safe_boundaries_without_breaking_words(self):
-        chinese = "一二三四五六七八九十" * 8
+        chinese = "一二三四五六七八九十" * 13
         fragmenter = SemanticFragmenter()
 
-        self.assertEqual(fragmenter.feed(chinese), [chinese[:64]])
-        self.assertEqual(fragmenter.flush(), [chinese[64:]])
+        self.assertEqual(fragmenter.feed(chinese), [chinese[:120]])
+        self.assertEqual(fragmenter.flush(), [chinese[120:]])
 
         fragmenter = SemanticFragmenter(soft_limit_chars=24, hard_limit_chars=32)
         self.assertEqual(

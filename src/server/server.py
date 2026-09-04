@@ -10,6 +10,7 @@ from src.utils.logging import logger
 from src.server.state import state
 from src.server import routes
 from src.llm.llamacpp import shutdown_llama_server
+from src.tts.cosyvoice_runtime import shutdown_cosyvoice_server
 
 
 async def on_shutdown(app):
@@ -18,6 +19,7 @@ async def on_shutdown(app):
     await asyncio.gather(*coros)
     state.pcs.clear()
     shutdown_llama_server()
+    shutdown_cosyvoice_server()
 
 
 def create_app():

@@ -727,10 +727,10 @@ Gate：350 ms 沒有增加 premature cut 或句尾遺失才可成為建議值。
 
 ### Phase 10.4
 
-- [ ] Edge persistent async worker。
-- [ ] bounded next-fragment prefetch。
-- [ ] retry、順序、取消與首字回歸通過。
-- [ ] 依數據決定是否進行 provider A/B。
+- [x] Edge persistent async worker。
+- [x] bounded next-fragment prefetch。
+- [x] retry、順序、取消與首字回歸通過。
+- [x] 依數據決定是否進行 provider A/B。
 
 ### Phase 10.5
 
@@ -794,3 +794,5 @@ Gate：350 ms 沒有增加 premature cut 或句尾遺失才可成為建議值。
 
 - 2026-09-01：針對實機「斷續電子音與嘴型錯位」完成故障修復。根因是未通過 A/V gate 的 direct PCM fan-out 被 `reply_streaming.enabled` 隱式啟用，與 renderer 音訊形成雙 producer；改為 `decoupled_audio_clock` 明確 opt-in 且預設關閉，恢復單一 coupled audio master。另移除 MuseTalk result queue 的重複 idle backlog，idle queue 滿時不再阻塞 inference，speech-start WebRTC 成對 runway 由 80–120 ms 降至一個 40 ms video frame。
 - 2026-09-01：正式 50 輪 WebRTC 實機 soak `real-soak-audio-quality-fix-final-50.json` 全部 gate 通過：first audio P50 1.153 s / P95 1.706 s、A/V offset P95 40 ms、interrupt stop P95 0.61 ms、listening resume P95 302 ms、max media debt 240 ms、stale output 0；涵蓋 4 次播放中斷、3 次 LLM 中斷與 2 次重連。後端回歸 226/226、前端 23/23、production build、compileall 與 diff check 通過。direct PCM 實驗路徑仍維持預設關閉，ticket 其他 Phase 10 資源最佳化與人工聽感 gate 尚未完成，因此狀態維持 in-progress。
+- 2026-09-03：完成 Edge 冷啟動修正：服務載入設定後以背景執行緒預熱 Edge，ready 前等待預熱結束；預熱只消費第一個音訊資料塊且失敗不阻止啟動。正常首包逾時改為 2.5 秒，重試與收到首音後的續包逾時分離為 15 秒，避免冷連線無回應或串流中途以首包短逾時提前收尾。新增 startup／continuation regression tests；完整 Python 回歸 251 項（1 項既有 skip）通過，狀態維持 in-progress。
+- 2026-09-03：停頓診斷後先做控制台輪次提交對齊（ADR-0010），再完成 Phase 10.4：Edge 長生命週期本機 event loop、第一片段出聲後最多預取下一段、插話丟棄預取、輪詢逾時不得當成合成失敗。正式預設維持 Edge，不在缺少 soak 數據時切本機 TTS。完整 Python 259 項（1 skip）與前端 34 項通過。

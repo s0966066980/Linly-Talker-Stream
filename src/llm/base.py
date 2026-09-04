@@ -43,8 +43,8 @@ def validate_response_max_chars(value) -> int:
 
 
 def response_token_budget(max_chars: int) -> int:
-    """依目標中文字數換算帶緩衝的模型 token 安全上限。"""
-    estimated = max(32, math.ceil(max_chars * 1.5))
+    """Safety ceiling above the character target so the last sentence can finish."""
+    estimated = max(64, math.ceil(max_chars * 2.5) + 32)
     return min(4096, estimated)
 
 
@@ -52,8 +52,9 @@ def with_response_length_instruction(system_prompt: str, max_chars: int) -> str:
     """加入隱藏的柔性長度指令，不污染使用者可編輯的 Prompt。"""
     prompt = (system_prompt or DEFAULT_SYSTEM_PROMPT).rstrip()
     return (
-        f"{prompt}\n\n【回覆長度】請將每次回答控制在約 {max_chars} 個字以內，"
-        "並優先在限制內完成句子，不要在句子中途截斷。"
+        f"{prompt}\n\n【回覆長度】每次回答必須是結構完整的短答，總長度約 {max_chars} 個字。"
+        "先在限制內把話說完；不要開一個無法在限制內結束的長句或列表。"
+        "禁止在句子或條目中途停止。"
     )
 
 

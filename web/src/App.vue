@@ -310,6 +310,7 @@ import SettingsPanel from './components/SettingsPanel.vue'
 import { useWebRTC } from './composables/useWebRTC'
 import { useI18n } from './composables/useI18n'
 import { useRuntimeSettings } from './composables/useRuntimeSettings'
+import { applyTurnCommitted } from './consoleTurnCommit.js'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
 
@@ -488,7 +489,14 @@ const handleVoiceEvent = (event) => {
     isRecordingVoice.value = ['listening', 'speech_detected'].includes(event.state)
     isThinking.value = ['stt', 'llm', 'tts_ready'].includes(event.state)
     if (event.state === 'error' && event.error) {
-      showNotification(event.error, 'error')
+      const errorKey = {
+        tts_error_before_commit: 'notifications.ttsErrorBeforeCommit',
+        tts_error_after_commit: 'notifications.ttsErrorAfterCommit',
+        playback_error_before_commit: 'notifications.playbackErrorBeforeCommit',
+        playback_error_after_commit: 'notifications.playbackErrorAfterCommit',
+        pipeline_error: 'notifications.pipelineError',
+      }[event.error]
+      showNotification(errorKey ? t(errorKey) : event.error, 'error')
     }
     return
   }
@@ -533,7 +541,9 @@ const handleVoiceEvent = (event) => {
     const message = chatMessages.value.find(
       item => item.type === 'ai' && item.voiceTurnId === event.turn_id
     )
-    if (message) message.streamingPreview = true
+    if (message && message.streamingPreview !== false) {
+      message.streamingPreview = true
+    }
     isThinking.value = false
   } else if (event.type === 'assistant_response' && event.text) {
     isThinking.value = false
@@ -545,6 +555,26 @@ const handleVoiceEvent = (event) => {
         voiceTurnId: event.turn_id,
         replyMode: event.mode || 'legacy',
       })
+    }
+  } else if (event.type === 'turn_committed') {
+    isThinking.value = false
+    if (event.turn_id) {
+      const stream = assistantStreamState.get(event.turn_id) || {
+        lastSequence: -1,
+        done: false,
+      }
+      stream.done = true
+      assistantStreamState.set(event.turn_id, stream)
+    }
+    const previousLength = chatMessages.value.length
+    chatMessages.value = applyTurnCommitted(chatMessages.value, event)
+    const lastMessage = chatMessages.value[chatMessages.value.length - 1]
+    if (
+      chatMessages.value.length > previousLength
+      && lastMessage
+      && !lastMessage.time
+    ) {
+      lastMessage.time = getCurrentTime()
     }
   } else if (event.type === 'assistant_fragment' && event.text) {
     isThinking.value = false

@@ -1,6 +1,6 @@
 # 專案狀態
 
-更新日期：2026-09-01
+更新日期：2026-09-03
 
 Linly-Talker-Stream 的核心單機即時數字人對話流程已完成並可用：WebRTC 上行、服務端 VAD、STT、LLM、TTS、Avatar、影音回傳、免按對話、插話與執行期設定已串成同一個伺服器擁有的對話輪次。可靠回覆語音串流已完成主力組合的實作與實機驗證，但仍以功能旗標保留舊有模式作為跨引擎回退。
 
@@ -12,7 +12,7 @@ Linly-Talker-Stream 的核心單機即時數字人對話流程已完成並可用
 | 使用者語音 | 可用 | Silero 服務端端點偵測、Whisper／FunASR、繁體轉換、STT 預熱與設定 | partial STT、使用者尚未說完即預測回覆不在目前範圍 |
 | LLM | 可用 | Ollama／llama.cpp、串流 token、Prompt、柔性回覆字數、交易式 history | llama.cpp 與 Avatar 同 GPU 時仍需自行規劃 VRAM；無多模型排程 |
 | llama.cpp 生命週期 | 完成 | 按需啟動；正常退出、Ctrl-C、SIGTERM 與 aiohttp shutdown 自動停止 owned process | SIGKILL、斷電無法執行清理；外部服務刻意不終止 |
-| 回覆語音串流 | 主力組合完成 | 語意切片、有界背壓、generation fence、取消、播放提交、字幕、history、錯誤恢復與指標 | 預設關閉；正式 SLO 僅保證 Edge TTS＋MuseTalk、單一會話 |
+| 回覆語音串流 | 主力組合完成 | 語意切片、有界背壓、generation fence、取消、播放提交、字幕、history、錯誤恢復、Edge 冷啟動預熱、首包／續包分離逾時、本機 event loop 與下一段預取 | 預設關閉；正式 SLO 僅保證 Edge TTS＋MuseTalk、單一會話；預取後的實機片段間空窗尚未重跑 soak |
 | 音訊品質與 A/V | 主力組合完成 | 單一 renderer-owned audio producer、40 ms speech runway、bounded media queue、無 catch-up burst | direct PCM／decoupled audio clock 為關閉的實驗功能 |
 | MuseTalk 嘴型 | 完成 | Lanczos／銳化、遮罩品質參數、段落邊界嘴部 ROI 連續控制、generation reset | 人工外觀仍受角色素材、臉框與遮罩品質影響 |
 | 其他 Avatar／TTS | 相容 | Wav2Lip、Ultralight、ER-NeRF、TalkingGaussian 與多種 TTS adapter 保留 | 尚未逐一取得與 Edge＋MuseTalk 相同的 streaming SLO |
@@ -59,7 +59,7 @@ Linly-Talker-Stream 的核心單機即時數字人對話流程已完成並可用
 
 ## 下一階段
 
-1. 完成 Phase 10 尚未交付的資源工作：Edge persistent worker、bounded prefetch、idle cache、hot log 降頻與 session lifecycle leak 測試。
+1. 完成 Phase 10 尚未交付的資源工作：idle cache、hot log 降頻與 session lifecycle leak 測試。實機 soak 驗證 Edge 預取後的片段間空窗。
 2. 對更多 TTS／Avatar 組合執行相同 50 回合 SLO，而不是沿用主力組合結論。
 3. 建立前端延遲與資源儀表板，呈現 VAD、STT、LLM、TTS、Avatar 與 WebRTC 各階段時間。
 4. 補齊 Docker Compose、反向代理、受信任 TLS、驗證、rate limit 與多使用者 GPU 排程。

@@ -28,7 +28,7 @@ flowchart LR
 - Silero 服務端串流 VAD，瀏覽器只傳輸音訊，不自行切段。
 - STT：faster-whisper、FunASR。
 - LLM：Ollama 與 llama.cpp，可列出並切換本機模型。
-- TTS：Edge TTS、GPT-SoVITS、XTTS、CosyVoice、Fish TTS、IndexTTS2。
+- TTS：Edge TTS、GPT-SoVITS、XTTS、CosyVoice 2、Fun-CosyVoice 3.0、Fish TTS、IndexTTS2。
 - 數字人：Wav2Lip、MuseTalk、Ultralight、ER-NeRF、TalkingGaussian。
 - MuseTalk 段落邊界嘴型連續控制，只融合嘴部 ROI，不以音訊緩衝換取平滑。
 - 設定頁可修改預設 Prompt、約略回覆字數、回覆模式、數字人角色、VAD、STT 與 TTS。
@@ -149,7 +149,7 @@ bash scripts/start-all.sh config/config.yaml
 
 | 分類 | 可調整內容 | 套用注意事項 |
 | --- | --- | --- |
-| LLM | Ollama／llama.cpp、模型、預設 Prompt、約略回覆字數 | 會更新現有 LLM session；回覆字數是柔性目標 |
+| LLM | Ollama／llama.cpp、模型、預設 Prompt、回覆字數 | 會更新現有 LLM session；回覆字數是「在限制內說完」的目標，token 上限另留緩衝 |
 | 數字人 | 引擎與角色 | 有進行中會話時不可切換 |
 | 回覆模式 | 舊有／串流 | 下一輪生效；串流正式 SLO 目前只保證 Edge TTS＋MuseTalk |
 | VAD | 啟用、門檻、靜音、最短／最長發話等 | 立即套用至新的發話判定 |

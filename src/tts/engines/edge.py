@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from collections import deque
+from concurrent.futures import TimeoutError as FuturesTimeoutError
+from queue import Empty
 from typing import Callable, Optional
 
 import av
@@ -15,10 +18,15 @@ from src.server.reply_streaming.retry import RetryBudget
 from src.utils.logging import logger
 
 
-# Fail over quickly once, then tolerate Edge's observed long-tail first-byte
-# latency without opening additional websocket requests in a retry storm.
-EDGE_INITIAL_STREAM_TIMEOUT_SECONDS = 1.5
-EDGE_RETRY_STREAM_TIMEOUT_SECONDS = 10.0
+# A warm Edge connection normally returns audio in under 1.5 seconds, but a
+# process-cold connection has been observed taking almost 12 seconds. Keep the
+# normal path responsive, while giving the one recovery request enough time to
+# finish TLS/websocket setup. Once audio starts, never apply the short
+# first-byte deadline to continuation packets.
+EDGE_INITIAL_STREAM_TIMEOUT_SECONDS = 2.5
+EDGE_RETRY_STREAM_TIMEOUT_SECONDS = 15.0
+EDGE_CONTINUATION_STREAM_TIMEOUT_SECONDS = 15.0
+EDGE_WARMUP_TIMEOUT_SECONDS = 15.0
 EDGE_MAX_ATTEMPTS = 2
 ACTIVITY_THRESHOLD = 1e-4
 ONSET_THRESHOLD = 1e-5
@@ -26,6 +34,207 @@ FRAME_SECONDS = 0.01
 MAX_PREROLL_SECONDS = 0.16
 SILENCE_GUARD_SECONDS = 0.04
 TRAILING_PAUSE_SECONDS = 0.12
+MAX_PREFETCH_FRAMES = 50
+
+
+class _EdgeAsyncWorker:
+    """One background asyncio loop per EdgeTTS instance; not a persistent Edge socket."""
+
+    def __init__(self) -> None:
+        self.loop = asyncio.new_event_loop()
+        self.thread = threading.Thread(
+            target=self._run,
+            name="edge-tts-loop",
+            daemon=True,
+        )
+        self._started = threading.Event()
+        self.thread.start()
+        if not self._started.wait(timeout=2):
+            raise RuntimeError("Edge TTS worker loop failed to start")
+
+    def _run(self) -> None:
+        asyncio.set_event_loop(self.loop)
+        self._started.set()
+        self.loop.run_forever()
+        pending = asyncio.all_tasks(self.loop)
+        for task in pending:
+            task.cancel()
+        if pending:
+            self.loop.run_until_complete(
+                asyncio.gather(*pending, return_exceptions=True)
+            )
+        self.loop.close()
+
+    def submit(self, coro):
+        task_box: dict[str, asyncio.Task] = {}
+        started = threading.Event()
+
+        async def runner():
+            task_box["task"] = asyncio.current_task()
+            started.set()
+            return await coro
+
+        future = asyncio.run_coroutine_threadsafe(runner(), self.loop)
+        started.wait(timeout=1)
+        future.aio_task = task_box.get("task")
+        return future
+
+    def cancel(self, future) -> None:
+        task = getattr(future, "aio_task", None)
+        if task is not None and self.loop.is_running():
+            self.loop.call_soon_threadsafe(task.cancel)
+
+    def run(self, coro):
+        return self.submit(coro).result()
+
+    def close(self) -> None:
+        loop = self.loop
+        if loop.is_closed():
+            return
+        loop.call_soon_threadsafe(loop.stop)
+        self.thread.join(timeout=2)
+
+
+class _DirectFrameSink:
+    def __init__(self, parent) -> None:
+        self.parent = parent
+        self.first_pcm = threading.Event()
+
+    def bind(self) -> None:
+        return None
+
+    def emit(self, samples: np.ndarray, eventpoint: dict) -> None:
+        self.parent.put_audio_frame(samples, eventpoint)
+        self.first_pcm.set()
+
+    async def wait_for_space(self) -> None:
+        return None
+
+    def release(self) -> None:
+        return None
+
+    def cancel(self) -> None:
+        return None
+
+
+class _GatedFrameSink:
+    """Buffer PCM until the previous fragment has finished emitting."""
+
+    def __init__(self, parent, *, max_frames: int = MAX_PREFETCH_FRAMES) -> None:
+        self.parent = parent
+        self.max_frames = max_frames
+        self.first_pcm = threading.Event()
+        self._buffer: deque[tuple[np.ndarray, dict]] = deque()
+        self._lock = threading.Lock()
+        self._released = False
+        self._cancelled = False
+        self._space: Optional[asyncio.Event] = None
+
+    def bind(self) -> None:
+        self._space = asyncio.Event()
+        self._space.set()
+
+    def emit(self, samples: np.ndarray, eventpoint: dict) -> None:
+        live = False
+        with self._lock:
+            if self._cancelled:
+                return
+            if self._released:
+                live = True
+            else:
+                self._buffer.append(
+                    (np.asarray(samples, dtype=np.float32).copy(), dict(eventpoint))
+                )
+                if self._space is not None and len(self._buffer) >= self.max_frames:
+                    self._space.clear()
+        if live:
+            self.parent.put_audio_frame(samples, eventpoint)
+            self.first_pcm.set()
+
+    async def wait_for_space(self) -> None:
+        while True:
+            with self._lock:
+                if (
+                    self._released
+                    or self._cancelled
+                    or len(self._buffer) < self.max_frames
+                ):
+                    return
+                if self._space is not None:
+                    self._space.clear()
+            if self._space is None:
+                return
+            await self._space.wait()
+
+    def release(self) -> None:
+        with self._lock:
+            self._released = True
+            frames = list(self._buffer)
+            self._buffer.clear()
+            space = self._space
+        for samples, eventpoint in frames:
+            self.parent.put_audio_frame(samples, eventpoint)
+            self.first_pcm.set()
+        if space is not None:
+            space.set()
+
+    def cancel(self) -> None:
+        with self._lock:
+            self._cancelled = True
+            self._buffer.clear()
+            space = self._space
+        if space is not None:
+            space.set()
+
+
+
+async def _prewarm_edge_tts(voicename: str) -> bool:
+    """Open Edge's cold connection and stop as soon as one audio packet arrives."""
+    stream = edge_tts.Communicate("語音連線準備完成。", voicename).stream()
+    iterator = stream.__aiter__()
+    try:
+        while True:
+            item = await iterator.__anext__()
+            if item.get("type") == "audio" and item.get("data"):
+                return True
+    except StopAsyncIteration:
+        return False
+    finally:
+        aclose = getattr(iterator, "aclose", None)
+        if callable(aclose):
+            try:
+                await aclose()
+            except Exception:
+                pass
+
+
+def prewarm_edge_tts(
+    voicename: str,
+    *,
+    timeout_seconds: float = EDGE_WARMUP_TIMEOUT_SECONDS,
+) -> bool:
+    """Warm Edge networking before the first user turn; failure is non-fatal."""
+    started_at = time.perf_counter()
+    try:
+        ready = asyncio.run(
+            asyncio.wait_for(
+                _prewarm_edge_tts(voicename),
+                timeout=max(0.1, float(timeout_seconds)),
+            )
+        )
+    except Exception as exc:
+        logger.warning(
+            "Edge TTS prewarm failed after %.3fs type=%s",
+            time.perf_counter() - started_at,
+            type(exc).__name__,
+        )
+        return False
+    elapsed = time.perf_counter() - started_at
+    if ready:
+        logger.info("Edge TTS prewarm ready in %.3fs", elapsed)
+        return True
+    logger.warning("Edge TTS prewarm returned no audio after %.3fs", elapsed)
+    return False
 
 
 def trim_edge_silence(
@@ -198,10 +407,12 @@ class _EdgePCMEmitter:
         start_event_sent: bool = False,
         start_media_sequence: int = 0,
         chunk_guard: Optional[Callable[[int], bool]] = None,
+        frame_sink=None,
     ):
         self.owner = owner
         self.text = text
         self.textevent = textevent
+        self.frame_sink = frame_sink or _DirectFrameSink(owner.parent)
         self.decoder = av.CodecContext.create("mp3", "r")
         self.resampler = av.AudioResampler(
             format="s16",
@@ -247,7 +458,7 @@ class _EdgePCMEmitter:
             eventpoint.update({"status": "end"})
             if not turn_aware:
                 eventpoint.update({"text": self.text, **self.textevent})
-        self.owner.parent.put_audio_frame(samples, eventpoint)
+        self.frame_sink.emit(samples, eventpoint)
         if self.emitted_chunks == 0:
             mark_stage = getattr(self.owner.parent, "mark_stage_end", None)
             if callable(mark_stage) and self.textevent.get("turn_id"):
@@ -317,13 +528,169 @@ class EdgeTTS(BaseTTS):
         self.retry_after_pcm_count = 0
         self.retry_after_playback_commit_count = 0
         self.last_onset_preroll_ms = 0.0
+        self._worker: Optional[_EdgeAsyncWorker] = None
+        self._prefetch_job = None
+        self._worker_lock = threading.Lock()
+
+    @property
+    def worker_loop(self):
+        worker = self._worker
+        return None if worker is None else worker.loop
+
+    @property
+    def _persistent_enabled(self) -> bool:
+        tts = getattr(self.config, "tts", None)
+        prefetch = bool(getattr(tts, "edge_prefetch", True))
+        persistent = bool(getattr(tts, "edge_persistent_worker", True))
+        return persistent or prefetch
+
+    @property
+    def _prefetch_enabled(self) -> bool:
+        return bool(getattr(getattr(self.config, "tts", None), "edge_prefetch", True))
+
+    def _ensure_worker(self) -> _EdgeAsyncWorker:
+        with self._worker_lock:
+            if self._worker is None:
+                self._worker = _EdgeAsyncWorker()
+            return self._worker
+
+    def close_worker(self) -> None:
+        with self._worker_lock:
+            worker = self._worker
+            self._worker = None
+        if worker is not None:
+            worker.close()
+
+    def _run_coro(self, coro):
+        if not self._persistent_enabled:
+            return asyncio.run(coro)
+        return self._ensure_worker().run(coro)
+
+    def flush_talk(self) -> None:
+        super().flush_talk()
+        job = self._prefetch_job
+        if job is not None:
+            job["sink"].cancel()
+
+    def has_pending_work(self) -> bool:
+        return super().has_pending_work() or self._prefetch_job is not None
+
+    def render(self, quit_event) -> None:
+        if self._persistent_enabled:
+            self._ensure_worker()
+        super().render(quit_event)
+
+    def process_tts(self, quit_event) -> None:
+        try:
+            if self._prefetch_enabled:
+                self._process_tts_with_prefetch(quit_event)
+            else:
+                super().process_tts(quit_event)
+        finally:
+            self.close_worker()
+
+    def _launch_stream(self, msg: tuple[str, dict], *, gated: bool) -> dict:
+        text, textevent = msg
+        sink = _GatedFrameSink(self.parent) if gated else _DirectFrameSink(self.parent)
+        started_at = time.perf_counter()
+        future = self._ensure_worker().submit(
+            self._stream_with_retry(
+                self.config.tts.ref_file,
+                text,
+                textevent,
+                started_at,
+                fragment_committed=self._fragment_committed_predicate(textevent),
+                discard_uncommitted=self._discard_uncommitted_predicate(textevent),
+                frame_sink=sink,
+            )
+        )
+        return {"msg": msg, "sink": sink, "future": future}
+
+    def _finish_job(self, job: dict) -> bool:
+        future = job["future"]
+        try:
+            future.result(timeout=0.05)
+        except FuturesTimeoutError:
+            return False
+        except Exception:
+            text, textevent = job["msg"]
+            logger.exception("Edge TTS streaming failed")
+            self.notify_fragment_synthesis_failed(
+                textevent,
+                "tts_exhausted_before_audio",
+            )
+        return True
+
+    def _cancel_job(self, job: Optional[dict]) -> None:
+        if job is None:
+            return
+        job["sink"].cancel()
+        worker = self._worker
+        if worker is not None:
+            worker.cancel(job["future"])
+        try:
+            job["future"].result(timeout=1)
+        except Exception:
+            pass
+
+    def _process_tts_with_prefetch(self, quit_event) -> None:
+        current = None
+        while not quit_event.is_set():
+            if current is None:
+                if self._prefetch_job is not None:
+                    current = self._prefetch_job
+                    self._prefetch_job = None
+                    if self.state != State.RUNNING:
+                        self._cancel_job(current)
+                        current = None
+                        self._synthesis_active.clear()
+                        continue
+                    current["sink"].release()
+                else:
+                    try:
+                        msg = self.msgqueue.get(block=True, timeout=1)
+                    except Empty:
+                        continue
+                    self.state = State.RUNNING
+                    self._synthesis_active.set()
+                    current = self._launch_stream(msg, gated=False)
+
+            if (
+                self._prefetch_job is None
+                and self.state == State.RUNNING
+                and current["sink"].first_pcm.is_set()
+            ):
+                try:
+                    nxt = self.msgqueue.get_nowait()
+                except Empty:
+                    nxt = None
+                if nxt is not None:
+                    self._prefetch_job = self._launch_stream(nxt, gated=True)
+
+            if self.state != State.RUNNING:
+                self._cancel_job(current)
+                self._cancel_job(self._prefetch_job)
+                current = None
+                self._prefetch_job = None
+                self._synthesis_active.clear()
+                continue
+
+            if not self._finish_job(current):
+                continue
+            current = None
+            if self._prefetch_job is None and self.msgqueue.empty():
+                self._synthesis_active.clear()
+        self._cancel_job(current)
+        self._cancel_job(self._prefetch_job)
+        self._prefetch_job = None
+        logger.info("ttsreal thread stop")
 
     def txt_to_audio(self, msg: tuple[str, dict]):
         voicename = self.config.tts.ref_file  # 比如 "zh-CN-YunxiaNeural"
         text, textevent = msg
         started_at = time.perf_counter()
         try:
-            asyncio.run(
+            self._run_coro(
                 self._stream_with_retry(
                     voicename,
                     text,
@@ -363,7 +730,7 @@ class EdgeTTS(BaseTTS):
         }
         started_at = time.perf_counter()
         try:
-            asyncio.run(
+            self._run_coro(
                 self._stream_with_retry(
                     self.config.tts.ref_file,
                     fragment.text,
@@ -444,19 +811,25 @@ class EdgeTTS(BaseTTS):
         retry_budget: Optional[RetryBudget] = None,
         fragment_committed: Optional[Callable[[], bool]] = None,
         discard_uncommitted: Optional[Callable[[], bool]] = None,
+        frame_sink=None,
     ) -> None:
         last_error = None
         start_event_sent = False
         first_audio_logged = False
         first_encoded_logged = False
         retry_timeout_seconds = EDGE_RETRY_STREAM_TIMEOUT_SECONDS
+        if frame_sink is None:
+            frame_sink = _DirectFrameSink(self.parent)
+        frame_sink.bind()
         for attempt in range(1, EDGE_MAX_ATTEMPTS + 1):
+            received_audio = False
             emitter = _EdgePCMEmitter(
                 self,
                 text,
                 textevent,
                 start_event_sent=start_event_sent,
                 chunk_guard=chunk_guard,
+                frame_sink=frame_sink,
             )
 
             def log_first_audio() -> None:
@@ -477,14 +850,19 @@ class EdgeTTS(BaseTTS):
                         item = await asyncio.wait_for(
                             iterator.__anext__(),
                             timeout=(
-                                EDGE_INITIAL_STREAM_TIMEOUT_SECONDS
-                                if attempt == 1
-                                else retry_timeout_seconds
+                                EDGE_CONTINUATION_STREAM_TIMEOUT_SECONDS
+                                if received_audio
+                                else (
+                                    EDGE_INITIAL_STREAM_TIMEOUT_SECONDS
+                                    if attempt == 1
+                                    else retry_timeout_seconds
+                                )
                             ),
                         )
                     except StopAsyncIteration:
                         break
                     if item.get("type") == "audio":
+                        received_audio = True
                         if not first_encoded_logged:
                             first_encoded_logged = True
                             mark_stage = getattr(self.parent, "mark_stage_end", None)
@@ -492,6 +870,7 @@ class EdgeTTS(BaseTTS):
                                 mark_stage("tts_first_encoded")
                         emitter.feed_mp3(item["data"])
                         log_first_audio()
+                        await frame_sink.wait_for_space()
                         if emitter.cancelled:
                             return
                 emitter.finish()

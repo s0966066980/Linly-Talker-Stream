@@ -978,10 +978,17 @@ class VoiceTurnSession:
         if not target_turn or target_turn in self._history_finalized_turns:
             return False
         self._history_finalized_turns.add(target_turn)
+        played_text = self.played_assistant_text
+        self._emit(
+            "turn_committed",
+            turn_id=target_turn,
+            played_text=played_text,
+            reason=str(terminal_reason),
+        )
         return commit_session_history(
             self.sessionid,
             target_turn,
-            assistant_text=self.played_assistant_text,
+            assistant_text=played_text,
             terminal_reason=terminal_reason,
         )
 

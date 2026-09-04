@@ -204,7 +204,7 @@ export default {
       auto: '自動',
       voice: '語音名稱',
       reference: '參考音訊路徑',
-      referencePathDesc: 'GPT-SoVITS 等本地引擎需要 WAV／MP3 的完整路径，不能填 Edge 声线名称。文件须存在于此电脑，并与服务地址同一台机器。',
+      referencePathDesc: '本地引擎需要音档完整路径。CosyVoice／Fun-CosyVoice 3.0 请用干净、单人、3–8 秒的说话录音（不要歌曲或开头静音）。参考文本必须与这段录音逐字相同；不确定就留空，系统只借音色、不把错字塞进合成。',
       referencePathPlaceholder: '/home/你的帳號/voices/ref.wav',
       referenceText: '參考文字',
       speaker: '內建聲線',
@@ -212,7 +212,15 @@ export default {
       instructionDesc: 'CustomVoice 可留空；VoiceDesign 必填，例如“溫柔、沉穩、語速稍慢”。',
       cloneReference: '聲音克隆參考音訊',
 
-      server: '本地服務地址',
+      cosyvoiceModel: '模型目录',
+      cosyvoiceModelDesc: 'CosyVoice 2 用 CosyVoice2-0.5B；Fun-CosyVoice 3.0 用 Fun-CosyVoice3-0.5B。可留空由系统自动寻找。',
+      cosyvoiceModelPlaceholder: '/home/oliver/CosyVoice/pretrained_models/Fun-CosyVoice3-0.5B',
+      cosyvoiceLanguage: '合成语言',
+      cosyvoiceLanguageDesc: '强制 CosyVoice／Fun-CosyVoice 3.0 用这个语言念回复。中文音档却跑出日文时，请选「中文」再应用。选自动则跟参考音走。Fun-CosyVoice 3.0 另支持德／西／法／意／俄。',
+      cosyvoiceInstruct: '额外指令（可选）',
+      cosyvoiceInstructDesc: '语气或方言，例如「温柔一点」「用台湾腔」或「请用四川话说这句话」。会加在语言设定后面。',
+      cosyvoiceInstructPlaceholder: '例如：语速稍慢、语气亲切',
+      server: '本地服务地址',
       applyStt: '應用 STT',
       applyTts: '應用 TTS',
       prewarming: '正在驗證並預熱...',
@@ -363,7 +371,12 @@ export default {
     backendNotReady: '後端尚未完全啟動，請稍候...',
     selectAvatarFirst: '請先在設定中選擇並套用數字人引擎與角色',
     historyCleared: '對話歷史已清空',
-    historyClearFailed: '清空歷史失敗'
+    historyClearFailed: '清空歷史失敗',
+    ttsErrorBeforeCommit: '回复语音还没开始就失败，未出声的文字已移除',
+    ttsErrorAfterCommit: '回复语音中途失败，只保留已读出的内容',
+    playbackErrorBeforeCommit: '回复还没出声就中断，未出声的文字已移除',
+    playbackErrorAfterCommit: '回复播放中途中断，只保留已读出的内容',
+    pipelineError: '这一轮回复处理失败'
   },
   
   tooltips: {

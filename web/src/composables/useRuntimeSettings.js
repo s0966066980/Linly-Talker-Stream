@@ -265,6 +265,12 @@ watch(() => ttsDraft.type, (type, previous) => {
     ttsDraft.ref_file = ''
   }
   if (
+    (type === 'cosyvoice' || type === 'fun-cosyvoice3') &&
+    (!ttsDraft.language || ttsDraft.language === 'Chinese')
+  ) {
+    ttsDraft.language = 'zh'
+  }
+  if (
     type === 'edgetts' &&
     speech.tts.edge_voices?.length &&
     !speech.tts.edge_voices.some((voice) => voice.id === ttsDraft.ref_file)
@@ -385,7 +391,7 @@ function applySpeechSnapshot(data) {
       ref_text: data.tts.ref_text || '',
       tts_server: data.tts.tts_server || '',
       model: data.tts.model || '',
-      language: data.tts.language || 'Chinese',
+      language: data.tts.language === 'Chinese' ? 'zh' : (data.tts.language || 'zh'),
       speaker: data.tts.speaker || 'Vivian',
       instruct: data.tts.instruct || '',
       device: data.tts.device || 'auto'

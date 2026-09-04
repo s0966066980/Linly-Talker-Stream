@@ -992,6 +992,7 @@ class EdgeTTSStreamingTests(unittest.TestCase):
         from src.server.reply_streaming.channel import PlayableFragment
         from src.server.reply_streaming.retry import RetryBudget
         from src.server.reply_streaming.turn import TurnContext
+        from src.tts.engines.edge import EDGE_INITIAL_STREAM_TIMEOUT_SECONDS
 
         class Parent:
             def put_audio_frame(self, _frame, _eventpoint):
@@ -1031,7 +1032,10 @@ class EdgeTTSStreamingTests(unittest.TestCase):
                 retry_budget=RetryBudget(max_retries=1, extra_wait_seconds=1.0),
             )
 
-        self.assertEqual(timeouts, [1.5, 1.0])
+        self.assertEqual(
+            timeouts,
+            [EDGE_INITIAL_STREAM_TIMEOUT_SECONDS, 1.0],
+        )
 
     def test_default_retry_allows_a_slow_edge_first_byte(self):
         from src.tts.engines.edge import (
@@ -1073,7 +1077,77 @@ class EdgeTTSStreamingTests(unittest.TestCase):
                 EDGE_RETRY_STREAM_TIMEOUT_SECONDS,
             ],
         )
-        self.assertGreaterEqual(EDGE_RETRY_STREAM_TIMEOUT_SECONDS, 10.0)
+        self.assertGreaterEqual(EDGE_RETRY_STREAM_TIMEOUT_SECONDS, 15.0)
+
+    def test_first_attempt_switches_to_continuation_timeout_after_audio(self):
+        from src.tts.engines.edge import (
+            EDGE_CONTINUATION_STREAM_TIMEOUT_SECONDS,
+            EDGE_INITIAL_STREAM_TIMEOUT_SECONDS,
+        )
+
+        class Parent:
+            def __init__(self):
+                self.frames = []
+
+            def put_audio_frame(self, frame, eventpoint):
+                self.frames.append((frame.copy(), dict(eventpoint)))
+
+        payload = self._mp3_fixture()
+
+        class WorkingCommunicate:
+            async def stream(self):
+                yield {"type": "audio", "data": payload}
+
+        timeouts = []
+        real_wait_for = asyncio.wait_for
+
+        async def recording_wait_for(awaitable, *, timeout):
+            timeouts.append(timeout)
+            return await real_wait_for(awaitable, timeout=timeout)
+
+        parent = Parent()
+        tts = self._make_tts(parent)
+        with (
+            patch(
+                "src.tts.engines.edge.edge_tts.Communicate",
+                side_effect=lambda *_args: WorkingCommunicate(),
+            ),
+            patch(
+                "src.tts.engines.edge.asyncio.wait_for",
+                new=recording_wait_for,
+            ),
+        ):
+            tts.txt_to_audio(("測試串流續包逾時。", {}))
+
+        self.assertTrue(parent.frames)
+        self.assertEqual(timeouts[0], EDGE_INITIAL_STREAM_TIMEOUT_SECONDS)
+        self.assertEqual(
+            timeouts[1:],
+            [EDGE_CONTINUATION_STREAM_TIMEOUT_SECONDS],
+        )
+
+    def test_edge_prewarm_stops_after_first_audio_packet(self):
+        from src.tts.engines.edge import prewarm_edge_tts
+
+        calls = []
+
+        class WarmupCommunicate:
+            async def stream(self):
+                calls.append("metadata")
+                yield {"type": "WordBoundary", "text": "預熱"}
+                calls.append("audio")
+                yield {"type": "audio", "data": b"warm"}
+                calls.append("too-far")
+                yield {"type": "audio", "data": b"unused"}
+
+        with patch(
+            "src.tts.engines.edge.edge_tts.Communicate",
+            side_effect=lambda *_args: WarmupCommunicate(),
+        ):
+            ready = prewarm_edge_tts("zh-TW-YunJheNeural", timeout_seconds=0.5)
+
+        self.assertTrue(ready)
+        self.assertEqual(calls, ["metadata", "audio"])
 
 
 if __name__ == "__main__":

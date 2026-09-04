@@ -46,6 +46,16 @@ test('設定面板可調整嘴型銳化、貼回插值與 MuseTalk 製作參數'
   assert.match(settings, /form\.append\('quality'/)
 })
 
+test('CosyVoice 設定提供合成語言與額外指令', () => {
+  assert.match(panel, /isCosyVoiceFamily/)
+  assert.match(panel, /fun-cosyvoice3/)
+  assert.match(panel, /settings\.speech\.cosyvoiceLanguage/)
+  assert.match(panel, /settings\.speech\.cosyvoiceInstruct/)
+  assert.match(panel, /settings\.speech\.cosyvoiceModel/)
+  assert.match(settings, /ttsDraft\.language = 'zh'/)
+  assert.match(settings, /type === 'fun-cosyvoice3'/)
+})
+
 test('從 Edge 切到本機 TTS 時會清掉聲線名稱並要求音訊路徑', () => {
   assert.match(settings, /EDGE_VOICE_ID/)
   assert.match(settings, /previous === 'edgetts'/)
@@ -78,4 +88,11 @@ test('文字 delta 拒絕重複、逆序與完成後的舊事件', () => {
   assert.match(app, /assistantStreamState = new Map\(\)/)
   assert.match(app, /sequence <= stream\.lastSequence \|\| stream\.done/)
   assert.match(app, /stream\.done = true/)
+})
+
+test('輪次提交後控制台對齊已播回覆', () => {
+  assert.match(app, /applyTurnCommitted/)
+  assert.match(app, /event\.type === 'turn_committed'/)
+  assert.match(app, /tts_error_before_commit/)
+  assert.match(app, /tts_error_after_commit/)
 })

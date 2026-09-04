@@ -273,6 +273,69 @@ class PlaybackCommitTests(unittest.IsolatedAsyncioTestCase):
         metrics = next(event for event in events if event["type"] == "turn_metrics")
         self.assertEqual(metrics["terminal_reason"], "tts_error_after_commit")
         self.assertIsNone(session._turn_id)
+        committed = next(event for event in events if event["type"] == "turn_committed")
+        self.assertEqual(committed["turn_id"], "turn-1")
+        self.assertEqual(committed["played_text"], "已播放。")
+        self.assertEqual(committed["reason"], "tts_error_after_commit")
+        await session.close()
+
+    async def test_tts_failure_before_commit_emits_empty_played_text(self):
+        session, avatar, events = self.make_session()
+        session._event_loop = asyncio.get_running_loop()
+        metadata = {
+            "turn_id": "turn-1",
+            "generation": 0,
+            "fragment_sequence": 0,
+        }
+        avatar.on_fragment_queued("從未播放", metadata)
+
+        with patch(
+            "src.server.voice_session.commit_session_history",
+            return_value=True,
+        ):
+            avatar.on_fragment_failed(metadata, "tts_exhausted_before_audio")
+            await asyncio.sleep(0)
+
+        committed = next(event for event in events if event["type"] == "turn_committed")
+        self.assertEqual(committed["played_text"], "")
+        self.assertEqual(committed["reason"], "tts_error_before_commit")
+        await session.close()
+
+    async def test_interrupt_emits_turn_committed_with_played_text(self):
+        session, avatar, events = self.make_session()
+        first = {"turn_id": "turn-1", "generation": 0, "fragment_sequence": 0}
+        second = {"turn_id": "turn-1", "generation": 0, "fragment_sequence": 1}
+        avatar.on_fragment_queued("已播放。", first)
+        avatar.on_fragment_queued("未播放。", second)
+        session.on_output_audio_frame(first, True)
+
+        with (
+            patch(
+                "src.server.voice_session.commit_session_history",
+                return_value=True,
+            ),
+            patch("src.server.voice_session.asyncio.sleep", new=AsyncMock()),
+        ):
+            await session.interrupt()
+
+        committed = next(event for event in events if event["type"] == "turn_committed")
+        self.assertEqual(committed["played_text"], "已播放。")
+        self.assertEqual(committed["reason"], "interrupt")
+        await session.close()
+
+    async def test_history_commit_emits_turn_committed_only_once(self):
+        session, _, events = self.make_session()
+        with patch(
+            "src.server.voice_session.commit_session_history",
+            return_value=True,
+        ):
+            self.assertTrue(session._commit_history("completed", turn_id="turn-1"))
+            self.assertFalse(session._commit_history("completed", turn_id="turn-1"))
+
+        committed = [event for event in events if event["type"] == "turn_committed"]
+        self.assertEqual(len(committed), 1)
+        self.assertEqual(committed[0]["played_text"], "")
+        self.assertEqual(committed[0]["reason"], "completed")
         await session.close()
 
     async def test_completed_turn_emits_content_free_soak_metrics(self):
@@ -301,6 +364,9 @@ class PlaybackCommitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(metric_event["terminal_reason"], "completed")
         self.assertIn("first_audio_seconds", metric_event["metrics"])
         self.assertNotIn("已播放但不可進指標", json.dumps(metric_event, ensure_ascii=False))
+        committed = next(event for event in events if event["type"] == "turn_committed")
+        self.assertEqual(committed["played_text"], "已播放但不可進指標")
+        self.assertEqual(committed["reason"], "completed")
         await session.close()
 
 

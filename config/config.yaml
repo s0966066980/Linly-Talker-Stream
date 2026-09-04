@@ -59,13 +59,16 @@ model:
 
 # TTS 配置資訊，可以改對應的模型，建議edgetts
 tts:
-  type: edgetts  # edgetts | fishtts | gpt-sovits | cosyvoice | indextts2 | xtts
-  ref_file: zh-TW-HsiaoChenNeural  # 臺灣女聲（曉臻）
+  type: edgetts  # edgetts | fishtts | gpt-sovits | cosyvoice | fun-cosyvoice3 | indextts2 | xtts
+  ref_file: zh-TW-HsiaoChenNeural  # 臺灣女聲（曉臻）；cosyvoice / fun-cosyvoice3 請改成本機 WAV 路徑
+  tts_server: http://127.0.0.1:9880  # gpt-sovits 等；cosyvoice 系列套用時會改用 50000 並自動啟動
   model: ''
   language: Chinese
   speaker: Vivian
   instruct: ''
   device: auto
+  edge_persistent_worker: true  # 重用 Edge 的本機 event loop，不是持久遠端連線
+  edge_prefetch: true  # 第一片段出聲後最多預取下一段，降低片段間空窗
 
 # ASR 配置資訊，可以改對應的模型，建議browser
 asr:
@@ -87,8 +90,8 @@ llm:
   llamacpp_port: 8080
   llamacpp_ctx: 2048          # 語音對話不需要長上下文
   llamacpp_threads: 0         # 0=自動用滿 CPU；有 CUDA 時主要靠 GPU
-  max_tokens: 128             # 模型輸出 token 安全上限，會依回覆字數自動保留足夠空間
-  response_max_chars: 120     # 數位人每次回答的約略字數，實際結果會依模型略有差異
+  max_tokens: 128             # 模型輸出 token 安全上限，會依回覆字數自動加緩衝，避免句中硬切
+  response_max_chars: 120     # 每次回答要在這個字數內把話說完，不是多出來再切斷
   extra_body:
     reasoning_effort: "none"  # 僅 Ollama：關閉思考鏈，降低首字延遲
 

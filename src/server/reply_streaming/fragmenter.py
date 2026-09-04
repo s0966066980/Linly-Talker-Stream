@@ -68,9 +68,9 @@ class SemanticFragmenter:
     def __init__(
         self,
         *,
-        weak_min_chars: int = 20,
-        soft_limit_chars: int = 36,
-        hard_limit_chars: int = 64,
+        weak_min_chars: int = 24,
+        soft_limit_chars: int = 72,
+        hard_limit_chars: int = 120,
     ) -> None:
         if weak_min_chars < 1:
             raise ValueError("weak punctuation threshold must be positive")
@@ -94,8 +94,7 @@ class SemanticFragmenter:
         while self._buffer:
             split_at = self._strong_boundary()
             if split_at is None:
-                content_chars = _content_length(self._buffer)
-                if content_chars < self._soft_limit_chars:
+                if _content_length(self._buffer) < self._hard_limit_chars:
                     break
                 split_at = self._weak_boundary()
             if split_at is None and _content_length(self._buffer) >= self._hard_limit_chars:
@@ -131,20 +130,18 @@ class SemanticFragmenter:
         return None
 
     def _weak_boundary(self) -> int | None:
-        candidates: list[int] = []
+        last = None
         for index, character in enumerate(self._buffer):
             if self._is_protected_punctuation(index) or character not in WEAK_PUNCTUATION:
                 continue
             boundary = index + 1
-            if _content_length(self._buffer[:boundary]) >= self._weak_min_chars:
-                candidates.append(boundary)
-
-        in_window = [
-            boundary
-            for boundary in candidates
-            if self._soft_limit_chars <= _content_length(self._buffer[:boundary]) <= self._hard_limit_chars
-        ]
-        return in_window[-1] if in_window else None
+            length = _content_length(self._buffer[:boundary])
+            if length < self._weak_min_chars:
+                continue
+            last = boundary
+            if length >= self._hard_limit_chars:
+                break
+        return last
 
     def _length_boundary(self) -> int | None:
         content_chars = 0

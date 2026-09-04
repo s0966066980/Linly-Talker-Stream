@@ -178,7 +178,7 @@ class ModelConfig:
 @dataclass
 class TTSConfig:
     """TTS 配置"""
-    type: str = "edgetts"  # edgetts | fishtts | gpt-sovits | cosyvoice | indextts2 | xtts
+    type: str = "edgetts"  # edgetts | fishtts | gpt-sovits | cosyvoice | fun-cosyvoice3 | indextts2 | xtts
     ref_file: str = "zh-TW-HsiaoChenNeural"
     ref_text: Optional[str] = None
     tts_server: str = "http://127.0.0.1:9880"
@@ -187,6 +187,8 @@ class TTSConfig:
     speaker: str = "Vivian"
     instruct: str = ""
     device: str = "auto"  # auto | cpu | cuda
+    edge_persistent_worker: bool = True
+    edge_prefetch: bool = True
 
 
 @dataclass

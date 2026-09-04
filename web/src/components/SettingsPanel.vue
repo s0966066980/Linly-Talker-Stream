@@ -1135,6 +1135,69 @@
                 </div>
               </template>
 
+              <template v-if="isCosyVoiceFamily">
+                <div class="setting-item setting-item-stack">
+                  <div class="setting-label">
+                    <label for="tts-model">{{ t('settings.speech.cosyvoiceModel') }}</label>
+                    <span id="tts-model-hint" class="setting-desc">
+                      {{ t('settings.speech.cosyvoiceModelDesc') }}
+                    </span>
+                  </div>
+                  <div class="setting-control setting-control-grow">
+                    <input
+                      id="tts-model"
+                      v-model.trim="ttsDraft.model"
+                      type="text"
+                      :placeholder="t('settings.speech.cosyvoiceModelPlaceholder')"
+                      :disabled="applyingTts"
+                      aria-describedby="tts-model-hint"
+                    >
+                  </div>
+                </div>
+                <div class="setting-item setting-item-stack">
+                  <div class="setting-label">
+                    <label for="tts-language">{{ t('settings.speech.cosyvoiceLanguage') }}</label>
+                    <span id="tts-language-hint" class="setting-desc">
+                      {{ t('settings.speech.cosyvoiceLanguageDesc') }}
+                    </span>
+                  </div>
+                  <div class="setting-control setting-control-grow">
+                    <select
+                      id="tts-language"
+                      v-model="ttsDraft.language"
+                      :disabled="applyingTts"
+                      aria-describedby="tts-language-hint"
+                    >
+                      <option
+                        v-for="item in cosyvoiceLanguageOptions"
+                        :key="item.id"
+                        :value="item.id"
+                      >
+                        {{ item.label }}
+                      </option>
+                    </select>
+                  </div>
+                </div>
+                <div class="setting-item setting-item-stack">
+                  <div class="setting-label">
+                    <label for="tts-instruct">{{ t('settings.speech.cosyvoiceInstruct') }}</label>
+                    <span id="tts-instruct-hint" class="setting-desc">
+                      {{ t('settings.speech.cosyvoiceInstructDesc') }}
+                    </span>
+                  </div>
+                  <div class="setting-control setting-control-grow">
+                    <input
+                      id="tts-instruct"
+                      v-model.trim="ttsDraft.instruct"
+                      type="text"
+                      :placeholder="t('settings.speech.cosyvoiceInstructPlaceholder')"
+                      :disabled="applyingTts"
+                      aria-describedby="tts-instruct-hint"
+                    >
+                  </div>
+                </div>
+              </template>
+
               <button
                 class="btn-apply"
                 type="button"
@@ -1280,6 +1343,41 @@ const {
   applySttSettings,
   applyTtsSettings
 } = useRuntimeSettings()
+
+const isCosyVoiceFamily = computed(() => (
+  ttsDraft.type === 'cosyvoice' || ttsDraft.type === 'fun-cosyvoice3'
+))
+
+const COSYVOICE_LANGUAGE_FALLBACK = [
+  { id: 'zh', label: '中文' },
+  { id: 'en', label: 'English' },
+  { id: 'ja', label: '日本語' },
+  { id: 'ko', label: '한국어' },
+  { id: 'yue', label: '粵語' },
+  { id: 'auto', label: '自動' }
+]
+const COSYVOICE3_LANGUAGE_FALLBACK = [
+  { id: 'zh', label: '中文' },
+  { id: 'en', label: 'English' },
+  { id: 'ja', label: '日本語' },
+  { id: 'ko', label: '한국어' },
+  { id: 'yue', label: '粵語' },
+  { id: 'de', label: 'Deutsch' },
+  { id: 'es', label: 'Español' },
+  { id: 'fr', label: 'Français' },
+  { id: 'it', label: 'Italiano' },
+  { id: 'ru', label: 'Русский' },
+  { id: 'auto', label: '自動' }
+]
+
+const cosyvoiceLanguageOptions = computed(() => {
+  if (speech.tts.languages.length && ttsDraft.type === speech.tts.type) {
+    return speech.tts.languages
+  }
+  return ttsDraft.type === 'fun-cosyvoice3'
+    ? COSYVOICE3_LANGUAGE_FALLBACK
+    : COSYVOICE_LANGUAGE_FALLBACK
+})
 
 const currentVadLabel = computed(() => 'Silero VAD')
 

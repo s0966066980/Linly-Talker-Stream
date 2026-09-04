@@ -20,6 +20,7 @@ _ENGINE_MAP: dict[str, Type[BaseTTS]] = {
     "gpt-sovits": SovitsTTS,
     "xtts": XTTS,
     "cosyvoice": CosyVoiceTTS,
+    "fun-cosyvoice3": CosyVoiceTTS,
     "fishtts": FishTTS,
     "indextts2": IndexTTS2,
 }

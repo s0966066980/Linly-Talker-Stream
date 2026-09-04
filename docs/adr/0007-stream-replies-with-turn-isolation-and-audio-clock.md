@@ -27,4 +27,6 @@ status: accepted
 - direct PCM／decoupled audio clock 實驗路徑未通過聽感與 A/V gate，預設關閉。正式路徑維持單一 renderer-owned audio producer。
 - MuseTalk 段落交界的視覺落差由嘴型連續控制器處理；控制器位於音訊 enqueue 之後，只改嘴部 ROI，不改變本 ADR 的音訊主時鐘。
 - Edge TTS 無首包且重試耗盡時，失敗 envelope 會切回會話 event loop 立即終止輪次，只提交已播回覆；不得留下等待 watchdog 的未結束片段。
+- Edge TTS 在服務 ready 前先完成一次無播放預熱；首包與續包使用不同逾時，避免程序冷連線落到第一輪，也避免首包短逾時截斷進行中的串流。
+- Edge 使用長生命週期本機 event loop，並在第一個可播回覆片段開始出聲後最多預取下一段；這不是持久的遠端連線，播放順序與插話丟棄契約不變。
 - MuseTalk 等待不足 PCM 的時間限制為 200ms；遠端 TTS 長尾期間必須持續推進待機影格，不能凍結上一張說話嘴型。

@@ -8,6 +8,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 import json
 import argparse
+from threading import Thread
 import torch.multiprocessing as mp
 
 from src.utils.logging import logger
@@ -15,6 +16,33 @@ from src.config.loader import load_config
 from src.avatars.factory import prepare_avatar_model
 from src.server.state import state
 from src.server.server import create_app, run_server
+
+
+def _start_edge_tts_prewarm(config) -> Thread | None:
+    """Overlap Edge's process-cold network setup with local model loading."""
+    if str(getattr(config.tts, "type", "")).strip().lower() != "edgetts":
+        return None
+    from src.tts.engines.edge import prewarm_edge_tts
+
+    voice = str(getattr(config.tts, "ref_file", "") or "").strip()
+    worker = Thread(
+        target=prewarm_edge_tts,
+        args=(voice,),
+        name="edge-tts-prewarm",
+        daemon=True,
+    )
+    worker.start()
+    return worker
+
+
+def _await_edge_tts_prewarm(worker: Thread | None) -> None:
+    if worker is None:
+        return
+    from src.tts.engines.edge import EDGE_WARMUP_TIMEOUT_SECONDS
+
+    worker.join(timeout=EDGE_WARMUP_TIMEOUT_SECONDS + 1.0)
+    if worker.is_alive():
+        logger.warning("Edge TTS prewarm did not finish before server startup")
 
 
 def main():
@@ -39,6 +67,7 @@ def main():
     state.config_path = args.config
     state.config = load_config(config_file=args.config)
     logger.info(f"已載入配置: {state.config}")
+    edge_tts_prewarm = _start_edge_tts_prewarm(state.config)
 
     # The llama.cpp child belongs to this backend when ensure_server starts it;
     # register termination cleanup before model loading so even Ctrl-C during
@@ -91,6 +120,32 @@ def main():
             logger.info("llama-server 已就緒: %s", state.config.llm.base_url)
         except Exception:
             logger.exception("啟動 llama-server 失敗，對話時會再試一次")
+
+    tts_type = str(getattr(state.config.tts, "type", "")).strip().lower()
+    if tts_type in {"cosyvoice", "fun-cosyvoice3"}:
+        try:
+            from src.tts.cosyvoice_runtime import (
+                cosyvoice_family,
+                ensure_server,
+                parse_server_url,
+            )
+
+            family = cosyvoice_family(tts_type)
+            host, port = parse_server_url(getattr(state.config.tts, "tts_server", "") or "")
+            label = "Fun-CosyVoice 3.0" if family == "cosyvoice3" else "CosyVoice2-0.5B"
+            logger.info("正在啟動 %s: %s", label, getattr(state.config.tts, "model", "") or label)
+            state.config.tts.tts_server = ensure_server(
+                model_dir=getattr(state.config.tts, "model", "") or "",
+                family=family,
+                host=host,
+                port=port,
+            )
+            logger.info("%s 已就緒: %s", label, state.config.tts.tts_server)
+        except Exception:
+            logger.exception("啟動 CosyVoice 失敗，請到設定重新套用 TTS")
+
+    # Do not announce readiness while the first Edge connection is still cold.
+    _await_edge_tts_prewarm(edge_tts_prewarm)
 
     # 建立並執行應用
     app = create_app()

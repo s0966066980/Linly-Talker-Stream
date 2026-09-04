@@ -39,6 +39,12 @@ from src.llm.llamacpp import (
 from src.llm.service import switch_llm_endpoint
 from src.asr.factory import activate_asr_engine, create_asr_engine
 from src.asr.engines.funasr import local_funasr_model_ready
+from src.tts.cosyvoice_runtime import (
+    cosyvoice_family,
+    is_cosyvoice_engine,
+    languages_for_family,
+    normalize_language,
+)
 from src.utils.logging import logger
 
 _SWITCH_LOCK = threading.Lock()
@@ -686,10 +692,16 @@ TTS_ENGINE_META = {
         "setup": "需要可連線的本地服務與參考音訊",
     },
     "cosyvoice": {
-        "label": "CosyVoice",
+        "label": "CosyVoice 2",
         "module": "requests",
-        "description": "連線本機或內網 CosyVoice 服務",
-        "setup": "需要可連線的本地服務與參考音訊",
+        "description": "本機 CosyVoice2-0.5B；套用時自動啟動獨立 GPU 服務",
+        "setup": "需要 conda 環境 cosyvoice、CosyVoice2-0.5B 與參考音訊",
+    },
+    "fun-cosyvoice3": {
+        "label": "Fun-CosyVoice 3.0",
+        "module": "requests",
+        "description": "本機 Fun-CosyVoice3-0.5B；九語加方言，套用時自動啟動獨立 GPU 服務",
+        "setup": "需要 conda 環境 cosyvoice、Fun-CosyVoice3-0.5B 與參考音訊",
     },
     "fishtts": {
         "label": "Fish Speech",
@@ -768,13 +780,25 @@ def speech_snapshot(config) -> Dict[str, Any]:
             "ref_text": tts.ref_text or "",
             "tts_server": tts.tts_server,
             "model": tts.model,
-            "language": tts.language,
+            "language": (
+                normalize_language(
+                    tts.language,
+                    family=cosyvoice_family(tts.type),
+                )
+                if is_cosyvoice_engine(tts.type)
+                else tts.language
+            ),
             "speaker": tts.speaker,
             "instruct": tts.instruct,
             "device": tts.device,
             "engines": _catalog(TTS_ENGINE_META),
             "models": [],
-            "languages": [],
+            "languages": [
+                {"id": item_id, "label": label}
+                for item_id, label in languages_for_family(
+                    cosyvoice_family(tts.type)
+                )
+            ],
             "speakers": [],
             "edge_voices": [dict(voice) for voice in EDGE_TTS_ZH_TW_VOICES],
             "devices": list(STT_DEVICES),
@@ -875,7 +899,58 @@ def apply_tts_settings(config, params: Dict[str, Any], *, session_count: int) ->
     device = str(params.get("device", config.tts.device) or "auto").strip().lower()
     if engine == "edgetts" and ref_file not in EDGE_TTS_ZH_TW_VOICE_IDS:
         raise SettingsError("請選擇可用的 Edge TTS 台灣華語聲線")
-    if engine != "edgetts" and not tts_server:
+    if is_cosyvoice_engine(engine):
+        from src.tts.cosyvoice_runtime import (
+            DEFAULT_PROMPT_TEXT,
+            DEFAULT_PROMPT_WAV,
+            ensure_server,
+            parse_server_url,
+            prepare_prompt_wav,
+            resolve_prompt_source,
+        )
+
+        family = cosyvoice_family(engine)
+        language = normalize_language(language, family=family)
+
+        if not tts_server:
+            tts_server = "http://127.0.0.1:50000"
+        if ref_file in EDGE_TTS_ZH_TW_VOICE_IDS:
+            ref_file = ""
+
+        if ref_file:
+            try:
+                source = resolve_prompt_source(ref_file)
+            except FileNotFoundError:
+                raise SettingsError(
+                    f"參考音訊不存在：{ref_file}。"
+                    "請填完整路徑，例如 /home/oliver/CosyVoice/asset/SHINeeJonghyun.mp3"
+                ) from None
+            try:
+                ref_file = str(prepare_prompt_wav(source))
+            except Exception as exc:
+                raise SettingsError(
+                    f"無法把參考音訊轉成 CosyVoice 可用的 WAV：{source}。"
+                    "請使用可播放的 WAV 或 MP3。"
+                ) from exc
+        else:
+            if not DEFAULT_PROMPT_WAV.is_file():
+                raise SettingsError(
+                    "未填參考音訊，且預設 data/tts/cosyvoice_prompt.wav 也不存在。"
+                )
+            ref_file = str(DEFAULT_PROMPT_WAV)
+            if not ref_text:
+                ref_text = DEFAULT_PROMPT_TEXT
+        host, port = parse_server_url(tts_server)
+        try:
+            tts_server = ensure_server(
+                model_dir=model,
+                family=family,
+                host=host,
+                port=port,
+            )
+        except FileNotFoundError as exc:
+            raise SettingsError(str(exc)) from exc
+    elif engine != "edgetts" and not tts_server:
         raise SettingsError("本地 TTS 必須填寫服務地址")
 
     preview_audio = _preview_tts(
@@ -920,7 +995,7 @@ def _preview_tts(
     device: str,
 ) -> str:
     """Run the real engine against a bounded phrase and return a WAV data URI."""
-    if engine in {"gpt-sovits", "xtts", "cosyvoice", "indextts2"}:
+    if engine in {"gpt-sovits", "xtts", "cosyvoice", "fun-cosyvoice3", "indextts2"}:
         audio_path = Path(ref_file).expanduser() if ref_file else None
         if audio_path is None or not audio_path.is_file():
             shown = ref_file or "（未填寫）"

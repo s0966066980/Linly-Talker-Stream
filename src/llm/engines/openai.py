@@ -149,9 +149,21 @@ class OpenAILLM(BaseLLM):
             logger.info(f"LLM initialization time: {init_time - start_time:.3f}s")
             
             for chunk in completion:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    content = chunk.choices[0].delta.content
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                delta = getattr(choice, "delta", None)
+                content = getattr(delta, "content", None) if delta is not None else None
+                if content:
                     yield content
+                finish_reason = getattr(choice, "finish_reason", None)
+                if finish_reason:
+                    logger.info(
+                        "LLM finish_reason=%s max_tokens=%s target_chars=%s",
+                        finish_reason,
+                        self.max_tokens,
+                        self.response_max_chars,
+                    )
             
         except OpenAIError as e:
             logger.error("LLM API failed: %s", type(e).__name__)
