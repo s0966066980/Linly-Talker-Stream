@@ -52,6 +52,22 @@ _SWITCH_LOCK = threading.Lock()
 DEFAULT_STAGE_CAPTION_MAX_CHARS = 120
 MIN_STAGE_CAPTION_MAX_CHARS = 20
 MAX_STAGE_CAPTION_MAX_CHARS = 2000
+BOARD_STYLES = ("glass", "slate", "cue")
+BOARD_PRESETS = ("tl", "tc", "tr", "ml", "mc", "mr", "bl", "bc", "br", "custom")
+DEFAULT_BOARD_STYLE = "glass"
+DEFAULT_BOARD_WIDTH = 252
+DEFAULT_BOARD_HEIGHT = 300
+DEFAULT_BOARD_TRANSPARENCY = 28
+DEFAULT_BOARD_X = 100
+DEFAULT_BOARD_Y = 0
+DEFAULT_BOARD_PRESET = "tr"
+DEFAULT_MIC_X = 50
+DEFAULT_MIC_Y = 62
+DEFAULT_MIC_PRESET = "custom"
+MIN_BOARD_WIDTH = 200
+MAX_BOARD_WIDTH = 720
+MIN_BOARD_HEIGHT = 180
+MAX_BOARD_HEIGHT = 720
 
 
 class SettingsError(Exception):
@@ -158,10 +174,92 @@ def validate_stage_caption_max_chars(value) -> int:
     return normalized
 
 
+def _validate_int_range(value, *, field: str, minimum: int, maximum: int) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{field}必須是整數")
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field}必須是整數") from exc
+    if isinstance(value, float) and not value.is_integer():
+        raise ValueError(f"{field}必須是整數")
+    if not minimum <= normalized <= maximum:
+        raise ValueError(f"{field}必須介於 {minimum} 到 {maximum} 之間")
+    return normalized
+
+
+def validate_board_style(value) -> str:
+    style = str(value or "").strip()
+    if style not in BOARD_STYLES:
+        raise ValueError("看板視窗樣式必須是 glass、slate 或 cue")
+    return style
+
+
+def validate_board_preset(value) -> str:
+    preset = str(value or "").strip()
+    if preset not in BOARD_PRESETS:
+        raise ValueError("看板位置必須是九宮格預設或 custom")
+    return preset
+
+
 def stage_snapshot(config) -> Dict[str, Any]:
     stage = getattr(config, "stage", None)
-    value = getattr(stage, "caption_max_chars", DEFAULT_STAGE_CAPTION_MAX_CHARS)
-    return {"caption_max_chars": validate_stage_caption_max_chars(value)}
+    caption = getattr(stage, "caption_max_chars", DEFAULT_STAGE_CAPTION_MAX_CHARS)
+    return {
+        "caption_max_chars": validate_stage_caption_max_chars(caption),
+        "board_style": validate_board_style(
+            getattr(stage, "board_style", DEFAULT_BOARD_STYLE)
+        ),
+        "board_width": _validate_int_range(
+            getattr(stage, "board_width", DEFAULT_BOARD_WIDTH),
+            field="看板寬度",
+            minimum=MIN_BOARD_WIDTH,
+            maximum=MAX_BOARD_WIDTH,
+        ),
+        "board_height": _validate_int_range(
+            getattr(stage, "board_height", DEFAULT_BOARD_HEIGHT),
+            field="看板高度",
+            minimum=MIN_BOARD_HEIGHT,
+            maximum=MAX_BOARD_HEIGHT,
+        ),
+        "board_transparency": _validate_int_range(
+            getattr(stage, "board_transparency", DEFAULT_BOARD_TRANSPARENCY),
+            field="看板背景透明度",
+            minimum=0,
+            maximum=100,
+        ),
+        "board_x": _validate_int_range(
+            getattr(stage, "board_x", DEFAULT_BOARD_X),
+            field="看板左右位置",
+            minimum=0,
+            maximum=100,
+        ),
+        "board_y": _validate_int_range(
+            getattr(stage, "board_y", DEFAULT_BOARD_Y),
+            field="看板上下位置",
+            minimum=0,
+            maximum=100,
+        ),
+        "board_preset": validate_board_preset(
+            getattr(stage, "board_preset", DEFAULT_BOARD_PRESET)
+        ),
+        "board_preview": bool(getattr(stage, "board_preview", False)),
+        "mic_x": _validate_int_range(
+            getattr(stage, "mic_x", DEFAULT_MIC_X),
+            field="麥克風左右位置",
+            minimum=0,
+            maximum=100,
+        ),
+        "mic_y": _validate_int_range(
+            getattr(stage, "mic_y", DEFAULT_MIC_Y),
+            field="麥克風上下位置",
+            minimum=0,
+            maximum=100,
+        ),
+        "mic_preset": validate_board_preset(
+            getattr(stage, "mic_preset", DEFAULT_MIC_PRESET)
+        ),
+    }
 
 
 def apply_stage_settings(config, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -169,9 +267,69 @@ def apply_stage_settings(config, params: Dict[str, Any]) -> Dict[str, Any]:
     stage = getattr(config, "stage", None)
     if stage is None:
         raise SettingsError("當前配置不支援舞台設定，請更新 config.yaml", status=400)
-    value = (params or {}).get("caption_max_chars", stage.caption_max_chars)
+    payload = params or {}
     try:
-        stage.caption_max_chars = validate_stage_caption_max_chars(value)
+        if "caption_max_chars" in payload:
+            stage.caption_max_chars = validate_stage_caption_max_chars(
+                payload["caption_max_chars"]
+            )
+        if "board_style" in payload:
+            stage.board_style = validate_board_style(payload["board_style"])
+        if "board_width" in payload:
+            stage.board_width = _validate_int_range(
+                payload["board_width"],
+                field="看板寬度",
+                minimum=MIN_BOARD_WIDTH,
+                maximum=MAX_BOARD_WIDTH,
+            )
+        if "board_height" in payload:
+            stage.board_height = _validate_int_range(
+                payload["board_height"],
+                field="看板高度",
+                minimum=MIN_BOARD_HEIGHT,
+                maximum=MAX_BOARD_HEIGHT,
+            )
+        if "board_transparency" in payload:
+            stage.board_transparency = _validate_int_range(
+                payload["board_transparency"],
+                field="看板背景透明度",
+                minimum=0,
+                maximum=100,
+            )
+        if "board_x" in payload:
+            stage.board_x = _validate_int_range(
+                payload["board_x"],
+                field="看板左右位置",
+                minimum=0,
+                maximum=100,
+            )
+        if "board_y" in payload:
+            stage.board_y = _validate_int_range(
+                payload["board_y"],
+                field="看板上下位置",
+                minimum=0,
+                maximum=100,
+            )
+        if "board_preset" in payload:
+            stage.board_preset = validate_board_preset(payload["board_preset"])
+        if "board_preview" in payload:
+            stage.board_preview = bool(payload["board_preview"])
+        if "mic_x" in payload:
+            stage.mic_x = _validate_int_range(
+                payload["mic_x"],
+                field="麥克風左右位置",
+                minimum=0,
+                maximum=100,
+            )
+        if "mic_y" in payload:
+            stage.mic_y = _validate_int_range(
+                payload["mic_y"],
+                field="麥克風上下位置",
+                minimum=0,
+                maximum=100,
+            )
+        if "mic_preset" in payload:
+            stage.mic_preset = validate_board_preset(payload["mic_preset"])
     except ValueError as exc:
         raise SettingsError(str(exc)) from exc
     persist_runtime_overrides(config)

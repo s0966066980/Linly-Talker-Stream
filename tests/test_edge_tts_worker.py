@@ -245,3 +245,66 @@ class EdgeTTSWorkerTests(unittest.TestCase):
         tts.close_worker()
         self.assertFalse(loop.is_running())
         self.assertFalse(thread.is_alive())
+
+    def test_last_fragment_prefetch_releases_and_completes_promptly(self):
+        payload = _mp3_fixture()
+        first_pcm = Event()
+        first_hold = Event()
+        second_end = Event()
+        emitted_second = []
+
+        class Parent:
+            def put_audio_frame(self, _frame, eventpoint):
+                seq = eventpoint.get("fragment_sequence")
+                if seq == 0:
+                    first_pcm.set()
+                elif seq == 1:
+                    emitted_second.append(eventpoint)
+                    if eventpoint.get("status") == "end":
+                        second_end.set()
+
+        class FirstCommunicate:
+            async def stream(self):
+                yield {"type": "audio", "data": payload}
+                while not first_hold.is_set():
+                    await asyncio.sleep(0.01)
+
+        class SecondCommunicate:
+            async def stream(self):
+                # Yield enough audio chunks so it exceeds MAX_PREFETCH_FRAMES (50 frames)
+                # and enters wait_for_space() while first fragment is held.
+                for _ in range(20):
+                    yield {"type": "audio", "data": payload}
+                    await asyncio.sleep(0.005)
+
+        communicates = [FirstCommunicate, SecondCommunicate]
+
+        def communicate(*_args):
+            return communicates.pop(0)()
+
+        tts = self._make_tts(Parent())
+        tts.put_msg_txt(
+            "第一段。",
+            {"turn_id": "turn-1", "generation": 1, "fragment_sequence": 0},
+        )
+        tts.put_msg_txt(
+            "第二段（最後一片段）。",
+            {"turn_id": "turn-1", "generation": 1, "fragment_sequence": 1},
+        )
+        quit_event = Event()
+        worker = Thread(target=tts.process_tts, args=(quit_event,))
+        with patch("src.tts.engines.edge.edge_tts.Communicate", side_effect=communicate):
+            worker.start()
+            try:
+                self.assertTrue(first_pcm.wait(timeout=1.5))
+                # Allow second fragment to buffer and block in wait_for_space
+                time.sleep(0.15)
+                # Release first fragment so second fragment is released as the last fragment
+                first_hold.set()
+                # Second fragment must complete promptly (< 2.0 seconds), NOT hang for 30s
+                start = time.perf_counter()
+                self.assertTrue(second_end.wait(timeout=2.0), f"Timed out waiting for second fragment end (took {time.perf_counter() - start:.3f}s)")
+                self.assertTrue(any(e.get("status") == "end" for e in emitted_second))
+            finally:
+                quit_event.set()
+                worker.join(timeout=2)

@@ -696,12 +696,241 @@
                   </div>
                 </div>
               </div>
+            </div>
+
+            <div class="settings-section">
+              <h4><i class="bi bi-window-stack"></i> {{ t('settings.stage.boardTitle') }}</h4>
+              <p class="section-hint">{{ t('settings.stage.boardDesc') }}</p>
+
+              <div class="setting-item">
+                <div class="setting-label">
+                  <label for="stage-board-preview">{{ t('settings.stage.boardPreview') }}</label>
+                  <span class="setting-desc">{{ t('settings.stage.boardPreviewDesc') }}</span>
+                </div>
+                <div class="setting-control">
+                  <label class="switch">
+                    <input
+                      id="stage-board-preview"
+                      type="checkbox"
+                      v-model="selectedBoardPreview"
+                      :disabled="applyingStage || loadingSettings"
+                    >
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="setting-item setting-item-stack">
+                <div class="setting-label">
+                  <span id="stage-board-style-label">{{ t('settings.stage.boardStyle') }}</span>
+                  <span class="setting-desc">{{ t('settings.stage.boardStyleDesc') }}</span>
+                </div>
+                <div
+                  class="engine-grid three-col"
+                  role="radiogroup"
+                  aria-labelledby="stage-board-style-label"
+                >
+                  <button
+                    v-for="style in boardStyles"
+                    :id="`stage-board-style-${style.id}`"
+                    :key="style.id"
+                    type="button"
+                    class="engine-card"
+                    role="radio"
+                    :aria-checked="selectedBoardStyle === style.id"
+                    :class="{ selected: selectedBoardStyle === style.id }"
+                    :disabled="applyingStage || loadingSettings"
+                    @click="selectedBoardStyle = style.id"
+                  >
+                    <span class="card-title">{{ t(style.titleKey) }}</span>
+                    <span class="card-desc">{{ t(style.descKey) }}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="setting-item">
+                <div class="setting-label">
+                  <label for="stage-board-width">{{ t('settings.stage.boardWidth') }}</label>
+                </div>
+                <div class="setting-control">
+                  <input
+                    id="stage-board-width"
+                    type="range"
+                    min="200"
+                    max="720"
+                    step="4"
+                    v-model.number="selectedBoardWidth"
+                    :disabled="applyingStage || loadingSettings"
+                  >
+                  <span class="range-value">{{ selectedBoardWidth }} px</span>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div class="setting-label">
+                  <label for="stage-board-height">{{ t('settings.stage.boardHeight') }}</label>
+                </div>
+                <div class="setting-control">
+                  <input
+                    id="stage-board-height"
+                    type="range"
+                    min="180"
+                    max="720"
+                    step="4"
+                    v-model.number="selectedBoardHeight"
+                    :disabled="applyingStage || loadingSettings"
+                  >
+                  <span class="range-value">{{ selectedBoardHeight }} px</span>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div class="setting-label">
+                  <label for="stage-board-transparency">{{ t('settings.stage.boardTransparency') }}</label>
+                  <span class="setting-desc">{{ t('settings.stage.boardTransparencyDesc') }}</span>
+                </div>
+                <div class="setting-control">
+                  <input
+                    id="stage-board-transparency"
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    v-model.number="selectedBoardTransparency"
+                    :disabled="applyingStage || loadingSettings"
+                  >
+                  <span class="range-value">{{ selectedBoardTransparency }}%</span>
+                </div>
+              </div>
+
+              <div class="setting-item setting-item-stack">
+                <div class="setting-label">
+                  <span id="stage-board-position-label">{{ t('settings.stage.boardPosition') }}</span>
+                  <span class="setting-desc">{{ t('settings.stage.boardPositionDesc') }}</span>
+                </div>
+                <div class="pos-grid" role="radiogroup" aria-labelledby="stage-board-position-label">
+                  <button
+                    v-for="preset in boardPresets"
+                    :key="preset.id"
+                    type="button"
+                    :aria-label="t(preset.labelKey)"
+                    :aria-checked="selectedBoardPreset === preset.id"
+                    :class="{ selected: selectedBoardPreset === preset.id }"
+                    :disabled="applyingStage || loadingSettings"
+                    @click="selectBoardPreset(preset.id)"
+                  ></button>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div class="setting-label">
+                  <label for="stage-board-x">{{ t('settings.stage.boardX') }}</label>
+                </div>
+                <div class="setting-control">
+                  <input
+                    id="stage-board-x"
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    v-model.number="selectedBoardX"
+                    :disabled="applyingStage || loadingSettings"
+                    @input="markBoardPositionCustom"
+                  >
+                  <span class="range-value">{{ selectedBoardX }}%</span>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div class="setting-label">
+                  <label for="stage-board-y">{{ t('settings.stage.boardY') }}</label>
+                </div>
+                <div class="setting-control">
+                  <input
+                    id="stage-board-y"
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    v-model.number="selectedBoardY"
+                    :disabled="applyingStage || loadingSettings"
+                    @input="markBoardPositionCustom"
+                  >
+                  <span class="range-value">{{ selectedBoardY }}%</span>
+                </div>
+              </div>
+
+              <h4><i class="bi bi-mic"></i> {{ t('settings.stage.micTitle') }}</h4>
+              <p class="section-hint">{{ t('settings.stage.micDesc') }}</p>
+              <div class="setting-item setting-item-stack">
+                <div class="setting-label">
+                  <span id="stage-mic-position-label">{{ t('settings.stage.micPosition') }}</span>
+                  <span class="setting-desc">{{ t('settings.stage.micPositionDesc') }}</span>
+                </div>
+                <div class="pos-grid" role="radiogroup" aria-labelledby="stage-mic-position-label">
+                  <button
+                    v-for="preset in boardPresets"
+                    :key="'mic-'+preset.id"
+                    type="button"
+                    :aria-label="t(preset.labelKey)"
+                    :aria-checked="selectedMicPreset === preset.id"
+                    :class="{ selected: selectedMicPreset === preset.id }"
+                    :disabled="applyingStage || loadingSettings"
+                    @click="selectMicPreset(preset.id)"
+                  ></button>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div class="setting-label">
+                  <label for="stage-mic-x">{{ t('settings.stage.micX') }}</label>
+                </div>
+                <div class="setting-control">
+                  <input
+                    id="stage-mic-x"
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    v-model.number="selectedMicX"
+                    :disabled="applyingStage || loadingSettings"
+                    @input="markMicPositionCustom"
+                  >
+                  <span class="range-value">{{ selectedMicX }}%</span>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div class="setting-label">
+                  <label for="stage-mic-y">{{ t('settings.stage.micY') }}</label>
+                </div>
+                <div class="setting-control">
+                  <input
+                    id="stage-mic-y"
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    v-model.number="selectedMicY"
+                    :disabled="applyingStage || loadingSettings"
+                    @input="markMicPositionCustom"
+                  >
+                  <span class="range-value">{{ selectedMicY }}%</span>
+                </div>
+              </div>
+
+              <div class="setting-item setting-item-stack">
+                <div class="setting-label">
+                  <span>{{ t('settings.stage.layoutPreview') }}</span>
+                  <span class="setting-desc">{{ t('settings.stage.layoutPreviewDesc') }}</span>
+                </div>
+                <div class="stage-layout-preview" aria-hidden="true">
+                  <div class="stage-preview-person"></div>
+                  <div class="stage-preview-captions"></div>
+                  <div class="stage-preview-board" :style="previewBoardStyle"></div>
+                  <div class="stage-preview-mic" :style="previewMicStyle"></div>
+                </div>
+              </div>
 
               <p v-if="stageError" class="inline-error" role="alert">{{ stageError }}</p>
               <button
                 class="btn-apply"
                 type="button"
-                :disabled="!stageDirty || applyingStage || stageCaptionLengthError"
+                :disabled="!stageDirty || applyingStage || stageCaptionLengthError || boardSizeError"
                 @click="handleApplyStage"
               >
                 <i :class="applyingStage ? 'bi bi-hourglass-split spin' : 'bi bi-check-lg'"></i>
@@ -1259,12 +1488,53 @@
 import { computed, ref, watch, onMounted } from 'vue'
 import { useI18n } from '../composables/useI18n'
 import { useRuntimeSettings } from '../composables/useRuntimeSettings'
+import { placeStageBoard, previewScale, micStyle } from '../stageBoardLayout.js'
 
 const { t } = useI18n()
 const showSettings = ref(false)
 const confirmKind = ref('')
 const activeSettingsTab = ref('ai')
 const settingsContentRef = ref(null)
+
+const boardStyles = [
+  { id: 'glass', titleKey: 'settings.stage.styleGlass', descKey: 'settings.stage.styleGlassDesc' },
+  { id: 'slate', titleKey: 'settings.stage.styleSlate', descKey: 'settings.stage.styleSlateDesc' },
+  { id: 'cue', titleKey: 'settings.stage.styleCue', descKey: 'settings.stage.styleCueDesc' }
+]
+const STAGE_PREVIEW_W = 96
+const STAGE_PREVIEW_H = 170
+const previewBoardStyle = computed(() => {
+  const scale = previewScale(STAGE_PREVIEW_W, STAGE_PREVIEW_H)
+  const box = placeStageBoard({
+    stageW: STAGE_PREVIEW_W,
+    stageH: STAGE_PREVIEW_H,
+    targetW: Number(selectedBoardWidth.value),
+    targetH: Number(selectedBoardHeight.value),
+    x: Number(selectedBoardX.value),
+    y: Number(selectedBoardY.value),
+    scale
+  })
+  return {
+    width: `${box.width}px`,
+    height: `${box.height}px`,
+    left: `${box.left}px`,
+    top: `${box.top}px`,
+    opacity: Math.max(0.25, 1 - Number(selectedBoardTransparency.value) / 100)
+  }
+})
+const previewMicStyle = computed(() => micStyle(selectedMicX.value, selectedMicY.value))
+
+const boardPresets = [
+  { id: 'tl', labelKey: 'settings.stage.posTl' },
+  { id: 'tc', labelKey: 'settings.stage.posTc' },
+  { id: 'tr', labelKey: 'settings.stage.posTr' },
+  { id: 'ml', labelKey: 'settings.stage.posMl' },
+  { id: 'mc', labelKey: 'settings.stage.posMc' },
+  { id: 'mr', labelKey: 'settings.stage.posMr' },
+  { id: 'bl', labelKey: 'settings.stage.posBl' },
+  { id: 'bc', labelKey: 'settings.stage.posBc' },
+  { id: 'br', labelKey: 'settings.stage.posBr' }
+]
 
 const settingsTabs = computed(() => [
   { id: 'ai', icon: 'bi bi-cpu', label: t('settings.tabs.ai') },
@@ -1307,6 +1577,22 @@ const {
   selectedResponseMaxChars,
   selectedReplyMode,
   selectedStageCaptionMaxChars,
+  selectedBoardStyle,
+  selectedBoardWidth,
+  selectedBoardHeight,
+  selectedBoardTransparency,
+  selectedBoardX,
+  selectedBoardY,
+  selectedBoardPreset,
+  selectedBoardPreview,
+  selectedMicX,
+  selectedMicY,
+  selectedMicPreset,
+  boardSizeError,
+  selectBoardPreset,
+  markBoardPositionCustom,
+  selectMicPreset,
+  markMicPositionCustom,
   responseLengthError,
   stageCaptionLengthError,
   filteredCharacters,
@@ -2435,6 +2721,87 @@ input:checked + .slider:before {
   grid-template-columns: 1fr 1fr;
   gap: 0.75rem;
   margin-bottom: 0.85rem;
+}
+
+.engine-grid.three-col {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.pos-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 28px);
+  grid-template-rows: repeat(3, 36px);
+  gap: 4px;
+  padding: 6px;
+  width: max-content;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.pos-grid button {
+  width: 28px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+
+.pos-grid button.selected {
+  background: var(--primary);
+}
+
+.stage-layout-preview {
+  position: relative;
+  width: 96px;
+  height: 170px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: radial-gradient(ellipse at 50% 38%, #3a4e72, #121a28 72%);
+}
+
+.stage-preview-person {
+  position: absolute;
+  left: 50%;
+  bottom: 22%;
+  transform: translateX(-50%);
+  width: 28%;
+  height: 52%;
+  border-radius: 40px 40px 8px 8px;
+  background: #8fa3bf;
+}
+
+.stage-preview-captions {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: 6%;
+  height: 12%;
+  border-radius: 6px;
+  background: rgba(255,255,255,.16);
+}
+
+.stage-preview-board {
+  position: absolute;
+  min-width: 0;
+  border-radius: 4px;
+  background: rgb(165 180 252 / .85);
+  border: 1px solid #c5ceff;
+}
+
+.stage-preview-mic {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #3ddc97;
+  border: 2px solid rgba(255,255,255,.7);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 4px rgba(61,220,151,.2);
 }
 
 .engine-card,

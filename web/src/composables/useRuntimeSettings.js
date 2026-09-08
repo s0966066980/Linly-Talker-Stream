@@ -10,7 +10,18 @@ const runtime = reactive({
     reply_mode: 'legacy'
   },
   stage: {
-    caption_max_chars: 120
+    caption_max_chars: 120,
+    board_style: 'glass',
+    board_width: 252,
+    board_height: 300,
+    board_transparency: 28,
+    board_x: 100,
+    board_y: 0,
+    board_preset: 'tr',
+    board_preview: false,
+    mic_x: 50,
+    mic_y: 62,
+    mic_preset: 'custom'
   },
   avatar: {
     type: '',
@@ -173,6 +184,28 @@ const selectedSystemPrompt = ref('')
 const selectedResponseMaxChars = ref(120)
 const selectedReplyMode = ref('legacy')
 const selectedStageCaptionMaxChars = ref(120)
+const selectedBoardStyle = ref('glass')
+const selectedBoardWidth = ref(252)
+const selectedBoardHeight = ref(300)
+const selectedBoardTransparency = ref(28)
+const selectedBoardX = ref(100)
+const selectedBoardY = ref(0)
+const selectedBoardPreset = ref('tr')
+const selectedBoardPreview = ref(false)
+const selectedMicX = ref(50)
+const selectedMicY = ref(62)
+const selectedMicPreset = ref('custom')
+const BOARD_PRESETS = {
+  tl: [0, 0],
+  tc: [50, 0],
+  tr: [100, 0],
+  ml: [0, 50],
+  mc: [50, 50],
+  mr: [100, 50],
+  bl: [0, 100],
+  bc: [50, 100],
+  br: [100, 100]
+}
 
 const responseLengthError = computed(() => {
   const value = Number(selectedResponseMaxChars.value)
@@ -204,9 +237,38 @@ const llmDirty = computed(() => {
   )
 })
 
+const boardSizeError = computed(() => {
+  const width = Number(selectedBoardWidth.value)
+  const height = Number(selectedBoardHeight.value)
+  const transparency = Number(selectedBoardTransparency.value)
+  const x = Number(selectedBoardX.value)
+  const y = Number(selectedBoardY.value)
+  return (
+    !Number.isInteger(width) || width < 200 || width > 720 ||
+    !Number.isInteger(height) || height < 180 || height > 720 ||
+    !Number.isInteger(transparency) || transparency < 0 || transparency > 100 ||
+    !Number.isInteger(x) || x < 0 || x > 100 ||
+    !Number.isInteger(y) || y < 0 || y > 100
+  )
+})
+
 const stageDirty = computed(() => (
   !stageCaptionLengthError.value &&
-  Number(selectedStageCaptionMaxChars.value) !== Number(runtime.stage.caption_max_chars || 120)
+  !boardSizeError.value &&
+  (
+    Number(selectedStageCaptionMaxChars.value) !== Number(runtime.stage.caption_max_chars || 120) ||
+    selectedBoardStyle.value !== (runtime.stage.board_style || 'glass') ||
+    Number(selectedBoardWidth.value) !== Number(runtime.stage.board_width || 252) ||
+    Number(selectedBoardHeight.value) !== Number(runtime.stage.board_height || 300) ||
+    Number(selectedBoardTransparency.value) !== Number(runtime.stage.board_transparency || 28) ||
+    Number(selectedBoardX.value) !== Number(runtime.stage.board_x || 100) ||
+    Number(selectedBoardY.value) !== Number(runtime.stage.board_y || 0) ||
+    selectedBoardPreset.value !== (runtime.stage.board_preset || 'tr') ||
+    Boolean(selectedBoardPreview.value) !== Boolean(runtime.stage.board_preview) ||
+    Number(selectedMicX.value) !== Number(runtime.stage.mic_x ?? 50) ||
+    Number(selectedMicY.value) !== Number(runtime.stage.mic_y ?? 62) ||
+    selectedMicPreset.value !== (runtime.stage.mic_preset || 'custom')
+  )
 ))
 
 const avatarDirty = computed(() => {
@@ -538,7 +600,18 @@ async function applyMouthQuality() {
 function applySnapshot(data) {
   runtime.llm = data.llm
   runtime.stage = {
-    caption_max_chars: Number(data.stage?.caption_max_chars || 120)
+    caption_max_chars: Number(data.stage?.caption_max_chars || 120),
+    board_style: data.stage?.board_style || 'glass',
+    board_width: Number(data.stage?.board_width || 252),
+    board_height: Number(data.stage?.board_height || 300),
+    board_transparency: Number(data.stage?.board_transparency ?? 28),
+    board_x: Number(data.stage?.board_x ?? 100),
+    board_y: Number(data.stage?.board_y ?? 0),
+    board_preset: data.stage?.board_preset || 'tr',
+    board_preview: Boolean(data.stage?.board_preview),
+    mic_x: Number(data.stage?.mic_x ?? 50),
+    mic_y: Number(data.stage?.mic_y ?? 62),
+    mic_preset: data.stage?.mic_preset || 'custom'
   }
   runtime.avatar = data.avatar
   runtime.avatar_quality = mergeQuality(data.avatar_quality)
@@ -561,6 +634,17 @@ function applySnapshot(data) {
   selectedResponseMaxChars.value = Number(data.llm?.response_max_chars || 120)
   selectedReplyMode.value = data.llm?.reply_mode || 'legacy'
   selectedStageCaptionMaxChars.value = runtime.stage.caption_max_chars
+  selectedBoardStyle.value = runtime.stage.board_style
+  selectedBoardWidth.value = runtime.stage.board_width
+  selectedBoardHeight.value = runtime.stage.board_height
+  selectedBoardTransparency.value = runtime.stage.board_transparency
+  selectedBoardX.value = runtime.stage.board_x
+  selectedBoardY.value = runtime.stage.board_y
+  selectedBoardPreset.value = runtime.stage.board_preset
+  selectedBoardPreview.value = runtime.stage.board_preview
+  selectedMicX.value = runtime.stage.mic_x
+  selectedMicY.value = runtime.stage.mic_y
+  selectedMicPreset.value = runtime.stage.mic_preset
 }
 
 async function loadRuntimeSettings() {
@@ -664,6 +748,32 @@ async function applyLlmModel(
   }
 }
 
+function selectBoardPreset(preset) {
+  selectedBoardPreset.value = preset
+  const point = BOARD_PRESETS[preset]
+  if (point) {
+    selectedBoardX.value = point[0]
+    selectedBoardY.value = point[1]
+  }
+}
+
+function markBoardPositionCustom() {
+  selectedBoardPreset.value = 'custom'
+}
+
+function selectMicPreset(preset) {
+  selectedMicPreset.value = preset
+  const point = BOARD_PRESETS[preset]
+  if (point) {
+    selectedMicX.value = point[0]
+    selectedMicY.value = point[1]
+  }
+}
+
+function markMicPositionCustom() {
+  selectedMicPreset.value = 'custom'
+}
+
 async function applyStageSettings(
   captionMaxChars = selectedStageCaptionMaxChars.value
 ) {
@@ -673,10 +783,45 @@ async function applyStageSettings(
     const data = await parseJson(await fetch('/api/stage', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ caption_max_chars: Number(captionMaxChars) })
+      body: JSON.stringify({
+        caption_max_chars: Number(captionMaxChars),
+        board_style: selectedBoardStyle.value,
+        board_width: Number(selectedBoardWidth.value),
+        board_height: Number(selectedBoardHeight.value),
+        board_transparency: Number(selectedBoardTransparency.value),
+        board_x: Number(selectedBoardX.value),
+        board_y: Number(selectedBoardY.value),
+        board_preset: selectedBoardPreset.value,
+        board_preview: Boolean(selectedBoardPreview.value),
+        mic_x: Number(selectedMicX.value),
+        mic_y: Number(selectedMicY.value),
+        mic_preset: selectedMicPreset.value
+      })
     }))
     runtime.stage.caption_max_chars = Number(data.caption_max_chars)
+    runtime.stage.board_style = data.board_style
+    runtime.stage.board_width = Number(data.board_width)
+    runtime.stage.board_height = Number(data.board_height)
+    runtime.stage.board_transparency = Number(data.board_transparency)
+    runtime.stage.board_x = Number(data.board_x)
+    runtime.stage.board_y = Number(data.board_y)
+    runtime.stage.board_preset = data.board_preset
+    runtime.stage.board_preview = Boolean(data.board_preview)
     selectedStageCaptionMaxChars.value = runtime.stage.caption_max_chars
+    selectedBoardStyle.value = runtime.stage.board_style
+    selectedBoardWidth.value = runtime.stage.board_width
+    selectedBoardHeight.value = runtime.stage.board_height
+    selectedBoardTransparency.value = runtime.stage.board_transparency
+    selectedBoardX.value = runtime.stage.board_x
+    selectedBoardY.value = runtime.stage.board_y
+    selectedBoardPreset.value = runtime.stage.board_preset
+    selectedBoardPreview.value = runtime.stage.board_preview
+    runtime.stage.mic_x = Number(data.mic_x)
+    runtime.stage.mic_y = Number(data.mic_y)
+    runtime.stage.mic_preset = data.mic_preset
+    selectedMicX.value = runtime.stage.mic_x
+    selectedMicY.value = runtime.stage.mic_y
+    selectedMicPreset.value = runtime.stage.mic_preset
     return data
   } catch (error) {
     stageError.value = error.message
@@ -808,6 +953,22 @@ export function useRuntimeSettings() {
     selectedResponseMaxChars,
     selectedReplyMode,
     selectedStageCaptionMaxChars,
+    selectedBoardStyle,
+    selectedBoardWidth,
+    selectedBoardHeight,
+    selectedBoardTransparency,
+    selectedBoardX,
+    selectedBoardY,
+    selectedBoardPreset,
+    selectedBoardPreview,
+    selectedMicX,
+    selectedMicY,
+    selectedMicPreset,
+    boardSizeError,
+    selectBoardPreset,
+    markBoardPositionCustom,
+    selectMicPreset,
+    markMicPositionCustom,
     responseLengthError,
     stageCaptionLengthError,
     filteredCharacters,

@@ -123,11 +123,12 @@ def should_wait_for_tts_audio(
     required_audio_frames: int,
     queued_video_frames: int,
     pending_wait_seconds: float = 0.0,
+    max_wait_seconds: float = MAX_TTS_AUDIO_WAIT_SECONDS,
 ) -> bool:
     """Briefly protect a partial batch without freezing idle video output."""
     return (
         tts_pending
-        and pending_wait_seconds < MAX_TTS_AUDIO_WAIT_SECONDS
+        and pending_wait_seconds < max_wait_seconds
         and queued_audio_frames < required_audio_frames
         and (
             queued_audio_frames > 0
@@ -414,21 +415,28 @@ class MuseTalkAvatar(BaseAvatar):
         self.frame_list_cycle,self.mask_list_cycle,self.coord_list_cycle,self.mask_coords_list_cycle, self.input_latent_list_cycle = avatar
         from .mouth_continuity import MouthContinuityController
 
+        musetalk_cfg = getattr(config.model, "musetalk", None)
+        self.max_tts_audio_wait_seconds = float(
+            getattr(musetalk_cfg, "max_tts_audio_wait_seconds", 0.35) or 0.35
+        )
         mouth_continuity_enabled = bool(
             getattr(
-                getattr(config.model, "musetalk", None),
+                musetalk_cfg,
                 "mouth_continuity",
                 True,
             )
         )
+        gap_grace = int(getattr(musetalk_cfg, "gap_grace_frames", 3) or 3)
+        opening = int(getattr(musetalk_cfg, "opening_frames", 2) or 2)
+        closing = int(getattr(musetalk_cfg, "closing_frames", 4) or 4)
         self._mouth_continuity = (
             MouthContinuityController(
                 self.frame_list_cycle,
                 self.mask_list_cycle,
                 self.mask_coords_list_cycle,
-                gap_grace_frames=2,
-                opening_frames=2,
-                closing_frames=4,
+                gap_grace_frames=gap_grace,
+                opening_frames=opening,
+                closing_frames=closing,
             )
             if mouth_continuity_enabled
             else None
@@ -544,6 +552,7 @@ class MuseTalkAvatar(BaseAvatar):
                 required_audio_frames,
                 video_queue_size,
                 pending_wait_seconds,
+                max_wait_seconds=self.max_tts_audio_wait_seconds,
             ):
                 time.sleep(0.01)
                 continue

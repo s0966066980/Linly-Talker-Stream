@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import numpy as np
 
 from src.server.reply_streaming.circuit_breaker import ReplyCircuitBreaker
-from src.server.voice_session import VoiceTurnSession
+from src.server.voice_session import OUTPUT_STALL_FRAMES, VoiceTurnSession
 
 
 class FakeClock:
@@ -233,6 +233,29 @@ class PlaybackCommitTests(unittest.IsolatedAsyncioTestCase):
         commit.assert_not_called()
         self.assertEqual(session._silent_output_frames, 0)
         self.assertEqual(session._turn_id, "turn-1")
+        await session.close()
+
+    async def test_output_stall_timeout_recovers_if_tts_pending_work_times_out(self):
+        session, avatar, _ = self.make_session()
+        metadata = {
+            "turn_id": "turn-1",
+            "generation": 0,
+            "fragment_sequence": 0,
+        }
+        avatar.on_fragment_queued("仍在合成但卡住", metadata)
+        avatar.tts = SimpleNamespace(has_pending_work=lambda: True)
+        session._llm_finished = True
+
+        max_tts_stall = max(
+            OUTPUT_STALL_FRAMES * 4,
+            session._inter_fragment_stall_frames * 2,
+        )
+        with patch("src.server.voice_session.commit_session_history") as commit:
+            for _ in range(max_tts_stall):
+                session.on_output_audio(False)
+
+        commit.assert_called_once()
+        self.assertIsNone(session._turn_id)
         await session.close()
 
     async def test_tts_failure_after_commit_fails_turn_without_waiting_for_watchdog(self):

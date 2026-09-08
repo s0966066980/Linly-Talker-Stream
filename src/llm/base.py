@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Callable, Generator, Optional
 from uuid import uuid4
 
+from src.llm.answer_board import AnswerBoardSplitter, with_board_instruction
 from src.server.reply_streaming.fragmenter import SemanticFragmenter
 from src.utils.logging import logger
 
@@ -45,17 +46,18 @@ def validate_response_max_chars(value) -> int:
 def response_token_budget(max_chars: int) -> int:
     """Safety ceiling above the character target so the last sentence can finish."""
     estimated = max(64, math.ceil(max_chars * 2.5) + 32)
-    return min(4096, estimated)
+    return min(4096, estimated + 256)
 
 
 def with_response_length_instruction(system_prompt: str, max_chars: int) -> str:
     """加入隱藏的柔性長度指令，不污染使用者可編輯的 Prompt。"""
     prompt = (system_prompt or DEFAULT_SYSTEM_PROMPT).rstrip()
-    return (
+    length_prompt = (
         f"{prompt}\n\n【回覆長度】每次回答必須是結構完整的短答，總長度約 {max_chars} 個字。"
         "先在限制內把話說完；不要開一個無法在限制內結束的長句或列表。"
         "禁止在句子或條目中途停止。"
     )
+    return with_board_instruction(length_prompt)
 
 
 def load_system_prompt(config=None) -> str:
@@ -145,8 +147,36 @@ class BaseLLM(ABC):
             and datainfo.get("turn_id")
             and datainfo.get("generation") is not None
         )
+        weak_min = int(
+            getattr(
+                getattr(self.config, "reply_streaming", None),
+                "weak_min_chars",
+                24,
+            )
+            or 24
+        )
+        soft_limit = int(
+            getattr(
+                getattr(self.config, "reply_streaming", None),
+                "soft_limit_chars",
+                72,
+            )
+            or 72
+        )
+        hard_limit = int(
+            getattr(
+                getattr(self.config, "reply_streaming", None),
+                "hard_limit_chars",
+                120,
+            )
+            or 120
+        )
         text_processor = (
-            SemanticFragmenter()
+            SemanticFragmenter(
+                weak_min_chars=weak_min,
+                soft_limit_chars=soft_limit,
+                hard_limit_chars=hard_limit,
+            )
             if semantic_stream
             else TextStreamProcessor()
         )
@@ -162,11 +192,18 @@ class BaseLLM(ABC):
         
         target_avatar = (avatar_stream or self.parent) if stream_to_avatar else None
         fragment_sequence = 0
+        splitter = AnswerBoardSplitter()
+        spoken_response = ""
+        on_board = (datainfo or {}).get("on_board")
         
         def send_to_avatar(text: str) -> None:
-            nonlocal fragment_sequence
+            nonlocal fragment_sequence, spoken_response
+            if not text:
+                return
+            spoken_response += text
             if target_avatar:
                 fragment_info = dict(datainfo or {})
+                fragment_info.pop("on_board", None)
                 if (
                     fragment_info.get("turn_id")
                     and fragment_info.get("generation") is not None
@@ -180,10 +217,26 @@ class BaseLLM(ABC):
                     logger.info("Queueing legacy LLM fragment")
                 target_avatar.put_msg_txt(text, fragment_info)
                 fragment_sequence += 1
+
+        def emit_board(payload) -> None:
+            if payload is None or not callable(on_board):
+                return
+            turn_id = str((datainfo or {}).get("turn_id") or "")
+            on_board({"kind": "begin", "title": payload.title, "turn_id": turn_id})
+            for index, item in enumerate(payload.items):
+                on_board({
+                    "kind": "item",
+                    "index": index,
+                    "title": item.title,
+                    "body": item.body,
+                    "turn_id": turn_id,
+                })
+            on_board({"kind": "end", "turn_id": turn_id})
         
         try:
             # 記錄首包延遲，方便定位 LLM 響應瓶頸
             first_chunk = True
+            sequence = -1
             if history_transaction is None:
                 chunks = self.chat_stream(message)
             else:
@@ -202,30 +255,53 @@ class BaseLLM(ABC):
                 
                 full_response += chunk
 
+                for spoken in splitter.feed(chunk):
+                    if target_avatar and semantic_stream:
+                        notify_chunk = getattr(target_avatar, "notify_llm_chunk", None)
+                        if callable(notify_chunk):
+                            notify_chunk(
+                                spoken,
+                                {
+                                    **dict(datainfo or {}),
+                                    "llm_sequence": sequence,
+                                },
+                            )
+                    if target_avatar:
+                        if semantic_stream:
+                            for fragment in text_processor.feed(spoken):
+                                send_to_avatar(fragment)
+                        else:
+                            text_processor.process_chunk(spoken, send_to_avatar)
+                    else:
+                        spoken_response += spoken
+            
+            leftover, board_payload = splitter.flush()
+            if leftover:
                 if target_avatar and semantic_stream:
                     notify_chunk = getattr(target_avatar, "notify_llm_chunk", None)
                     if callable(notify_chunk):
                         notify_chunk(
-                            chunk,
+                            leftover,
                             {
                                 **dict(datainfo or {}),
-                                "llm_sequence": sequence,
+                                "llm_sequence": max(sequence, 0),
                             },
                         )
-                
                 if target_avatar:
                     if semantic_stream:
-                        for fragment in text_processor.feed(chunk):
+                        for fragment in text_processor.feed(leftover):
                             send_to_avatar(fragment)
                     else:
-                        text_processor.process_chunk(chunk, send_to_avatar)
-            
+                        text_processor.process_chunk(leftover, send_to_avatar)
+                else:
+                    spoken_response += leftover
             if target_avatar:
                 if semantic_stream:
                     for fragment in text_processor.flush():
                         send_to_avatar(fragment)
                 else:
                     text_processor.flush(send_to_avatar)
+            emit_board(board_payload)
             
             total_time = time.perf_counter()
             logger.info(f"Total LLM response time: {total_time - start_time:.3f}s")
@@ -238,7 +314,7 @@ class BaseLLM(ABC):
                 )
                 history_committed = True
             
-            return full_response
+            return spoken_response or full_response
             
         except Exception as e:
             if (

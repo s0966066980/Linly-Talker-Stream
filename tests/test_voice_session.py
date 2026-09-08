@@ -103,6 +103,7 @@ class VoiceTurnSessionTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(chunk_guard(0))
             self.assertEqual(datainfo["generation"], session._generation)
             fragment_info = dict(datainfo or {})
+            fragment_info.pop("on_board", None)
             fragment_info["fragment_sequence"] = 0
             avatar_stream.put_msg_txt("您好", fragment_info)
             return "您好"
@@ -406,7 +407,8 @@ class ReplyModeBehaviorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(started["reply_mode"], "legacy")
         self.assertFalse(calls[0][1].get("stream_to_avatar", True))
-        self.assertEqual(calls[0][1].get("datainfo"), None)
+        self.assertEqual(calls[0][1]["datainfo"]["turn_id"], started["turn_id"])
+        self.assertTrue(callable(calls[0][1]["datainfo"]["on_board"]))
         self.assertEqual(calls[0][1].get("chunk_guard"), None)
         self.assertFalse(calls[0][1].get("defer_history_commit", False))
         responses = [item for item in events if item["type"] == "assistant_response"]
@@ -523,6 +525,46 @@ class ReplyModeBehaviorTests(unittest.IsolatedAsyncioTestCase):
         self.assertLess(stream_first, gap / 2)
         self.assertGreater(legacy_first, gap * 0.8)
         self.assertLess(stream_first, legacy_first)
+
+    async def test_streaming_inter_fragment_gap_does_not_falsely_stall(self):
+        session, avatar, events = self.make_session(streaming=True)
+
+        def slow_streaming_llm(text, avatar_stream, **kwargs):
+            datainfo = kwargs.get("datainfo") or {}
+            event0 = {**datainfo, "fragment_sequence": 0}
+            session.register_fragment("第一句話。", event0)
+            session.on_output_audio(True)
+            session.on_output_audio_frame(event0, True)
+            session.on_output_audio_frame({**event0, "fragment_end": True}, True)
+            # fragment 0 finishes playing, now audio is silent
+            # Simulate 60 frames (1.2s) of silence while LLM is still generating
+            for _ in range(60):
+                session.on_output_audio(False)
+            # LLM emits fragment 1 after 1.2s pause
+            event1 = {**datainfo, "fragment_sequence": 1}
+            session.register_fragment("第二句話。", event1)
+            session.on_output_audio(True)
+            session.on_output_audio_frame(event1, True)
+            session.on_output_audio_frame({**event1, "fragment_end": True}, True)
+            return "第一句話。第二句話。"
+
+        with patch("src.server.voice_session.llm_response", side_effect=slow_streaming_llm):
+            started = await session.start_text_turn("測試串流間隔不誤殺", interrupt=False)
+            await session._turn_task
+
+        # Turn should NOT be cancelled or errored
+        errors = [item for item in events if item.get("type") == "state" and item.get("state") == "error"]
+        self.assertEqual(errors, [])
+        cancelled = [item for item in events if item.get("type") == "turn_cancelled"]
+        self.assertEqual(cancelled, [])
+        self.assertIsNotNone(session._turn_id)
+
+        # And now all fragments end after LLM finishes
+        session.on_output_audio(False)
+        session.on_output_audio(False)
+        session.on_output_audio(False)
+        await asyncio.sleep(0.35)
+        await session.close()
 
 
 class WebRTCOfferCapacityTests(unittest.IsolatedAsyncioTestCase):

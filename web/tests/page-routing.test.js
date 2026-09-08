@@ -69,6 +69,23 @@ test('控制台提供獨立舞台字幕設定與套用操作', () => {
   assert.match(settingsPanel, /@click="handleApplyStage"/)
   assert.match(settingsPanel, /min="20"/)
   assert.match(settingsPanel, /max="2000"/)
+  assert.match(settingsPanel, /stage-board-style-\$\{style\.id\}/)
+  assert.match(settingsPanel, /id: 'glass'/)
+  assert.match(settingsPanel, /id: 'slate'/)
+  assert.match(settingsPanel, /id: 'cue'/)
+  assert.match(settingsPanel, /id="stage-board-preview"/)
+  assert.match(settingsPanel, /id="stage-mic-x"/)
+  assert.match(settingsPanel, /stage-layout-preview/)
+})
+
+test('舞台讀取控制台套用的看板視窗樣式', () => {
+  assert.match(stage, /class="float-board"/)
+  assert.match(stage, /board_style/)
+  assert.match(stage, /data-board-style/)
+  assert.match(stage, /board_begin/)
+  assert.match(stage, /micLayout/)
+  assert.match(stage, /STAGE_BOARD_PREVIEW_ITEMS/)
+  assert.match(stage, /placeStageBoard/)
 })
 
 test('控制台不會把舊模式完整回覆與播放提交片段重複顯示', () => {

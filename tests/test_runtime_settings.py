@@ -200,7 +200,23 @@ class OverridePersistTests(unittest.TestCase):
                     "decoupled_audio_clock": False,
                 },
             )
-            self.assertEqual(data["stage"], {"caption_max_chars": 120})
+            self.assertEqual(
+                data["stage"],
+                {
+                    "caption_max_chars": 120,
+                    "board_style": "glass",
+                    "board_width": 252,
+                    "board_height": 300,
+                    "board_transparency": 28,
+                    "board_x": 100,
+                    "board_y": 0,
+                    "board_preset": "tr",
+                    "board_preview": False,
+                    "mic_x": 50,
+                    "mic_y": 62,
+                    "mic_preset": "custom",
+                },
+            )
 
 
 class DefaultPromptSettingsTests(unittest.TestCase):
@@ -284,6 +300,7 @@ class DefaultPromptSettingsTests(unittest.TestCase):
             snapshot = current_snapshot(config)
 
         self.assertEqual(snapshot["stage"]["caption_max_chars"], 240)
+        self.assertEqual(snapshot["stage"]["board_style"], "glass")
 
     def test_apply_stage_settings_updates_and_persists(self):
         config = Config()
@@ -292,7 +309,33 @@ class DefaultPromptSettingsTests(unittest.TestCase):
             result = apply_stage_settings(config, {"caption_max_chars": 360})
 
         self.assertEqual(config.stage.caption_max_chars, 360)
-        self.assertEqual(result, {"caption_max_chars": 360})
+        self.assertEqual(result["caption_max_chars"], 360)
+        self.assertEqual(result["board_style"], "glass")
+        persist.assert_called_once_with(config)
+
+    def test_apply_stage_settings_updates_board_window(self):
+        config = Config()
+
+        with patch("src.server.runtime_settings.persist_runtime_overrides") as persist:
+            result = apply_stage_settings(
+                config,
+                {
+                    "board_style": "slate",
+                    "board_width": 280,
+                    "board_height": 360,
+                    "board_transparency": 40,
+                    "board_x": 0,
+                    "board_y": 0,
+                    "board_preset": "tl",
+                    "board_preview": False,
+                },
+            )
+
+        self.assertEqual(config.stage.board_style, "slate")
+        self.assertEqual(config.stage.board_width, 280)
+        self.assertEqual(config.stage.board_preset, "tl")
+        self.assertFalse(config.stage.board_preview)
+        self.assertEqual(result["board_style"], "slate")
         persist.assert_called_once_with(config)
 
     def test_apply_stage_settings_rejects_invalid_values(self):
@@ -305,6 +348,11 @@ class DefaultPromptSettingsTests(unittest.TestCase):
         ):
             with self.subTest(value=value), self.assertRaises(SettingsError):
                 apply_stage_settings(Config(), {"caption_max_chars": value})
+
+        with self.assertRaises(SettingsError):
+            apply_stage_settings(Config(), {"board_style": "neon"})
+        with self.assertRaises(SettingsError):
+            apply_stage_settings(Config(), {"board_width": 80})
 
     def test_stage_snapshot_rejects_invalid_config_value(self):
         config = Config()
@@ -329,11 +377,11 @@ class DefaultPromptSettingsTests(unittest.TestCase):
             )
 
         self.assertEqual(config.llm.response_max_chars, 240)
-        self.assertEqual(config.llm.max_tokens, 632)
+        self.assertEqual(config.llm.max_tokens, 888)
         self.assertEqual(result["response_max_chars"], 240)
         self.assertEqual(switch.call_args.kwargs["response_max_chars"], 240)
-        self.assertEqual(switch.call_args.kwargs["max_tokens"], 632)
-        self.assertEqual(config.llm.extra_body["options"]["num_predict"], 632)
+        self.assertEqual(switch.call_args.kwargs["max_tokens"], 888)
+        self.assertEqual(config.llm.extra_body["options"]["num_predict"], 888)
 
     def test_apply_llm_rejects_invalid_response_length(self):
         with self.assertRaises(SettingsError):

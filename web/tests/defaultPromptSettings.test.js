@@ -63,6 +63,13 @@ test('從 Edge 切到本機 TTS 時會清掉聲線名稱並要求音訊路徑', 
   assert.match(panel, /settings\.speech\.referencePathPlaceholder/)
 })
 
+test('套用舞台設定時會送出看板視窗樣式', () => {
+  assert.match(settings, /board_style:\s*selectedBoardStyle\.value/)
+  assert.match(settings, /board_preview:\s*Boolean\(selectedBoardPreview\.value\)/)
+  assert.match(settings, /mic_x:\s*Number\(selectedMicX\.value\)/)
+  assert.match(panel, /selectedBoardStyle = style\.id/)
+})
+
 test('套用 LLM 設定時會送出並同步回覆字數', () => {
   assert.match(settings, /response_max_chars:\s*Number\(responseMaxChars\)/)
   assert.match(settings, /runtime\.llm\.response_max_chars\s*=\s*Number/)

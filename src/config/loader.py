@@ -2,12 +2,14 @@
 import os
 import re
 import yaml
+from dataclasses import fields
 from pathlib import Path
 from typing import Optional, Dict, Any
 from .schema import (
     Config, AppConfig, ModelConfig, TTSConfig, ASRConfig, VADConfig, LLMConfig,
     AudioConfig, VideoConfig, CustomVideoConfig, ERNeRfConfig, TalkingGaussianConfig,
     MuseTalkQualityConfig, Wav2LipQualityConfig, ReplyStreamingConfig, StageConfig,
+    ResponseRouterConfig, BoardConfig,
 )
 
 
@@ -106,12 +108,31 @@ def dict_to_config(config_dict: Dict) -> Config:
     tts_config = TTSConfig(**config_dict.get('tts', {}))
     asr_config = ASRConfig(**config_dict.get('asr', {}))
     vad_config = VADConfig(**config_dict.get('vad', {}))
-    llm_config = LLMConfig(**config_dict.get('llm', {}))
+    llm_dict = dict(config_dict.get('llm', {}) or {})
+    router_val = llm_dict.get('response_router')
+    if isinstance(router_val, dict):
+        allowed_router = {item.name for item in fields(ResponseRouterConfig)}
+        llm_dict['response_router'] = ResponseRouterConfig(
+            **{k: v for k, v in router_val.items() if k in allowed_router}
+        )
+    board_val = llm_dict.get('board')
+    if isinstance(board_val, dict):
+        allowed_board = {item.name for item in fields(BoardConfig)}
+        llm_dict['board'] = BoardConfig(
+            **{k: v for k, v in board_val.items() if k in allowed_board}
+        )
+    llm_config = LLMConfig(**llm_dict)
     audio_config = AudioConfig(**config_dict.get('audio', {}))
     video_config = VideoConfig(**config_dict.get('video', {}))
     custom_video_config = CustomVideoConfig(**config_dict.get('custom_video', {}))
     reply_streaming_config = ReplyStreamingConfig(**config_dict.get('reply_streaming', {}))
-    stage_config = StageConfig(**config_dict.get('stage', {}))
+    stage_dict = config_dict.get('stage', {}) or {}
+    if not isinstance(stage_dict, dict):
+        stage_dict = {}
+    allowed_stage = {item.name for item in fields(StageConfig)}
+    stage_config = StageConfig(
+        **{key: value for key, value in stage_dict.items() if key in allowed_stage}
+    )
 
     return Config(
         app=app_config,

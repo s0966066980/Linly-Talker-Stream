@@ -146,6 +146,9 @@ class MuseTalkQualityConfig:
     mask_blur_ratio: float = 0.05
     # Keep the generated mouth temporally continuous across streamed fragments.
     mouth_continuity: bool = True
+    max_tts_audio_wait_seconds: float = 0.35
+    gap_grace_frames: int = 3
+    closing_frames: int = 4
 
 
 @dataclass
@@ -224,6 +227,24 @@ class VADConfig:
 
 
 @dataclass
+class ResponseRouterConfig:
+    """回覆路由配置"""
+    enabled: bool = True
+    rule_first: bool = True
+    llm_fallback: bool = True
+    board_threshold: float = 3.0
+    simple_threshold: float = 0.0
+    classifier_max_tokens: int = 4
+
+
+@dataclass
+class BoardConfig:
+    """看板配置"""
+    enabled: bool = True
+    max_items: int = 8
+
+
+@dataclass
 class LLMConfig:
     """LLM 配置"""
     api_key: str = ""
@@ -242,6 +263,8 @@ class LLMConfig:
     # 透傳給 OpenAI 相容介面的額外請求體引數
     # 例如 Ollama 關閉思考鏈：{"reasoning_effort": "none"}
     extra_body: Dict[str, Any] = field(default_factory=dict)
+    response_router: ResponseRouterConfig = field(default_factory=ResponseRouterConfig)
+    board: BoardConfig = field(default_factory=BoardConfig)
 
 
 @dataclass
@@ -281,12 +304,27 @@ class ReplyStreamingConfig:
     # listening-quality gates. Keep the validated renderer-owned audio path
     # unless an isolated soak explicitly opts into the experiment.
     decoupled_audio_clock: bool = False
+    inter_fragment_timeout_seconds: float = 5.0
+    weak_min_chars: int = 24
+    soft_limit_chars: int = 72
+    hard_limit_chars: int = 120
 
 
 @dataclass
 class StageConfig:
     """數字人舞台顯示配置。"""
     caption_max_chars: int = 120
+    board_style: str = "glass"
+    board_width: int = 252
+    board_height: int = 300
+    board_transparency: int = 28
+    board_x: int = 100
+    board_y: int = 0
+    board_preset: str = "tr"
+    board_preview: bool = False
+    mic_x: int = 50
+    mic_y: int = 62
+    mic_preset: str = "custom"
 
 
 @dataclass

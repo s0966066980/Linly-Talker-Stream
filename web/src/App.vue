@@ -226,8 +226,40 @@
               </div>
             </div>
 
-            <div class="video-wrapper">
+            <div class="video-wrapper" ref="videoWrapperRef" :data-board-style="runtime.stage.board_style || 'glass'">
               <video id="video" autoplay playsinline></video>
+              <section
+                v-if="visibleBoard.items.length && !stageBoard.hidden"
+                class="console-float-board"
+                :style="consoleBoardStyle"
+                aria-label="回答看板"
+              >
+                <div class="board-head">
+                  <span>回答看板</span>
+                  <span class="board-head-actions">
+                    <span class="count-pill">{{ visibleBoard.preview ? '預覽' : `${visibleBoard.items.length} 項` }}</span>
+                    <button type="button" class="board-close" aria-label="關閉看板" @click="stageBoard.hidden = true">✕</button>
+                  </span>
+                </div>
+                <div class="board-heading">
+                  <h3>{{ visibleBoard.title }}</h3>
+                </div>
+                <ol class="board-list">
+                  <li v-for="(item, index) in visibleBoard.items" :key="index" class="board-item">
+                    <span class="item-number">{{ String(index + 1).padStart(2, '0') }}</span>
+                    <div>
+                      <div class="item-title">{{ item.title }}</div>
+                      <p class="item-body">{{ item.body }}</p>
+                    </div>
+                  </li>
+                </ol>
+              </section>
+              <button
+                v-if="visibleBoard.items.length && stageBoard.hidden"
+                type="button"
+                class="board-reopen"
+                @click="stageBoard.hidden = false"
+              >展開看板</button>
               <div class="video-overlay" v-if="!isConnected">
                 <i class="bi bi-camera-video-off" v-if="canConnect"></i>
                 <i class="bi bi-sliders" v-else-if="backendReady"></i>
@@ -304,13 +336,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import DebugPanel from './components/DebugPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import { useWebRTC } from './composables/useWebRTC'
 import { useI18n } from './composables/useI18n'
 import { useRuntimeSettings } from './composables/useRuntimeSettings'
 import { applyTurnCommitted } from './consoleTurnCommit.js'
+import { placeStageBoard, STAGE_BOARD_PREVIEW_ITEMS, STAGE_BOARD_PREVIEW_TITLE } from './stageBoardLayout.js'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
 
@@ -331,7 +364,7 @@ marked.setOptions({
 })
 
 const { t, setLocale, loadLocale } = useI18n()
-const { vad, vadDraft, loadVadSettings, applyVadSettings } = useRuntimeSettings()
+const { vad, vadDraft, loadVadSettings, applyVadSettings, runtime } = useRuntimeSettings()
 const handsFreeTalk = computed(() => Boolean(vad.enabled))
 
 // Markdown 渲染函式
@@ -362,6 +395,40 @@ let notificationIdCounter = 0
 const lastRecordFile = ref(null)  // 最後一次錄製的檔案資訊
 const backendReady = ref(false)  // 後端是否就緒
 const modelReady = ref(false)    // 是否已套用數字人引擎
+const stageBoard = reactive({ title: '', items: [], hidden: false })
+const videoWrapperRef = ref(null)
+const videoSizeBox = reactive({ w: 400, h: 400 })
+const visibleBoard = computed(() => {
+  if (stageBoard.items.length) {
+    return { title: stageBoard.title, items: stageBoard.items, preview: false }
+  }
+  if (runtime.stage?.board_preview) {
+    return { title: STAGE_BOARD_PREVIEW_TITLE, items: STAGE_BOARD_PREVIEW_ITEMS, preview: true }
+  }
+  return { title: '', items: [], preview: false }
+})
+const consoleBoardStyle = computed(() => {
+  const stage = runtime.stage || {}
+  const alpha = 1 - Number(stage.board_transparency ?? 28) / 100
+  const box = placeStageBoard({
+    stageW: videoSizeBox.w || 400,
+    stageH: videoSizeBox.h || 400,
+    targetW: Number(stage.board_width || 252),
+    targetH: Number(stage.board_height || 300),
+    x: Number(stage.board_x ?? 100),
+    y: Number(stage.board_y ?? 0),
+    scale: 1
+  })
+  return {
+    width: `${box.width}px`,
+    height: `${box.height}px`,
+    left: `${box.left}px`,
+    top: `${box.top}px`,
+    transform: 'none',
+    '--board-alpha': alpha,
+    '--board-blur': `${alpha * 12}px`
+  }
+})
 
 // 應用設定
 const appSettings = ref({
@@ -576,6 +643,16 @@ const handleVoiceEvent = (event) => {
     ) {
       lastMessage.time = getCurrentTime()
     }
+  } else if (event.type === 'board_clear') {
+    stageBoard.title = ''
+    stageBoard.items = []
+    stageBoard.hidden = false
+  } else if (event.type === 'board_begin') {
+    stageBoard.title = event.title || ''
+    stageBoard.items = []
+    stageBoard.hidden = false
+  } else if (event.type === 'board_item') {
+    stageBoard.items.push({ title: event.title || '', body: event.body || '' })
   } else if (event.type === 'assistant_fragment' && event.text) {
     isThinking.value = false
     const lastMessage = chatMessages.value[chatMessages.value.length - 1]
@@ -1005,6 +1082,7 @@ watch(handsFreeTalk, (enabled) => {
 
 onUnmounted(() => {
   stopPlay()
+  videoResizeObserver?.disconnect()
 })
 
 // 清空對話歷史
@@ -1052,6 +1130,8 @@ const clearChatHistory = async () => {
   }
 }
 
+let videoResizeObserver = null
+
 onMounted(async () => {
   console.log('✅ Vue 應用已掛載')
   console.log('後端 API 地址: /offer (通過 Vite proxy 轉發到 localhost:8010)')
@@ -1067,6 +1147,17 @@ onMounted(async () => {
   // 應用初始主題
   updateTheme(appSettings.value.theme)
   
+  const wrap = videoWrapperRef.value
+  if (wrap && window.ResizeObserver) {
+    const measure = () => {
+      videoSizeBox.w = wrap.clientWidth
+      videoSizeBox.h = wrap.clientHeight
+    }
+    videoResizeObserver = new ResizeObserver(measure)
+    videoResizeObserver.observe(wrap)
+    measure()
+  }
+
   // 拉一次 VAD / 識別來源，決定錄音走瀏覽器識別還是後端（後端才過 VAD）
   loadVadSettings().then(async () => {
     vadDraft.type = 'silero'
@@ -2003,6 +2094,69 @@ body {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+.console-float-board {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: auto;
+  color: #f4f6fa;
+  background: rgb(10 14 24 / var(--board-alpha, .72));
+  backdrop-filter: blur(var(--board-blur, 7px));
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 16px;
+  padding: 0 0 8px;
+  max-width: 90%;
+}
+.console-float-board .board-head,
+.console-float-board .board-heading {
+  padding: 8px 12px 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.board-head-actions { display: flex; align-items: center; gap: 6px; }
+.count-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(61,220,151,.16);
+  color: #9ee4cf;
+}
+.board-close {
+  border: 0;
+  background: transparent;
+  color: rgba(255,255,255,.75);
+  cursor: pointer;
+}
+.console-float-board .board-list { list-style: none; padding: 0 12px; margin: 0; }
+.console-float-board .board-item { display: flex; gap: 8px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
+.item-number {
+  font: 11px/24px ui-monospace, monospace;
+  width: 24px;
+  height: 24px;
+  text-align: center;
+  border-radius: 7px;
+  background: rgba(61,220,151,.12);
+  color: #9ee4cf;
+  flex-shrink: 0;
+}
+.item-title { font-size: 13px; font-weight: 650; }
+.item-body { font-size: 12px; color: #e4ecf6; margin: 0; }
+.board-reopen {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 4;
+  border: 1px solid rgba(255,255,255,.18);
+  background: rgba(12,16,26,.78);
+  color: #f4f6fa;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
 }
 
 .video-overlay {

@@ -129,10 +129,28 @@ class _GatedFrameSink:
         self._released = False
         self._cancelled = False
         self._space: Optional[asyncio.Event] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     def bind(self) -> None:
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
         self._space = asyncio.Event()
         self._space.set()
+
+    def _wake(self) -> None:
+        space = self._space
+        if space is None:
+            return
+        loop = self._loop
+        if loop is not None and loop.is_running():
+            try:
+                loop.call_soon_threadsafe(space.set)
+                return
+            except RuntimeError:
+                pass
+        space.set()
 
     def emit(self, samples: np.ndarray, eventpoint: dict) -> None:
         live = False
@@ -164,27 +182,26 @@ class _GatedFrameSink:
                     self._space.clear()
             if self._space is None:
                 return
-            await self._space.wait()
+            try:
+                await asyncio.wait_for(self._space.wait(), timeout=0.5)
+            except asyncio.TimeoutError:
+                pass
 
     def release(self) -> None:
         with self._lock:
             self._released = True
             frames = list(self._buffer)
             self._buffer.clear()
-            space = self._space
         for samples, eventpoint in frames:
             self.parent.put_audio_frame(samples, eventpoint)
             self.first_pcm.set()
-        if space is not None:
-            space.set()
+        self._wake()
 
     def cancel(self) -> None:
         with self._lock:
             self._cancelled = True
             self._buffer.clear()
-            space = self._space
-        if space is not None:
-            space.set()
+        self._wake()
 
 
 

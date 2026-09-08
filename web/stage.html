@@ -55,10 +55,10 @@
     display:block;
     background:#000;
   }
-  /* 下緣壓一層漸層，讓字幕永遠讀得到 */
+  /* 下緣微淡漸層，配合半透明毛玻璃回覆框，兼顧透視感與清晰度 */
   .stage::after{
-    content:""; position:absolute; inset:auto 0 0 0; height:42%;
-    background:linear-gradient(to top, rgba(4,5,8,.92) 0%, rgba(4,5,8,.55) 40%, transparent 100%);
+    content:""; position:absolute; inset:auto 0 0 0; height:32%;
+    background:linear-gradient(to top, rgba(4,5,8,.75) 0%, rgba(4,5,8,.25) 55%, transparent 100%);
     pointer-events:none; z-index:1;
   }
 
@@ -125,38 +125,64 @@
   .captions{
     position:absolute; left:0; right:0; bottom:0;
     z-index:2;
-    padding:0 28px 34px;
+    padding:0 20px 28px;
     display:flex; flex-direction:column; align-items:center; gap:10px;
     pointer-events:none; text-align:center;
   }
   .said{
-    font-size:13px; line-height:1.5;
+    font-size:12.5px; line-height:1.5;
     color:var(--ink-dim);
-    max-width:100%;
+    max-width:92%;
     opacity:0; transform:translateY(6px);
     transition:opacity .3s, transform .3s;
+    background:rgba(8,10,16,.55);
+    backdrop-filter:blur(10px);
+    -webkit-backdrop-filter:blur(10px);
+    padding:4px 14px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.08);
   }
   .said.on{opacity:1; transform:none}
   .said::before{content:"「"} .said::after{content:"」"}
-  .reply-wrap{position:relative; width:100%; max-width:100%; display:flex; justify-content:center}
+  .reply-wrap{
+    position:relative;
+    width:100%;
+    max-width:100%;
+    display:flex;
+    justify-content:center;
+    opacity:0;
+    transform:translateY(10px);
+    transition:opacity .35s cubic-bezier(.2,.8,.3,1), transform .35s cubic-bezier(.2,.8,.3,1);
+    background:rgba(10,14,24,.65);
+    backdrop-filter:blur(16px) saturate(160%);
+    -webkit-backdrop-filter:blur(16px) saturate(160%);
+    border:1px solid rgba(255,255,255,.12);
+    box-shadow:0 14px 40px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.10);
+    border-radius:18px;
+    padding:16px 20px;
+    pointer-events:none;
+  }
+  .reply-wrap:has(.reply.on),
+  .reply-wrap.on{
+    opacity:1;
+    transform:none;
+  }
   .reply{
-    font-size:clamp(17px, 2.4vh, 23px);
+    font-size:clamp(16px, 2.2vh, 21px);
     line-height:1.62;
     font-weight:500;
     letter-spacing:.01em;
-    text-shadow:0 2px 18px rgba(0,0,0,.85);
+    text-shadow:0 2px 14px rgba(0,0,0,.75);
     --caption-lines:5;
     max-height:calc(var(--caption-lines) * 1.62em);
     overflow:clip;
-    opacity:0; transform:translateY(8px);
-    transition:opacity .35s, transform .35s;
+    width:100%;
   }
-  .reply.on{opacity:1; transform:none}
   .reply-fragment{
     display:inline;
   }
   .reply-exit-layer{
-    position:absolute; inset:0;
+    position:absolute; inset:16px 20px;
     pointer-events:none; text-align:center; z-index:1;
   }
   .reply-fragment-exit{
@@ -213,6 +239,75 @@
   }
   @keyframes spin{to{transform:rotate(360deg)}}
 
+  /* ── 浮動看板（控制台套用後疊在影像上） ── */
+  .float-board{
+    position:absolute; z-index:4;
+    display:flex; flex-direction:column; min-width:0; min-height:0;
+    color:var(--ink);
+    background:rgb(10 14 24 / var(--board-alpha,.72));
+    backdrop-filter:blur(var(--board-blur,7px)) saturate(160%);
+    -webkit-backdrop-filter:blur(var(--board-blur,7px)) saturate(160%);
+    border:1px solid rgba(255,255,255,.14);
+    box-shadow:0 18px 50px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.12);
+    border-radius:18px;
+    overflow:hidden;
+    pointer-events:auto;
+  }
+  .board-close{
+    border:0; background:transparent; color:rgba(255,255,255,.75);
+    width:28px; height:28px; border-radius:8px; cursor:pointer;
+  }
+  .board-reopen{
+    position:absolute; z-index:4; top:16px; right:16px;
+    border:1px solid rgba(255,255,255,.18); background:rgba(12,16,26,.78);
+    color:var(--ink); padding:6px 12px; border-radius:999px; font-size:12px; cursor:pointer;
+  }
+  .float-board[hidden]{display:none!important}
+  .float-board .board-head{
+    display:flex; align-items:center; justify-content:space-between;
+    min-height:40px; padding:8px 12px;
+    border-bottom:1px solid rgba(255,255,255,.08);
+    font-size:13px; font-weight:650; letter-spacing:.04em;
+  }
+  .float-board .count-pill{
+    font-size:11px; padding:2px 8px; border-radius:999px;
+    background:rgba(61,220,151,.16); color:var(--hear);
+    border:1px solid rgba(61,220,151,.28);
+  }
+  .float-board .board-heading{padding:10px 14px 6px}
+  .float-board .board-kicker{font-size:10px; letter-spacing:1.4px; color:var(--hear); margin-bottom:4px}
+  .float-board .board-heading h3{font-size:16px; line-height:1.4; text-shadow:0 1px 4px #000b}
+  .float-board .board-source{font-size:11px; color:var(--ink-dim); margin-top:4px}
+  .float-board .board-scroll{min-height:0; flex:1; overflow:auto; padding:4px 14px 10px; scrollbar-color:#4a6277 transparent}
+  .float-board .board-list{list-style:none}
+  .float-board .board-item{display:flex; align-items:flex-start; gap:10px; padding:10px 0; border-bottom:1px solid rgba(255,255,255,.08)}
+  .float-board .board-item:last-child{border:0}
+  .float-board .item-number{
+    font:11px/24px ui-monospace,monospace; width:24px; height:24px; flex-shrink:0;
+    text-align:center; border-radius:7px;
+    background:rgba(61,220,151,.12); border:1px solid rgba(61,220,151,.28); color:var(--hear);
+  }
+  .float-board .item-title{font-size:13.5px; font-weight:650; margin-bottom:3px; text-shadow:0 1px 3px #000c}
+  .float-board .item-body{font-size:12px; line-height:1.7; color:#e4ecf6; text-shadow:0 1px 3px #000c}
+  .stage[data-board-style="slate"] .float-board{
+    border-radius:4px; border:1px solid rgba(242,181,68,.38);
+    background:rgb(8 9 12 / var(--board-alpha,.72));
+    box-shadow:4px 0 0 var(--think) inset, 0 16px 40px rgba(0,0,0,.5);
+  }
+  .stage[data-board-style="slate"] .float-board .board-head{background:rgba(242,181,68,.1); text-transform:uppercase; letter-spacing:.14em}
+  .stage[data-board-style="slate"] .float-board .board-kicker{color:var(--think)}
+  .stage[data-board-style="slate"] .float-board .item-number{border-radius:0; background:var(--think); color:#1a1408; border:0; font-weight:700}
+  .stage[data-board-style="slate"] .float-board .board-item{border-bottom:1px dashed rgba(242,181,68,.22)}
+  .stage[data-board-style="cue"] .float-board{
+    border:0; box-shadow:none; background:rgb(6 8 14 / var(--board-alpha,.72));
+    border-radius:22px;
+  }
+  .stage[data-board-style="cue"] .float-board .board-head{border:0; background:transparent}
+  .stage[data-board-style="cue"] .float-board .board-item{
+    border:0; background:rgba(255,255,255,.07); border-radius:14px; padding:12px; margin:0 0 8px;
+  }
+  .stage[data-board-style="cue"] .float-board .item-number{border-radius:999px}
+
   @media (max-width:520px){
     .stage{border-radius:0; height:100vh; max-width:100vw}
     .mic{width:88px;height:88px}
@@ -230,7 +325,7 @@
 
     <div class="mode" id="mode"><span class="dot"></span><span id="modeText">連線中</span></div>
 
-    <div class="mic-wrap">
+    <div class="mic-wrap" id="micWrap">
       <button class="mic" id="mic" disabled aria-label="收音">
         <span class="ring"></span><span class="ring b"></span>
         <svg id="micIcon" viewBox="0 0 24 24" aria-hidden="true">
@@ -241,13 +336,32 @@
       <div class="mic-hint" id="hint">準備中</div>
     </div>
 
-    <div class="captions">
+    <div class="captions" id="captions">
       <div class="said" id="said"></div>
-      <div class="reply-wrap">
+      <div class="reply-wrap" id="replyWrap">
         <div class="reply-exit-layer" id="replyExitLayer" aria-hidden="true"></div>
         <div class="reply" id="reply"></div>
       </div>
     </div>
+
+    <section class="float-board" id="board" hidden aria-label="回答看板">
+      <div class="board-head">
+        <span>回答看板</span>
+        <span style="display:flex;align-items:center;gap:6px">
+          <span class="count-pill" id="boardBadge">0 項</span>
+          <button class="board-close" id="hideBoard" type="button" aria-label="關閉看板">✕</button>
+        </span>
+      </div>
+      <div class="board-heading">
+        <div class="board-kicker" id="boardKicker">DETAILS TO KEEP</div>
+        <h3 id="boardTitle"></h3>
+        <p class="board-source" id="boardSource"></p>
+      </div>
+      <div class="board-scroll">
+        <ol class="board-list" id="boardList"></ol>
+      </div>
+    </section>
+    <button class="board-reopen" id="boardReopen" type="button" hidden>展開看板</button>
 
     <div class="veil" id="veil">
       <h1 id="veilTitle">數字人舞台</h1>
@@ -264,15 +378,24 @@ import {
   StageCaptionWindow
 } from '/src/stageCaptionWindow.js';
 import { StageCaptionView } from '/src/stageCaptionView.js';
+import {
+  STAGE_BOARD_PREVIEW_ITEMS,
+  STAGE_BOARD_PREVIEW_TITLE,
+  placeStageBoard
+} from '/src/stageBoardLayout.js';
 
 (() => {
   'use strict';
 
   const $ = (id) => document.getElementById(id);
   const stage=$('stage'), video=$('video'), mic=$('mic'), hint=$('hint');
-  const said=$('said'), reply=$('reply'), replyExitLayer=$('replyExitLayer'), modeText=$('modeText');
+  const said=$('said'), replyWrap=$('replyWrap'), reply=$('reply'), replyExitLayer=$('replyExitLayer'), modeText=$('modeText');
   const veil=$('veil'), veilTitle=$('veilTitle'), veilText=$('veilText'),
         veilBtn=$('veilBtn'), veilAlt=$('veilAlt');
+  const board=$('board'), boardList=$('boardList'), boardKicker=$('boardKicker'),
+        boardBadge=$('boardBadge'), captions=$('captions'), micWrap=$('micWrap'),
+        hideBoardBtn=$('hideBoard'), boardReopen=$('boardReopen'),
+        boardTitle=$('boardTitle'), boardSource=$('boardSource');
 
   // ── 連線狀態 ────────────────────────────────
   let pc=null, chan=null, micStream=null;
@@ -287,6 +410,74 @@ import { StageCaptionView } from '/src/stageCaptionView.js';
   let configuredCaptionMaxChars=DEFAULT_STAGE_CAPTION_MAX_CHARS;
   let captionWindow=null;
   let captionView=null;
+  const BOARD_KICKERS={glass:'DETAILS TO KEEP',slate:'CALL SHEET',cue:'ON SCREEN'};
+  const boardLayout={
+    style:'glass', width:252, height:300, transparency:28,
+    x:100, y:0, preset:'tr', preview:false
+  };
+  const micLayout={x:50, y:62, preset:'custom'};
+  const liveBoard={title:'', items:[], hidden:false, turnId:null};
+
+  function displayBoard(){
+    if(liveBoard.items.length){
+      return {title:liveBoard.title, items:liveBoard.items, preview:false};
+    }
+    if(boardLayout.preview){
+      return {title:STAGE_BOARD_PREVIEW_TITLE, items:STAGE_BOARD_PREVIEW_ITEMS, preview:true};
+    }
+    return {title:'', items:[], preview:false};
+  }
+  function renderBoardItems(){
+    if(!boardList) return;
+    const shown=displayBoard();
+    boardList.innerHTML=shown.items.map((item,n)=>
+      `<li class="board-item"><span class="item-number">${String(n+1).padStart(2,'0')}</span><div><div class="item-title">${item.title}</div><p class="item-body">${item.body||''}</p></div></li>`
+    ).join('');
+    if(boardBadge) boardBadge.textContent=shown.preview ? '預覽' : `${shown.items.length} 項`;
+    if(boardTitle) boardTitle.textContent=shown.title;
+    if(boardSource) boardSource.textContent=shown.preview ? '控制台預覽 · 對位置與大小，非本輪回答' : (shown.items.length ? '本輪條列 · 可關閉後再展開' : '');
+  }
+  function clearLiveBoard(){
+    liveBoard.title='';
+    liveBoard.items=[];
+    liveBoard.hidden=false;
+    liveBoard.turnId=null;
+    renderBoardItems();
+    applyBoardLayout();
+  }
+  function applyBoardLayout(){
+    if(micWrap){
+      micWrap.style.left=`${micLayout.x}%`;
+      micWrap.style.top=`${micLayout.y}%`;
+      micWrap.style.transform='translate(-50%,-50%)';
+    }
+    if(!board || !captions) return;
+    stage.dataset.boardStyle=boardLayout.style || 'glass';
+    boardKicker.textContent=BOARD_KICKERS[boardLayout.style] || BOARD_KICKERS.glass;
+    renderBoardItems();
+    const shown=displayBoard();
+    const hasItems=shown.items.length>0;
+    const show=hasItems && !liveBoard.hidden;
+    board.hidden=!show;
+    if(boardReopen) boardReopen.hidden=!(hasItems && liveBoard.hidden);
+    if(!hasItems) return;
+    const box=placeStageBoard({
+      stageW:stage.clientWidth,
+      stageH:stage.clientHeight,
+      targetW:boardLayout.width,
+      targetH:boardLayout.height,
+      x:boardLayout.x,
+      y:boardLayout.y,
+      scale:1,
+      captionRatio: Math.max(0.18, (captions.offsetHeight+10)/Math.max(1,stage.clientHeight))
+    });
+    Object.assign(board.style,{
+      width:`${box.width}px`, height:`${box.height}px`,
+      left:`${box.left}px`, top:`${box.top}px`
+    });
+    board.style.setProperty('--board-alpha', 1-boardLayout.transparency/100);
+    board.style.setProperty('--board-blur', `${(1-boardLayout.transparency/100)*12}px`);
+  }
 
   // ── 舞台狀態 ────────────────────────────────
   // 後端 12 種 state 壓成 4 種視覺語言，異常態走覆蓋層
@@ -340,6 +531,7 @@ import { StageCaptionView } from '/src/stageCaptionView.js';
     captionView.append(text, normalizedTurnId);
     replyRevision++;
     reply.classList.add('on');
+    replyWrap?.classList.add('on');
   }
   function fadeReply(turnId=replyTurnId){
     clearTimeout(replyTimer);
@@ -347,6 +539,7 @@ import { StageCaptionView } from '/src/stageCaptionView.js';
     replyTimer = setTimeout(() => {
       if(revision === replyRevision && turnId === replyTurnId){
         reply.classList.remove('on');
+        replyWrap?.classList.remove('on');
       }
     }, 3000);
   }
@@ -361,6 +554,7 @@ import { StageCaptionView } from '/src/stageCaptionView.js';
     reply.textContent = '';
     replyExitLayer.textContent = '';
     reply.classList.remove('on');
+    replyWrap?.classList.remove('on');
   }
   function showSaid(text){
     clearTimeout(saidTimer);
@@ -419,10 +613,30 @@ import { StageCaptionView } from '/src/stageCaptionView.js';
       const r = await fetch('/api/stage', {cache:'no-store'});
       if(!r.ok) return;
       const payload = await r.json();
-      const next = Number(payload?.data?.caption_max_chars);
+      const data = payload?.data || {};
+      const next = Number(data.caption_max_chars);
       if(Number.isInteger(next) && next >= 20 && next <= 2000){
         configuredCaptionMaxChars = next;
       }
+      const style = String(data.board_style || 'glass');
+      if(['glass','slate','cue'].includes(style)) boardLayout.style = style;
+      const width = Number(data.board_width);
+      const height = Number(data.board_height);
+      const transparency = Number(data.board_transparency);
+      const x = Number(data.board_x);
+      const y = Number(data.board_y);
+      if(Number.isInteger(width) && width >= 200 && width <= 720) boardLayout.width = width;
+      if(Number.isInteger(height) && height >= 180 && height <= 720) boardLayout.height = height;
+      if(Number.isInteger(transparency) && transparency >= 0 && transparency <= 100) boardLayout.transparency = transparency;
+      if(Number.isInteger(x) && x >= 0 && x <= 100) boardLayout.x = x;
+      if(Number.isInteger(y) && y >= 0 && y <= 100) boardLayout.y = y;
+      if(typeof data.board_preset === 'string') boardLayout.preset = data.board_preset;
+      boardLayout.preview = Boolean(data.board_preview);
+      const micX=Number(data.mic_x), micY=Number(data.mic_y);
+      if(Number.isInteger(micX) && micX>=0 && micX<=100) micLayout.x=micX;
+      if(Number.isInteger(micY) && micY>=0 && micY<=100) micLayout.y=micY;
+      if(typeof data.mic_preset === 'string') micLayout.preset=data.mic_preset;
+      applyBoardLayout();
     }catch(_){ /* 後台不可達時維持現有舞台設定 */ }
   }
 
@@ -440,6 +654,19 @@ import { StageCaptionView } from '/src/stageCaptionView.js';
       return;
     }
     if(ev.type === 'user_transcript' && ev.text){ showSaid(ev.text); return; }
+    if(ev.type === 'board_clear'){ clearLiveBoard(); return; }
+    if(ev.type === 'board_begin'){
+      liveBoard.turnId=ev.turn_id||null;
+      liveBoard.title=ev.title||'';
+      liveBoard.items=[];
+      liveBoard.hidden=false;
+      renderBoardItems(); applyBoardLayout(); return;
+    }
+    if(ev.type === 'board_item'){
+      liveBoard.items.push({title:ev.title||'', body:ev.body||''});
+      renderBoardItems(); applyBoardLayout(); return;
+    }
+    if(ev.type === 'board_end'){ applyBoardLayout(); return; }
     if(ev.type === 'assistant_fragment' && ev.text){
       showReply(ev.text, ev.turn_id); return;
     }
@@ -448,7 +675,10 @@ import { StageCaptionView } from '/src/stageCaptionView.js';
     }
     if(ev.type === 'speaking_start'){
       clearTimeout(replyTimer);
-      if(reply.textContent) reply.classList.add('on');
+      if(reply.textContent){
+        reply.classList.add('on');
+        replyWrap?.classList.add('on');
+      }
       speaking = true; setVisual('speaking'); refreshAffordance(); return;
     }
     if(ev.type === 'speaking_end'){
@@ -614,7 +844,12 @@ import { StageCaptionView } from '/src/stageCaptionView.js';
 
   // 後台改 VAD 開關後，這裡最多 5 秒跟上
   setInterval(() => { syncVadMode(); syncStageSettings(); }, 5000);
+  addEventListener('resize', applyBoardLayout);
+  if(window.ResizeObserver) new ResizeObserver(applyBoardLayout).observe(stage);
+  hideBoardBtn?.addEventListener('click', () => { liveBoard.hidden=true; applyBoardLayout(); });
+  boardReopen?.addEventListener('click', () => { liveBoard.hidden=false; applyBoardLayout(); });
   setMode();
+  applyBoardLayout();
 })();
 </script>
 </body>

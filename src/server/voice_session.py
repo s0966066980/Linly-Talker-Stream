@@ -79,6 +79,18 @@ class VoiceTurnSession:
         self._media_player = None
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
         self._silent_output_frames = 0
+        self._tts_pending_silent_frames = 0
+        timeout_sec = float(
+            getattr(
+                getattr(self.config, "reply_streaming", None),
+                "inter_fragment_timeout_seconds",
+                5.0,
+            )
+            or 5.0
+        )
+        self._inter_fragment_stall_frames = max(
+            OUTPUT_STALL_FRAMES, int(timeout_sec / 0.02)
+        )
         self._segmenter_reset_pending = True
         self._resampler = AudioResampler(format="s16", layout="mono", rate=16000)
         # Silero/PyTorch must never run on aiohttp/aiortc's media event loop.
@@ -381,6 +393,7 @@ class VoiceTurnSession:
         self._event_loop = loop
         if not self._is_current(turn_id, generation):
             return
+        self._emit("board_clear", turn_id=turn_id)
         self._emit("state", state="llm", turn_id=turn_id)
         if self._pipeline_mode == "streaming":
             self._emit("assistant_response_start", turn_id=turn_id, mode="streaming", input_source=input_source)
@@ -394,14 +407,17 @@ class VoiceTurnSession:
         self.mark_stage_start("llm_total")
         self.mark_stage_start("first_fragment")
 
-        kwargs = {"stream_to_avatar": self._pipeline_mode == "streaming"}
+        kwargs = {
+            "stream_to_avatar": self._pipeline_mode == "streaming",
+            "datainfo": {
+                "turn_id": turn_id,
+                "generation": generation,
+                "on_board": self._on_board_event,
+            },
+        }
         if self._pipeline_mode == "streaming":
             kwargs.update(
                 {
-                    "datainfo": {
-                        "turn_id": turn_id,
-                        "generation": generation,
-                    },
                     "chunk_guard": lambda sequence: self._accept_llm_chunk(
                         turn_context,
                         sequence,
@@ -478,6 +494,7 @@ class VoiceTurnSession:
             return
         if active:
             self._silent_output_frames = 0
+            self._tts_pending_silent_frames = 0
             if self._metrics is not None:
                 had_first_audio = self._metrics.snapshot().get("first_audio_seconds") is not None
                 self._metrics.mark_first_audio()
@@ -500,7 +517,20 @@ class VoiceTurnSession:
         if not self._output_active:
             if self._has_unended_fragments():
                 if self._tts_has_pending_work():
-                    self._silent_output_frames = 0
+                    self._tts_pending_silent_frames += 1
+                    max_tts_stall = max(
+                        OUTPUT_STALL_FRAMES * 4,
+                        self._inter_fragment_stall_frames * 2,
+                    )
+                    if self._tts_pending_silent_frames >= max_tts_stall:
+                        logger.warning(
+                            "Initial output stalled awaiting TTS pending work (silent=%d/%d)",
+                            self._tts_pending_silent_frames,
+                            max_tts_stall,
+                        )
+                        self._fail_playback_turn()
+                    else:
+                        self._silent_output_frames = 0
                     return
                 self._silent_output_frames += 1
                 if self._silent_output_frames >= OUTPUT_STALL_FRAMES:
@@ -518,13 +548,33 @@ class VoiceTurnSession:
             return
         if not self._all_registered_fragments_ended():
             if self._tts_has_pending_work():
-                self._silent_output_frames = 0
+                self._tts_pending_silent_frames += 1
+                max_tts_stall = max(
+                    OUTPUT_STALL_FRAMES * 4,
+                    self._inter_fragment_stall_frames * 2,
+                )
+                if self._tts_pending_silent_frames >= max_tts_stall:
+                    logger.warning(
+                        "Output stalled awaiting TTS pending work (silent=%d/%d llm_finished=%s)",
+                        self._tts_pending_silent_frames,
+                        max_tts_stall,
+                        self._llm_finished,
+                    )
+                    self._fail_playback_turn()
+                else:
+                    self._silent_output_frames = 0
                 return
-            if self._silent_output_frames >= OUTPUT_STALL_FRAMES:
+            stall_limit = (
+                self._inter_fragment_stall_frames
+                if not self._llm_finished
+                else OUTPUT_STALL_FRAMES
+            )
+            if self._silent_output_frames >= stall_limit:
                 self._fail_playback_turn()
             return
         self._output_active = False
         self._silent_output_frames = 0
+        self._tts_pending_silent_frames = 0
         self._emit("speaking_end", turn_id=self._turn_id)
         if self._tail_task:
             self._tail_task.cancel()
@@ -712,6 +762,7 @@ class VoiceTurnSession:
             self._media_player.discard_stale_media()
         self._output_active = False
         self._silent_output_frames = 0
+        self._tts_pending_silent_frames = 0
         self._emit("turn_cancelled", turn_id=turn_id, reason=reason)
         self._emit("state", state="error", error=reason, turn_id=turn_id)
         self._turn_id = None
@@ -924,6 +975,7 @@ class VoiceTurnSession:
         generation = eventpoint.get("generation")
         if not turn_id or generation is None or not self._is_current(turn_id, int(generation)):
             return
+        self._silent_output_frames = 0
         sequence = int(eventpoint.get("llm_sequence", 0))
         loop = self._event_loop
         if loop is None or loop.is_closed():
@@ -1025,6 +1077,26 @@ class VoiceTurnSession:
         if allowed and self._metrics is not None:
             self._metrics.mark_listening_resumed()
         self._emit("state", state="listening" if allowed else "paused")
+
+    def _on_board_event(self, payload: dict) -> None:
+        if not isinstance(payload, dict):
+            return
+        kind = str(payload.get("kind") or "")
+        turn_id = payload.get("turn_id") or self._turn_id
+        if kind == "begin":
+            self._emit("board_begin", turn_id=turn_id, title=str(payload.get("title") or ""))
+            return
+        if kind == "item":
+            self._emit(
+                "board_item",
+                turn_id=turn_id,
+                index=int(payload.get("index") or 0),
+                title=str(payload.get("title") or ""),
+                body=str(payload.get("body") or ""),
+            )
+            return
+        if kind == "end":
+            self._emit("board_end", turn_id=turn_id)
 
     def _emit(self, event_type: str, *, turn_id: Optional[str] = None, **payload) -> None:
         if self._event_sink is None:

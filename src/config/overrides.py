@@ -56,6 +56,31 @@ def persist_runtime_overrides(config) -> None:
             "caption_max_chars": int(
                 getattr(getattr(config, "stage", None), "caption_max_chars", 120)
             ),
+            "board_style": str(
+                getattr(getattr(config, "stage", None), "board_style", "glass")
+            ),
+            "board_width": int(
+                getattr(getattr(config, "stage", None), "board_width", 252)
+            ),
+            "board_height": int(
+                getattr(getattr(config, "stage", None), "board_height", 300)
+            ),
+            "board_transparency": int(
+                getattr(getattr(config, "stage", None), "board_transparency", 28)
+            ),
+            "board_x": int(getattr(getattr(config, "stage", None), "board_x", 100)),
+            "board_y": int(getattr(getattr(config, "stage", None), "board_y", 0)),
+            "board_preset": str(
+                getattr(getattr(config, "stage", None), "board_preset", "tr")
+            ),
+            "board_preview": bool(
+                getattr(getattr(config, "stage", None), "board_preview", False)
+            ),
+            "mic_x": int(getattr(getattr(config, "stage", None), "mic_x", 50)),
+            "mic_y": int(getattr(getattr(config, "stage", None), "mic_y", 62)),
+            "mic_preset": str(
+                getattr(getattr(config, "stage", None), "mic_preset", "custom")
+            ),
         },
     }
 
