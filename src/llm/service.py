@@ -1,11 +1,14 @@
 """LLM 服務模組"""
 
-from typing import Callable, Optional
+from __future__ import annotations
+
+import os
+from typing import TYPE_CHECKING, Callable, Optional
 
 from src.avatars.base import BaseAvatar
 from src.llm.engines import OpenAILLM
+from src.llm.router import ReplyMode
 from src.utils.logging import logger
-import os
 
 _session_llm_instances = {}
 
@@ -21,10 +24,17 @@ def llm_response(
     datainfo: Optional[dict] = None,
     chunk_guard: Optional[Callable[[int], bool]] = None,
     defer_history_commit: bool = False,
+    reply_mode: Optional[ReplyMode | str] = None,
 ) -> str:
     """呼叫 LLM 並將響應流式推送到 avatar"""
     try:
         from src.server.state import state as server_state
+        from src.llm.router import (
+            LLMFallbackClassifier,
+            ReplyMode,
+            ReplyRoute,
+            ReplyRouter,
+        )
 
         config = getattr(avatar_stream, 'config', None) or server_state.config
         _ensure_llamacpp_if_needed(config)
@@ -51,6 +61,55 @@ def llm_response(
         llm.model = model
         if api_key:
             llm.api_key = api_key
+
+        # 判定回覆模式 (Rule First -> LLM Fallback)
+        route: ReplyRoute
+        llm_cfg = getattr(config, "llm", None) if config is not None else None
+        router_cfg = getattr(llm_cfg, "response_router", None) if llm_cfg is not None else None
+        router_enabled = getattr(router_cfg, "enabled", True) if router_cfg is not None else True
+
+        if reply_mode is not None and str(reply_mode).lower() in (
+            ReplyMode.SIMPLE.value,
+            ReplyMode.BOARD.value,
+        ):
+            route = ReplyRoute(
+                mode=ReplyMode.BOARD if str(reply_mode).lower() == ReplyMode.BOARD.value else ReplyMode.SIMPLE,
+                source="forced",
+                score=0.0,
+                reason="caller specified reply_mode",
+            )
+        elif not router_enabled:
+            route = ReplyRoute(
+                mode=ReplyMode.SIMPLE,
+                source="disabled",
+                score=0.0,
+                reason="router disabled",
+            )
+        else:
+            classifier = None
+            if router_cfg and getattr(router_cfg, "llm_fallback", True):
+                classifier = LLMFallbackClassifier(
+                    llm_client_getter=lambda: llm.client,
+                    model=llm.model,
+                    max_tokens=int(getattr(router_cfg, "classifier_max_tokens", 4)),
+                )
+            router = ReplyRouter(
+                enabled=True,
+                rule_first=getattr(router_cfg, "rule_first", True),
+                llm_fallback=getattr(router_cfg, "llm_fallback", True),
+                board_threshold=float(getattr(router_cfg, "board_threshold", 3.0)),
+                simple_threshold=float(getattr(router_cfg, "simple_threshold", 0.0)),
+                classifier=classifier,
+            )
+            route = router.route(message, preference=reply_mode)
+
+        on_mode = (datainfo or {}).get("on_mode")
+        if callable(on_mode):
+            try:
+                on_mode(route.mode)
+            except Exception as exc:
+                logger.warning("on_mode callback failed: %s", exc)
+
         return llm.generate_response(
             message,
             avatar_stream,
@@ -58,6 +117,7 @@ def llm_response(
             datainfo=datainfo,
             chunk_guard=chunk_guard,
             defer_history_commit=defer_history_commit,
+            reply_mode=route.mode,
         )
         
     except Exception as e:
@@ -89,10 +149,24 @@ def _ensure_llamacpp_if_needed(config) -> None:
 
 
 def clear_session_history(sessionid: int):
-    """清空指定會話的對話歷史"""
+    """清空指定會話的對話歷史與看板快照"""
     if sessionid in _session_llm_instances:
-        _session_llm_instances[sessionid].clear_history()
-        logger.info(f"Cleared history for session {sessionid}")
+        llm = _session_llm_instances[sessionid]
+        llm.clear_history()
+        set_board = getattr(llm, "set_last_board", None)
+        if callable(set_board):
+            set_board(None)
+        logger.info(f"Cleared history and board for session {sessionid}")
+
+
+def get_session_board(sessionid: int):
+    """取得指定會話最近一次成功生成的看板上下文"""
+    if sessionid in _session_llm_instances:
+        llm = _session_llm_instances[sessionid]
+        get_board = getattr(llm, "get_last_board", None)
+        if callable(get_board):
+            return get_board()
+    return None
 
 
 def commit_session_history(
@@ -162,6 +236,7 @@ def switch_llm_endpoint(
 __all__ = [
     "llm_response",
     "clear_session_history",
+    "get_session_board",
     "commit_session_history",
     "remove_session",
     "switch_llm_model",

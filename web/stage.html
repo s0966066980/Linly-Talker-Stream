@@ -655,6 +655,13 @@ import {
     }
     if(ev.type === 'user_transcript' && ev.text){ showSaid(ev.text); return; }
     if(ev.type === 'board_clear'){ clearLiveBoard(); return; }
+    if(ev.type === 'assistant_board' && ev.board){
+      liveBoard.turnId=ev.turn_id||null;
+      liveBoard.title=ev.board.title||'';
+      liveBoard.items=Array.isArray(ev.board.items)?ev.board.items:[];
+      liveBoard.hidden=false;
+      renderBoardItems(); applyBoardLayout(); return;
+    }
     if(ev.type === 'board_begin'){
       liveBoard.turnId=ev.turn_id||null;
       liveBoard.title=ev.title||'';

@@ -67,6 +67,15 @@
                 <i class="bi bi-volume-up"></i>
                 {{ t('chat.ttsMode') }}
               </button>
+              <button
+                class="action-btn"
+                :class="{ active: showTestPanel }"
+                @click="showTestPanel = !showTestPanel"
+                title="切換雙模式即時測試面板"
+              >
+                <i class="bi bi-speedometer2"></i>
+                模式測試
+              </button>
               <button 
                 class="action-btn clear-history-btn"
                 @click="clearChatHistory"
@@ -81,6 +90,57 @@
 
           <!-- 對話模式 -->
           <div v-if="activeMode === 'chat'" class="chat-mode">
+            <!-- 雙模式即時測試面板 (Rule Router & Board 測試) -->
+            <div v-if="showTestPanel" class="router-test-panel">
+              <div class="test-panel-header">
+                <div class="test-panel-title">
+                  <i class="bi bi-speedometer2"></i>
+                  <span>雙模式測試面板 (Rule Router & Board)</span>
+                  <span v-if="currentResponseMode" class="mode-badge" :class="currentResponseMode">
+                    {{ currentResponseMode === 'board' ? '📋 看板模式 (BOARD)' : '💬 一般對話 (SIMPLE)' }}
+                  </span>
+                </div>
+                <div class="test-panel-actions">
+                  <span v-if="visibleBoard.items.length" class="board-pill" @click="stageBoard.hidden = false" title="點擊展開看板">
+                    <i class="bi bi-layout-sidebar-inset-reverse"></i> 看板就緒 ({{ visibleBoard.items.length }} 項)
+                  </span>
+                  <button class="test-panel-close" @click="showTestPanel = false" title="收合面板">✕</button>
+                </div>
+              </div>
+              <div class="test-panel-content">
+                <div class="test-row">
+                  <span class="test-label board-label">BOARD 測試句：</span>
+                  <div class="preset-chips">
+                    <button
+                      v-for="p in testPresets.filter(x => x.mode === 'board')"
+                      :key="p.label"
+                      class="preset-chip chip-board"
+                      :disabled="!isConnected || isThinking"
+                      @click="runTestQuery(p.query)"
+                      :title="p.query"
+                    >
+                      {{ p.label }}
+                    </button>
+                  </div>
+                </div>
+                <div class="test-row">
+                  <span class="test-label simple-label">SIMPLE 測試句：</span>
+                  <div class="preset-chips">
+                    <button
+                      v-for="p in testPresets.filter(x => x.mode === 'simple')"
+                      :key="p.label"
+                      class="preset-chip chip-simple"
+                      :disabled="!isConnected || isThinking"
+                      @click="runTestQuery(p.query)"
+                      :title="p.query"
+                    >
+                      {{ p.label }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div class="messages-container" ref="messagesRef">
               <div 
                 v-for="(msg, index) in chatMessages" 
@@ -646,6 +706,12 @@ const handleVoiceEvent = (event) => {
   } else if (event.type === 'board_clear') {
     stageBoard.title = ''
     stageBoard.items = []
+    stageBoard.hidden = false
+  } else if (event.type === 'assistant_board' && event.board) {
+    stageBoard.title = event.board.title || ''
+    stageBoard.items = Array.isArray(event.board.items)
+      ? event.board.items.map(it => ({ title: it.title || '', body: it.body || '' }))
+      : []
     stageBoard.hidden = false
   } else if (event.type === 'board_begin') {
     stageBoard.title = event.title || ''

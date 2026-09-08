@@ -407,6 +407,29 @@ class VoiceTurnSession:
         self.mark_stage_start("llm_total")
         self.mark_stage_start("first_fragment")
 
+        # Determine and emit response mode before streaming chunks
+        mode_str = "simple"
+        reply_mode = None
+        try:
+            from src.llm.router import ReplyRouter, ReplyMode
+            llm_cfg = getattr(self.config, "llm", None)
+            router_cfg = getattr(llm_cfg, "response_router", None) if llm_cfg else None
+            if router_cfg and getattr(router_cfg, "enabled", True):
+                r_router = ReplyRouter(
+                    enabled=True,
+                    rule_first=getattr(router_cfg, "rule_first", True),
+                    llm_fallback=False,
+                    board_threshold=float(getattr(router_cfg, "board_threshold", 3.0)),
+                    simple_threshold=float(getattr(router_cfg, "simple_threshold", 0.0)),
+                )
+                route = r_router.route(text)
+                reply_mode = route.mode
+                mode_str = route.mode.value
+        except Exception:
+            pass
+
+        self._emit("assistant_response_mode", turn_id=turn_id, mode=mode_str)
+
         kwargs = {
             "stream_to_avatar": self._pipeline_mode == "streaming",
             "datainfo": {
@@ -425,10 +448,14 @@ class VoiceTurnSession:
                     "defer_history_commit": True,
                 }
             )
-        response = await loop.run_in_executor(
-            None,
-            lambda: llm_response(text, self.avatar, **kwargs),
-        )
+
+        def _call_llm():
+            try:
+                return llm_response(text, self.avatar, reply_mode=reply_mode, **kwargs)
+            except TypeError:
+                return llm_response(text, self.avatar, **kwargs)
+
+        response = await loop.run_in_executor(None, _call_llm)
         self.mark_stage_end("llm_total")
         if not self._is_current(turn_id, generation):
             return
@@ -1081,8 +1108,35 @@ class VoiceTurnSession:
     def _on_board_event(self, payload: dict) -> None:
         if not isinstance(payload, dict):
             return
-        kind = str(payload.get("kind") or "")
+        loop = self._event_loop
+        if loop is not None and not loop.is_closed():
+            loop.call_soon_threadsafe(self._dispatch_board_event, payload)
+        else:
+            self._dispatch_board_event(payload)
+
+    def _dispatch_board_event(self, payload: dict) -> None:
         turn_id = payload.get("turn_id") or self._turn_id
+        if "items" in payload:
+            items = payload.get("items") or []
+            board_obj = {
+                "title": str(payload.get("title") or ""),
+                "summary": payload.get("summary"),
+                "items": items,
+            }
+            self._emit("assistant_board", turn_id=turn_id, board=board_obj)
+            self._emit("board_begin", turn_id=turn_id, title=board_obj["title"])
+            for idx, item in enumerate(items):
+                self._emit(
+                    "board_item",
+                    turn_id=turn_id,
+                    index=idx,
+                    title=str(item.get("title") or ""),
+                    body=str(item.get("content") or item.get("body") or ""),
+                )
+            self._emit("board_end", turn_id=turn_id)
+            return
+
+        kind = str(payload.get("kind") or "")
         if kind == "begin":
             self._emit("board_begin", turn_id=turn_id, title=str(payload.get("title") or ""))
             return

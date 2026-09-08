@@ -120,10 +120,11 @@ class OpenAILLM(BaseLLM):
         history_transaction: Optional[HistoryTransaction] = None,
     ) -> Generator[str, None, None]:
         start_time = time.perf_counter()
-        system_prompt = with_response_length_instruction(
-            system_prompt or self.system_prompt,
-            self.response_max_chars,
-        )
+        if system_prompt is None:
+            system_prompt = with_response_length_instruction(
+                self.system_prompt,
+                self.response_max_chars,
+            )
         
         try:
             # 構建完整的訊息列表：system + 歷史對話

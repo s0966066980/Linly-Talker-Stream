@@ -9,6 +9,14 @@ from typing import TYPE_CHECKING, Callable, Generator, Optional
 from uuid import uuid4
 
 from src.llm.answer_board import AnswerBoardSplitter, with_board_instruction
+from src.llm.prompts import compose_system_prompt
+from src.llm.response_protocol import (
+    BoardItem,
+    BoardPayload,
+    ResponseProtocolParser,
+    SessionBoardContext,
+)
+from src.llm.router import ReplyMode
 from src.server.reply_streaming.fragmenter import SemanticFragmenter
 from src.utils.logging import logger
 
@@ -120,9 +128,18 @@ class BaseLLM(ABC):
         self.config = config
         self.parent = parent
         self.system_prompt = self._load_system_prompt()
+        self._last_board: Optional[SessionBoardContext] = None
     
     def _load_system_prompt(self) -> str:
         return load_system_prompt(self.config)
+
+    def get_last_board(self) -> Optional[SessionBoardContext]:
+        """Return the most recent board context for this LLM instance."""
+        return self._last_board
+
+    def set_last_board(self, board: Optional[SessionBoardContext]) -> None:
+        """Store the most recent board context."""
+        self._last_board = board
     
     @abstractmethod
     def chat_stream(self, message: str, system_prompt: Optional[str] = None) -> Generator[str, None, None]:
@@ -138,9 +155,35 @@ class BaseLLM(ABC):
         datainfo: Optional[dict] = None,
         chunk_guard: Optional[Callable[[int], bool]] = None,
         defer_history_commit: bool = False,
+        reply_mode: Optional[ReplyMode | str] = None,
     ) -> str:
         """生成完整響應並推送到 avatar"""
         start_time = time.perf_counter()
+        pref_str = (
+            reply_mode.value.lower()
+            if isinstance(reply_mode, ReplyMode)
+            else str(reply_mode or "").lower()
+        )
+        norm_mode = (
+            ReplyMode.BOARD
+            if (reply_mode == ReplyMode.BOARD or pref_str in ("board", "replymode.board"))
+            else ReplyMode.SIMPLE
+        )
+
+        max_items = 8
+        llm_cfg = getattr(self.config, "llm", None) if self.config is not None else None
+        if llm_cfg is not None:
+            board_cfg = getattr(llm_cfg, "board", None)
+            if board_cfg is not None and hasattr(board_cfg, "max_items"):
+                max_items = int(board_cfg.max_items)
+
+        resp_chars = getattr(self, "response_max_chars", None)
+        composed_system_prompt = compose_system_prompt(
+            self.system_prompt,
+            reply_mode=norm_mode,
+            response_max_chars=resp_chars,
+        )
+
         semantic_stream = bool(
             stream_to_avatar
             and datainfo
@@ -186,13 +229,15 @@ class BaseLLM(ABC):
         history_committed = False
 
         begin_history = getattr(self, "begin_history_turn", None)
+        turn_id = str((datainfo or {}).get("turn_id") or uuid4().hex)
         if callable(begin_history):
-            turn_id = str((datainfo or {}).get("turn_id") or uuid4().hex)
             history_transaction = begin_history(message, turn_id=turn_id)
         
         target_avatar = (avatar_stream or self.parent) if stream_to_avatar else None
         fragment_sequence = 0
-        splitter = AnswerBoardSplitter()
+        parser = ResponseProtocolParser(mode=norm_mode, max_items=max_items)
+        legacy_splitter = AnswerBoardSplitter()
+        is_legacy_markup = False
         spoken_response = ""
         on_board = (datainfo or {}).get("on_board")
         
@@ -204,6 +249,7 @@ class BaseLLM(ABC):
             if target_avatar:
                 fragment_info = dict(datainfo or {})
                 fragment_info.pop("on_board", None)
+                fragment_info.pop("on_mode", None)
                 if (
                     fragment_info.get("turn_id")
                     and fragment_info.get("generation") is not None
@@ -219,29 +265,40 @@ class BaseLLM(ABC):
                 fragment_sequence += 1
 
         def emit_board(payload) -> None:
-            if payload is None or not callable(on_board):
+            if payload is None or not callable(on_board) or fenced:
                 return
-            turn_id = str((datainfo or {}).get("turn_id") or "")
-            on_board({"kind": "begin", "title": payload.title, "turn_id": turn_id})
-            for index, item in enumerate(payload.items):
-                on_board({
-                    "kind": "item",
-                    "index": index,
-                    "title": item.title,
-                    "body": item.body,
-                    "turn_id": turn_id,
-                })
-            on_board({"kind": "end", "turn_id": turn_id})
+            if isinstance(payload, BoardPayload):
+                board_dict = payload.to_dict()
+                board_dict["turn_id"] = turn_id
+                on_board(board_dict)
+                self._last_board = SessionBoardContext(
+                    turn_id=turn_id,
+                    title=payload.title,
+                    summary=payload.summary,
+                    items=payload.items,
+                )
+            else:
+                on_board({"kind": "begin", "title": payload.title, "turn_id": turn_id})
+                for index, item in enumerate(payload.items):
+                    on_board({
+                        "kind": "item",
+                        "index": index,
+                        "title": item.title,
+                        "body": getattr(item, "body", getattr(item, "content", "")),
+                        "turn_id": turn_id,
+                    })
+                on_board({"kind": "end", "turn_id": turn_id})
         
         try:
             # 記錄首包延遲，方便定位 LLM 響應瓶頸
             first_chunk = True
             sequence = -1
             if history_transaction is None:
-                chunks = self.chat_stream(message)
+                chunks = self.chat_stream(message, system_prompt=composed_system_prompt)
             else:
                 chunks = self.chat_stream(
                     message,
+                    system_prompt=composed_system_prompt,
                     history_transaction=history_transaction,
                 )
             for sequence, chunk in enumerate(chunks):
@@ -255,7 +312,13 @@ class BaseLLM(ABC):
                 
                 full_response += chunk
 
-                for spoken in splitter.feed(chunk):
+                if "<<<BOARD" in chunk or is_legacy_markup:
+                    is_legacy_markup = True
+                    deltas = legacy_splitter.feed(chunk)
+                else:
+                    deltas = parser.feed(chunk)
+
+                for spoken in deltas:
                     if target_avatar and semantic_stream:
                         notify_chunk = getattr(target_avatar, "notify_llm_chunk", None)
                         if callable(notify_chunk):
@@ -275,46 +338,58 @@ class BaseLLM(ABC):
                     else:
                         spoken_response += spoken
             
-            leftover, board_payload = splitter.flush()
-            if leftover:
-                if target_avatar and semantic_stream:
-                    notify_chunk = getattr(target_avatar, "notify_llm_chunk", None)
-                    if callable(notify_chunk):
-                        notify_chunk(
-                            leftover,
-                            {
-                                **dict(datainfo or {}),
-                                "llm_sequence": max(sequence, 0),
-                            },
-                        )
+            if not fenced:
+                if is_legacy_markup:
+                    leftover, board_payload = legacy_splitter.flush()
+                    flush_deltas = [leftover] if leftover else []
+                else:
+                    flush_deltas, board_payload = parser.flush()
+
+                for delta in flush_deltas:
+                    if not delta:
+                        continue
+                    if target_avatar and semantic_stream:
+                        notify_chunk = getattr(target_avatar, "notify_llm_chunk", None)
+                        if callable(notify_chunk):
+                            notify_chunk(
+                                delta,
+                                {
+                                    **dict(datainfo or {}),
+                                    "llm_sequence": max(sequence, 0),
+                                },
+                            )
+                    if target_avatar:
+                        if semantic_stream:
+                            for fragment in text_processor.feed(delta):
+                                send_to_avatar(fragment)
+                        else:
+                            text_processor.process_chunk(delta, send_to_avatar)
+                    else:
+                        spoken_response += delta
+
                 if target_avatar:
                     if semantic_stream:
-                        for fragment in text_processor.feed(leftover):
+                        for fragment in text_processor.flush():
                             send_to_avatar(fragment)
                     else:
-                        text_processor.process_chunk(leftover, send_to_avatar)
-                else:
-                    spoken_response += leftover
-            if target_avatar:
-                if semantic_stream:
-                    for fragment in text_processor.flush():
-                        send_to_avatar(fragment)
-                else:
-                    text_processor.flush(send_to_avatar)
-            emit_board(board_payload)
+                        text_processor.flush(send_to_avatar)
+                emit_board(board_payload)
             
             total_time = time.perf_counter()
             logger.info(f"Total LLM response time: {total_time - start_time:.3f}s")
 
+            clean_spoken = (spoken_response.strip() or parser.speech_text.strip())
+            clean_full = full_response.strip()
+
             if history_transaction is not None and not defer_history_commit:
                 self.commit_history_turn(
                     history_transaction,
-                    assistant_text="" if fenced else full_response,
+                    assistant_text="" if fenced else (clean_spoken or clean_full),
                     terminal_reason="cancelled" if fenced else "completed",
                 )
                 history_committed = True
             
-            return spoken_response or full_response
+            return clean_spoken or clean_full
             
         except Exception as e:
             if (
