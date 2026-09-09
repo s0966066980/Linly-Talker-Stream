@@ -217,8 +217,8 @@ class OverridePersistTests(unittest.TestCase):
                     "mic_x": 50,
                     "mic_y": 62,
                     "mic_preset": "custom",
-                    "board_open_x": 88,
-                    "board_open_y": 12,
+                    "board_open_x": 50,
+                    "board_open_y": 8,
                 },
             )
 

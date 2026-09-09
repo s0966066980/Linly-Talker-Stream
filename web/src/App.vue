@@ -317,11 +317,21 @@
                   v-if="visibleBoard.items.length && stageBoard.hidden"
                   class="board-open-pill"
                   id="boardOpenPill"
+                  :style="consoleBoardOpenStyle"
                   style="z-index: 2;"
                   @click="stageBoard.hidden = false"
                 >
                   <i class="bi bi-layout-sidebar-inset-reverse"></i> 看板 ({{ visibleBoard.items.length }}項)
                 </div>
+
+                <button
+                  type="button"
+                  class="stage-mic-control"
+                  :style="consoleMicStyle"
+                  :disabled="!isConnected"
+                  aria-label="舞台麥克風"
+                  @click="handleVoiceButtonClick"
+                ><i class="bi bi-mic-fill"></i></button>
 
                 <div class="stage-captions-sub" style="z-index: 2;">
                   「{{ stageCaptionText || '好的！這三大核心優勢已同步呈現於右側 9:16 舞台看板中。' }}」
@@ -439,7 +449,7 @@ import { useI18n } from './composables/useI18n'
 import { useRuntimeSettings } from './composables/useRuntimeSettings'
 import { applyTurnCommitted } from './consoleTurnCommit.js'
 import { applyConsoleBoardEvent, createConsoleBoardState } from './consoleBoardState.js'
-import { placeStageBoard, STAGE_BOARD_PREVIEW_ITEMS, STAGE_BOARD_PREVIEW_TITLE } from './stageBoardLayout.js'
+import { micStyle, placeStageBoard, STAGE_BOARD_PREVIEW_ITEMS, STAGE_BOARD_PREVIEW_TITLE } from './stageBoardLayout.js'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
 
@@ -702,6 +712,16 @@ const consoleBoardStyle = computed(() => {
     '--board-blur': `${alpha * 12}px`
   }
 })
+
+const consoleMicStyle = computed(() => micStyle(
+  runtime.stage?.mic_x ?? 50,
+  runtime.stage?.mic_y ?? 62
+))
+
+const consoleBoardOpenStyle = computed(() => micStyle(
+  runtime.stage?.board_open_x ?? 50,
+  runtime.stage?.board_open_y ?? 8
+))
 
 // 應用設定
 const appSettings = ref({

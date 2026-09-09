@@ -697,6 +697,18 @@
                 <input id="stage-mic-y" type="range" class="std-range" min="0" max="100" step="1" v-model.number="selectedMicY" @input="markMicPositionCustom">
               </div>
             </div>
+
+            <div class="stage-open-board-controls" style="border-top: 1px solid var(--border-subtle); padding-top: 14px;">
+              <span style="font-size: 13px; font-weight: 600; display: block; margin-bottom: 8px;">
+                <i class="bi bi-layout-sidebar-inset-reverse" style="color: var(--brand-light);"></i> 展開看板按鈕位置
+              </span>
+              <div class="stage-position-sliders">
+                <label for="stage-board-open-x">水平位置 {{ selectedBoardOpenX }}%</label>
+                <input id="stage-board-open-x" type="range" class="std-range" min="0" max="100" step="1" v-model.number="selectedBoardOpenX">
+                <label for="stage-board-open-y">垂直位置 {{ selectedBoardOpenY }}%</label>
+                <input id="stage-board-open-y" type="range" class="std-range" min="0" max="100" step="1" v-model.number="selectedBoardOpenY">
+              </div>
+            </div>
           </section>
 
           <!-- 右欄：大尺寸 9:16 舞台即時對照全景視窗 (滿板震撼) -->
@@ -725,17 +737,28 @@
                 id="miniBoardRect"
                 :class="`board-style-${selectedBoardStyle}`"
                 :style="stagePreviewBoardStyle"
+                role="button"
+                tabindex="0"
+                aria-label="拖曳調整看板位置"
                 @pointerdown.stop.prevent="startStageDirectEdit('board', $event)"
               >
-                <div style="padding: 6px 8px; font-size: 10px; font-weight: 700; color: #34d399; border-bottom: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; gap: 4px;">
-                  <span>📋 核心優勢看板</span>
+                <div class="stage-preview-board-header">
+                  <span>回答看板</span>
+                  <span>預覽</span>
                 </div>
-                <div style="padding: 4px 6px; font-size: 9px; color: #fff; line-height: 1.4;">
-                  • 全雙工打斷 (VAD)<br>
-                  • MuseTalk 高畫質<br>
-                  • 邊生成邊播串流
+                <div class="stage-preview-board-content">
+                  <strong>第一次展示，準備這四件事</strong>
+                  <span>選擇看板位置，避免遮擋人物與字幕。</span>
+                  <span>拖曳整張看板即可移動。</span>
                 </div>
               </div>
+              <button
+                type="button"
+                class="stage-preview-board-open"
+                :style="stagePreviewBoardOpenStyle"
+                aria-label="拖曳調整展開看板按鈕位置"
+                @pointerdown.stop.prevent="startStageDirectEdit('board-open', $event)"
+              ><i class="bi bi-layout-sidebar-inset-reverse"></i> 展開看板</button>
               <button
                 type="button"
                 class="stage-preview-mic"
@@ -748,7 +771,7 @@
               </div>
             </div>
             <span style="font-size: 11.5px; color: var(--text-tertiary);">
-              可直接拖曳看板或麥克風；放開後會套用並保存到數位人舞台。
+              可直接拖曳看板、麥克風或展開看板按鈕；放開後會套用並保存到數位人舞台。亦可用左側滑桿微調。
             </span>
           </section>
         </div>
@@ -1302,6 +1325,8 @@ const {
   selectedBoardPreset,
   selectedBoardPreview,
   isStageConfiguring,
+  selectedBoardOpenX,
+  selectedBoardOpenY,
   selectedMicX,
   selectedMicY,
   selectedMicPreset,
@@ -1436,6 +1461,7 @@ const stagePreviewBoardStyle = computed(() => {
 })
 
 const stagePreviewMicStyle = computed(() => micStyle(selectedMicX.value, selectedMicY.value))
+const stagePreviewBoardOpenStyle = computed(() => micStyle(selectedBoardOpenX.value, selectedBoardOpenY.value))
 
 const clampPercent = (value) => Math.max(0, Math.min(100, Math.round(value)))
 
@@ -1455,6 +1481,11 @@ const moveStageDirectEdit = (event) => {
     selectedMicX.value = clampPercent(x)
     selectedMicY.value = clampPercent(y)
     selectedMicPreset.value = 'custom'
+    return
+  }
+  if (target === 'board-open') {
+    selectedBoardOpenX.value = clampPercent(x)
+    selectedBoardOpenY.value = clampPercent(y)
     return
   }
 
