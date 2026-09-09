@@ -113,6 +113,37 @@ test('新版設定中心沿用實際 Rule 欄位並顯示載入與角色空狀�
   assert.match(panel, /v-else-if="!filteredCharacters\.length && !loadingSettings"/)
 })
 
+test('語音設定保留目前 STT 引擎與 Edge-TTS 音色', () => {
+  assert.match(panel, /v-for="engine in sttEngineOptions"/)
+  assert.match(panel, /v-model="ttsDraft\.ref_file"/)
+  assert.match(panel, /v-for="voice in edgeVoiceOptions"/)
+  assert.match(settings, /ref_file: data\.tts\.ref_file \|\| ''/)
+  assert.match(settings, /const sttEngineOptions = computed/)
+})
+
+test('舞台設定保留麥克風定位並以真實數位人預覽 9:16 對照畫面', () => {
+  assert.match(panel, /id="stage-mic-x"[\s\S]*type="range"/)
+  assert.match(panel, /id="stage-mic-y"[\s\S]*type="range"/)
+  assert.match(panel, /@click="selectMicPreset\(preset\.id\)"/)
+  assert.match(panel, /@input="markMicPositionCustom"/)
+  assert.match(panel, /class="stage-preview-avatar"/)
+  assert.match(panel, /class="stage-preview-mic"/)
+  assert.match(panel, /placeStageBoard/)
+})
+
+test('全域儲存會處理 Prompt、Rule，且 Prompt 編輯器有足夠高度', () => {
+  assert.match(panel, /rows="8"/)
+  assert.match(panel, /const promptDirty = computed/)
+  assert.match(panel, /if \(llmDirty\.value \|\| promptDirty\.value\) promises\.push\(applyLlmModel\(\)\)/)
+  assert.doesNotMatch(panel, /\{ key: 'speech'[\s\S]*\{ key: 'speech'/)
+})
+
+test('主題選擇會將執行中的 dark 或 white 狀態對應至可見樣式', () => {
+  assert.match(panel, /const normalizeThemeValue = \(theme\)/)
+  assert.match(panel, /normalizeThemeValue\(props\.currentTheme\)/)
+  assert.match(panel, /@click="selectTheme\(theme\.id\)"/)
+})
+
 test('控制台空狀態不以固定示範對話與看板冒充即時資料', () => {
   assert.doesNotMatch(app, /return \{\s*title:\s*'核心優勢看板',[\s\S]*全雙工打斷機制/)
   assert.doesNotMatch(app, /chatMessages = ref\(\[[\s\S]*boardItems:/)

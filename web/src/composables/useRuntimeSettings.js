@@ -333,9 +333,30 @@ const ttsDirty = computed(() => (
   ttsDraft.device !== speech.tts.device
 ))
 
+const STT_ENGINE_FALLBACK = [
+  { id: 'whisper', label: 'Whisper' },
+  { id: 'funasr', label: 'FunASR' }
+]
+
+const sttEngineOptions = computed(() => {
+  const available = Array.isArray(speech.stt.engines) && speech.stt.engines.length
+    ? speech.stt.engines
+    : STT_ENGINE_FALLBACK
+  return available.some((engine) => engine.id === sttDraft.type)
+    ? available
+    : [{ id: sttDraft.type, label: sttDraft.type }, ...available]
+})
+
 const sttModelOptions = computed(() => (
   speech.stt.models_by_engine?.[sttDraft.type] || speech.stt.model_sizes || []
 ))
+
+const edgeVoiceOptions = computed(() => {
+  const available = Array.isArray(speech.tts.edge_voices) ? speech.tts.edge_voices : []
+  const selected = ttsDraft.ref_file
+  if (!selected || available.some((voice) => voice.id === selected)) return available
+  return [{ id: selected, name: selected }, ...available]
+})
 
 watch(() => sttDraft.type, () => {
   if (sttModelOptions.value.length && !sttModelOptions.value.includes(sttDraft.model_size)) {
@@ -1118,8 +1139,10 @@ export function useRuntimeSettings() {
     sttDraft,
     ttsDraft,
     sttDirty,
+    sttEngineOptions,
     sttModelOptions,
     ttsDirty,
+    edgeVoiceOptions,
     applyingStt,
     applyingTts,
     speechError,

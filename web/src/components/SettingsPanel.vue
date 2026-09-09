@@ -243,8 +243,8 @@
               <div class="field-control-area flex-col">
                 <textarea
                   id="llm-system-prompt"
-                  class="std-textarea"
-                  rows="4"
+                  class="std-textarea prompt-editor"
+                  rows="8"
                   maxlength="8000"
                   v-model="selectedSystemPrompt"
                   :placeholder="t('settings.llm.defaultPromptPlaceholder')"
@@ -640,10 +640,6 @@
               </div>
             </div>
 
-            <div class="setting-form-row" style="display: none;">
-              <input id="stage-mic-x" type="number" v-model.number="selectedMicX">
-            </div>
-
             <!-- 九宮格定位器 -->
             <div style="border-top: 1px solid var(--border-subtle); padding-top: 14px;">
               <span style="font-size: 13px; font-weight: 600; display: block; margin-bottom: 8px;">
@@ -667,6 +663,34 @@
                 </div>
               </div>
             </div>
+
+            <div class="stage-mic-controls" style="border-top: 1px solid var(--border-subtle); padding-top: 14px;">
+              <span style="font-size: 13px; font-weight: 600; display: block; margin-bottom: 8px;">
+                <i class="bi bi-mic-fill" style="color: var(--brand-light);"></i> 麥克風位置
+              </span>
+              <div class="position-alignment-box">
+                <div class="grid-9-matrix" id="stageMicGridMatrix">
+                  <button
+                    v-for="preset in boardPresets"
+                    :key="`mic-${preset.id}`"
+                    type="button"
+                    class="matrix-btn"
+                    :class="{ active: selectedMicPreset === preset.id }"
+                    :aria-label="`麥克風：${t(preset.labelKey)}`"
+                    @click="selectMicPreset(preset.id)"
+                  ></button>
+                </div>
+                <div style="font-size: 12px; color: var(--text-tertiary); line-height: 1.5;">
+                  麥克風按鈕的位置會與右側舞台預覽同步，避免遮擋人物或看板。
+                </div>
+              </div>
+              <div class="stage-position-sliders">
+                <label for="stage-mic-x">水平位置 {{ selectedMicX }}%</label>
+                <input id="stage-mic-x" type="range" class="std-range" min="0" max="100" step="1" v-model.number="selectedMicX" @input="markMicPositionCustom">
+                <label for="stage-mic-y">垂直位置 {{ selectedMicY }}%</label>
+                <input id="stage-mic-y" type="range" class="std-range" min="0" max="100" step="1" v-model.number="selectedMicY" @input="markMicPositionCustom">
+              </div>
+            </div>
           </section>
 
           <!-- 右欄：大尺寸 9:16 舞台即時對照全景視窗 (滿板震撼) -->
@@ -674,13 +698,20 @@
             <span style="font-size: 14px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
               <i class="bi bi-eye-fill" style="color: var(--brand-light);"></i> 9:16 舞台即時對照全景 (所見即所得)
             </span>
-            <div class="interactive-large-stage">
-              <div class="mini-avatar-shape"></div>
+            <div class="interactive-large-stage" :data-board-style="selectedBoardStyle">
+              <img
+                v-if="stagePreviewAvatarUrl"
+                class="stage-preview-avatar"
+                :src="stagePreviewAvatarUrl"
+                :alt="`${stagePreviewAvatarName} 數位人舞台預覽`"
+              >
+              <div v-else class="mini-avatar-shape"></div>
               <!-- 即時同步的浮動看板 -->
               <div
                 class="mini-board-rect"
                 id="miniBoardRect"
-                :style="miniBoardStyle"
+                :class="`board-style-${selectedBoardStyle}`"
+                :style="stagePreviewBoardStyle"
               >
                 <div style="padding: 6px 8px; font-size: 10px; font-weight: 700; color: #34d399; border-bottom: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; gap: 4px;">
                   <span>📋 核心優勢看板</span>
@@ -691,12 +722,13 @@
                   • 邊生成邊播串流
                 </div>
               </div>
+              <div class="stage-preview-mic" :style="stagePreviewMicStyle" aria-hidden="true"><i class="bi bi-mic-fill"></i></div>
               <div style="position: absolute; bottom: 8px; left: 8px; right: 8px; background: rgba(0,0,0,0.75); border-radius: 4px; padding: 4px; font-size: 9.5px; color: #cbd5e1; text-align: center;">
                 「即時字幕帶展示區域」
               </div>
             </div>
             <span style="font-size: 11.5px; color: var(--text-tertiary);">
-              調整左側任何尺寸、透明度或九宮格，此處視窗即時動態響應
+              顯示目前數位人、看板與麥克風位置；調整左側設定時即時同步。
             </span>
           </section>
         </div>
@@ -816,14 +848,26 @@
                 <span class="field-main-label">STT 語音辨識引擎</span>
               </div>
               <div class="field-control-area">
-                <select class="std-select" v-model="sttDraft.type">
+                <select id="stt-engine" class="std-select" v-model="sttDraft.type">
                   <option
-                    v-for="opt in sttModelOptions"
-                    :key="opt.value"
-                    :value="opt.value"
+                    v-for="engine in sttEngineOptions"
+                    :key="engine.id"
+                    :value="engine.id"
+                    :disabled="engine.available === false && engine.id !== sttDraft.type"
                   >
-                    {{ opt.label }}
+                    {{ engine.label || engine.id }}{{ engine.available === false ? '（未安裝）' : '' }}
                   </option>
+                </select>
+              </div>
+            </div>
+
+            <div class="setting-form-row" v-if="sttModelOptions.length">
+              <div class="field-label-group">
+                <label for="stt-model-size" class="field-main-label">辨識模型</label>
+              </div>
+              <div class="field-control-area">
+                <select id="stt-model-size" class="std-select" v-model="sttDraft.model_size">
+                  <option v-for="model in sttModelOptions" :key="model" :value="model">{{ model }}</option>
                 </select>
               </div>
             </div>
@@ -884,11 +928,10 @@
                 <span class="field-main-label">播音音色 (Voice)</span>
               </div>
               <div class="field-control-area">
-                <select class="std-select" v-model="ttsDraft.voice">
-                  <option value="zh-CN-YunxiNeural">雲希 (親切溫和青年男聲)</option>
-                  <option value="zh-CN-XiaoxiaoNeural">曉曉 (知性清亮女聲)</option>
-                  <option value="zh-TW-HsiaoChenNeural">曉臻 (台灣腔調親切女聲)</option>
-                  <option value="zh-TW-YunJheNeural">雲哲 (台灣男聲)</option>
+                <select class="std-select" v-model="ttsDraft.ref_file">
+                  <option v-for="voice in edgeVoiceOptions" :key="voice.id" :value="voice.id">
+                    {{ voice.name || voice.label || voice.id }}{{ voice.gender ? `（${voice.gender === 'female' ? '女聲' : '男聲'}）` : '' }}
+                  </option>
                 </select>
               </div>
             </div>
@@ -963,8 +1006,24 @@
             <div class="setting-form-row">
               <div class="field-label-group">
                 <span class="field-main-label">介面色彩主題</span>
+                <span class="field-sub-hint">目前套用的主題會以紫色外框標示。</span>
               </div>
               <div class="field-control-area">
+                <div class="grid-options-row theme-choice-grid" role="radiogroup" aria-label="介面色彩主題">
+                  <button
+                    v-for="theme in themeOptions"
+                    :key="theme.id"
+                    type="button"
+                    class="option-card-btn theme-choice-card"
+                    :class="{ selected: selectedThemeValue === theme.id }"
+                    :aria-checked="selectedThemeValue === theme.id"
+                    role="radio"
+                    @click="selectTheme(theme.id)"
+                  >
+                    <span class="opt-title">{{ theme.icon }} {{ theme.label }}</span>
+                    <span class="opt-detail">{{ theme.desc }}</span>
+                  </button>
+                </div>
                 <select class="std-select" id="themeSelectDropdown" v-model="selectedThemeValue" @change="onThemeDropdownChange">
                   <option value="obsidian">樣式 A: Dark (深色模式)</option>
                   <option value="bento">樣式 C: White (淺色模式)</option>
@@ -1083,6 +1142,7 @@
 import { computed, ref, watch, onMounted } from 'vue'
 import { useI18n } from '../composables/useI18n'
 import { useRuntimeSettings } from '../composables/useRuntimeSettings'
+import { micStyle, placeStageBoard } from '../stageBoardLayout.js'
 
 const { t, setLocale } = useI18n()
 const props = defineProps({
@@ -1121,6 +1181,11 @@ const stageBoardStyles = [
   { id: 'cue', icon: '🏷️', label: '廣播字卡', desc: '獨立懸浮條目小卡' }
 ]
 
+const themeOptions = [
+  { id: 'obsidian', icon: '🌙', label: '深色模式', desc: '低眩光的控制台深色介面' },
+  { id: 'bento', icon: '☀️', label: '淺色模式', desc: '明亮、高對比的設定介面' }
+]
+
 const boardPresets = [
   { id: 'tl', labelKey: 'settings.stage.posTl' },
   { id: 'tc', labelKey: 'settings.stage.posTc' },
@@ -1132,18 +1197,6 @@ const boardPresets = [
   { id: 'bc', labelKey: 'settings.stage.posBc' },
   { id: 'br', labelKey: 'settings.stage.posBr' }
 ]
-
-const boardPresetsCoords = {
-  tl: { top: '10%', left: '8%', right: 'auto' },
-  tc: { top: '10%', left: '22%', right: 'auto' },
-  tr: { top: '14%', right: '8%', left: 'auto' },
-  ml: { top: '35%', left: '8%', right: 'auto' },
-  mc: { top: '35%', left: '22%', right: 'auto' },
-  mr: { top: '35%', right: '8%', left: 'auto' },
-  bl: { top: '55%', left: '8%', right: 'auto' },
-  bc: { top: '55%', left: '22%', right: 'auto' },
-  br: { top: '55%', right: '8%', left: 'auto' }
-}
 
 const ruleFields = [
   { key: 'activation', label: '看板啟用規則', description: '判斷本輪使用簡答或看板；理解語意，不只比對關鍵字。' },
@@ -1234,8 +1287,10 @@ const {
   sttDraft,
   ttsDraft,
   sttDirty,
+  sttEngineOptions,
   sttModelOptions,
   ttsDirty,
+  edgeVoiceOptions,
   applyingStt,
   applyingTts,
   speechError,
@@ -1295,28 +1350,40 @@ const settingsTabs = computed(() => [
   { id: 'experience', icon: 'bi bi-palette-fill', label: '系統偏好與自訂' }
 ])
 
-const miniBoardStyle = computed(() => {
-  const p = boardPresetsCoords[selectedBoardPreset.value] || { top: '14%', right: '8%', left: 'auto' }
-  let bg = 'rgba(15, 20, 32, 0.88)'
-  let border = '1px solid rgba(255, 255, 255, 0.2)'
-  if (selectedBoardStyle.value === 'slate') {
-    bg = '#0d1017'
-    border = '2px solid var(--brand)'
-  } else if (selectedBoardStyle.value === 'cue') {
-    bg = 'rgba(30, 41, 59, 0.92)'
-    border = '1px dashed rgba(255, 255, 255, 0.3)'
-  }
+const stagePreviewAvatar = computed(() => {
+  const avatarId = selectedAvatarId.value || runtime.avatar.avatar_id
+  return runtime.characters.find((character) => character.id === avatarId) || null
+})
+
+const stagePreviewAvatarUrl = computed(() => (
+  stagePreviewAvatar.value?.preview_url || stagePreviewAvatar.value?.thumbnail || ''
+))
+
+const stagePreviewAvatarName = computed(() => (
+  stagePreviewAvatar.value?.label || stagePreviewAvatar.value?.name || stagePreviewAvatar.value?.id || '目前數位人'
+))
+
+const stagePreviewBoardStyle = computed(() => {
+  const stageWidth = 405
+  const stageHeight = 720
+  const box = placeStageBoard({
+    stageW: stageWidth,
+    stageH: stageHeight,
+    targetW: Number(selectedBoardWidth.value),
+    targetH: Number(selectedBoardHeight.value),
+    x: Number(selectedBoardX.value),
+    y: Number(selectedBoardY.value)
+  })
   return {
-    top: p.top,
-    left: p.left,
-    right: p.right,
-    width: `${Math.round(selectedBoardWidth.value / 5.5)}%`,
-    height: `${Math.round(selectedBoardHeight.value / 9)}%`,
-    background: bg,
-    border: border,
+    top: `${(box.top / stageHeight) * 100}%`,
+    left: `${(box.left / stageWidth) * 100}%`,
+    width: `${(box.width / stageWidth) * 100}%`,
+    height: `${(box.height / stageHeight) * 100}%`,
     opacity: Math.max(0.2, 1 - Number(selectedBoardTransparency.value) / 100)
   }
 })
+
+const stagePreviewMicStyle = computed(() => micStyle(selectedMicX.value, selectedMicY.value))
 
 const defaultSettings = {
   useStun: false,
@@ -1331,8 +1398,12 @@ const defaultSettings = {
   videoSize: 100
 }
 
+const normalizeThemeValue = (theme) => (
+  theme === 'bento' || theme === 'white' || theme === 'light' ? 'bento' : 'obsidian'
+)
+
 const settings = ref({ ...defaultSettings })
-const selectedThemeValue = ref(props.currentTheme || 'obsidian')
+const selectedThemeValue = ref(normalizeThemeValue(props.currentTheme))
 
 const selectSettingsTab = (tabId) => {
   activeSettingsTab.value = tabId
@@ -1481,18 +1552,28 @@ const onThemeDropdownChange = () => {
   emit('switch-theme', selectedThemeValue.value)
 }
 
+const selectTheme = (theme) => {
+  selectedThemeValue.value = theme
+  onThemeDropdownChange()
+}
+
 const onLanguageChange = () => {
   setLocale(settings.value.uiLanguage)
 }
 
 const syncTheme = (theme) => {
-  selectedThemeValue.value = theme
-  settings.value.theme = theme
+  selectedThemeValue.value = normalizeThemeValue(theme)
+  settings.value.theme = selectedThemeValue.value
 }
+
+const promptDirty = computed(() => (
+  selectedSystemPrompt.value.trim() !== (runtime.llm.system_prompt || '').trim()
+))
 
 const hasUnsavedChanges = computed(() => {
   return Boolean(
     llmDirty.value ||
+    promptDirty.value ||
     rulesDirty.value ||
     stageDirty.value ||
     avatarDirty.value ||
@@ -1506,7 +1587,7 @@ const hasUnsavedChanges = computed(() => {
 const saveAndApplyFullSettings = async () => {
   try {
     const promises = []
-    if (llmDirty.value) promises.push(applyLlmModel())
+    if (llmDirty.value || promptDirty.value) promises.push(applyLlmModel())
     if (rulesDirty.value) promises.push(applyReplyRules())
     if (stageDirty.value) promises.push(applyStageSettings())
     if (qualityDirty.value) promises.push(applyMouthQuality())
@@ -1627,7 +1708,7 @@ onMounted(() => {
       console.error(e)
     }
   }
-  selectedThemeValue.value = props.currentTheme || 'obsidian'
+  selectedThemeValue.value = normalizeThemeValue(props.currentTheme)
 })
 
 watch(activeSettingsTab, (tab) => {
@@ -1639,7 +1720,7 @@ watch(settings, () => {
 }, { deep: true })
 
 watch(() => props.currentTheme, (t) => {
-  if (t) selectedThemeValue.value = t
+  if (t) selectedThemeValue.value = normalizeThemeValue(t)
 })
 
 const openSettings = (tab = 'ai') => {

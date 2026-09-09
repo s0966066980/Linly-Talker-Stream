@@ -1260,6 +1260,13 @@
       border-radius: 40px 40px 10px 10px;
       background: #64748b;
     }
+    .stage-preview-avatar {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
     .mini-board-rect {
       position: absolute;
       background: rgba(165, 180, 252, 0.9);
@@ -1267,6 +1274,42 @@
       border-radius: 4px;
       transition: all 0.2s;
     }
+    .mini-board-rect.board-style-slate {
+      background: #0d1017;
+      border: 2px solid var(--brand);
+    }
+    .mini-board-rect.board-style-cue {
+      background: rgba(30, 41, 59, 0.92);
+      border: 1px dashed rgba(255, 255, 255, 0.38);
+      border-radius: 10px;
+    }
+    .stage-preview-mic {
+      position: absolute;
+      z-index: 3;
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      border: 2px solid rgba(255, 255, 255, 0.8);
+      border-radius: 50%;
+      color: #fff;
+      background: var(--brand);
+      box-shadow: 0 0 0 5px rgba(99, 102, 241, 0.22);
+      font-size: 12px;
+      pointer-events: none;
+    }
+    .stage-position-sliders {
+      display: grid;
+      grid-template-columns: max-content minmax(0, 1fr);
+      gap: 10px 14px;
+      align-items: center;
+      margin-top: 14px;
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+    .stage-position-sliders .std-range { width: 100%; }
+    .prompt-editor { min-height: 176px; resize: vertical; }
+    .theme-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 10px; }
 
     /* 滿板固定底部動作條 */
     .settings-fixed-footer {
