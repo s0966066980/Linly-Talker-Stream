@@ -718,7 +718,7 @@
             </span>
             <div
               ref="stagePreviewRef"
-              class="interactive-large-stage stage-direct-editor"
+              class="interactive-large-stage stage-direct-editor standalone-stage-preview"
               :data-board-style="selectedBoardStyle"
               @pointermove="moveStageDirectEdit"
               @pointerup="finishStageDirectEdit"
@@ -731,9 +731,10 @@
                 :alt="`${stagePreviewAvatarName} 數位人舞台預覽`"
               >
               <div v-else class="mini-avatar-shape"></div>
+              <div class="stage-preview-mode"><span class="stage-preview-mode-dot"></span><span>自動收音</span></div>
               <!-- 即時同步的浮動看板 -->
               <div
-                class="mini-board-rect"
+                class="mini-board-rect stage-preview-float-board"
                 id="miniBoardRect"
                 :class="`board-style-${selectedBoardStyle}`"
                 :style="stagePreviewBoardStyle"
@@ -744,12 +745,14 @@
               >
                 <div class="stage-preview-board-header">
                   <span>回答看板</span>
-                  <span>預覽</span>
+                  <span class="stage-preview-count-pill">預覽</span>
                 </div>
                 <div class="stage-preview-board-content">
+                  <span class="stage-preview-kicker">ON SCREEN</span>
                   <strong>第一次展示，準備這四件事</strong>
-                  <span>選擇看板位置，避免遮擋人物與字幕。</span>
-                  <span>拖曳整張看板即可移動。</span>
+                  <span class="stage-preview-source">控制台預覽 · 對位置與大小</span>
+                  <span class="stage-preview-item"><b>01</b> 選擇看板位置，避免遮擋人物與字幕。</span>
+                  <span class="stage-preview-item"><b>02</b> 拖曳整張看板即可移動。</span>
                 </div>
               </div>
               <button
@@ -759,15 +762,21 @@
                 aria-label="拖曳調整展開看板按鈕位置"
                 @pointerdown.stop.prevent="startStageDirectEdit('board-open', $event)"
               ><i class="bi bi-layout-sidebar-inset-reverse"></i> 展開看板</button>
-              <button
-                type="button"
-                class="stage-preview-mic"
-                :style="stagePreviewMicStyle"
-                aria-label="拖曳調整麥克風位置"
-                @pointerdown.stop.prevent="startStageDirectEdit('mic', $event)"
-              ><i class="bi bi-mic-fill"></i></button>
-              <div style="position: absolute; bottom: 8px; left: 8px; right: 8px; background: rgba(0,0,0,0.75); border-radius: 4px; padding: 4px; font-size: 9.5px; color: #cbd5e1; text-align: center;">
-                「即時字幕帶展示區域」
+              <div class="stage-preview-mic-wrap" :style="stagePreviewMicStyle">
+                <button
+                  type="button"
+                  class="stage-preview-mic"
+                  aria-label="拖曳調整麥克風位置"
+                  @pointerdown.stop.prevent="startStageDirectEdit('mic', $event)"
+                >
+                  <span class="stage-preview-ring"></span><span class="stage-preview-ring second"></span>
+                  <i class="bi bi-mic-fill"></i>
+                </button>
+                <span class="stage-preview-mic-hint">直接說話</span>
+              </div>
+              <div ref="stagePreviewCaptionsRef" class="stage-preview-captions">
+                <span class="stage-preview-said">準備好後，直接開始對話</span>
+                <div class="stage-preview-reply">「即時字幕帶展示區域」</div>
               </div>
             </div>
             <span style="font-size: 11.5px; color: var(--text-tertiary);">
@@ -1178,7 +1187,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, onMounted } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from '../composables/useI18n'
 import { useRuntimeSettings } from '../composables/useRuntimeSettings'
 import { micStyle, placeStageBoard } from '../stageBoardLayout.js'
@@ -1214,6 +1223,10 @@ const activeSettingsTab = ref(props.initialTab || 'ai')
 const settingsContentRef = ref(null)
 const confirmKind = ref('')
 const stagePreviewRef = ref(null)
+const stagePreviewCaptionsRef = ref(null)
+const stagePreviewSize = ref({ width: 405, height: 720 })
+const stagePreviewCaptionRatio = ref(0.2)
+let stagePreviewObserver = null
 const stageDirectEditTarget = ref('')
 const EDITOR_HEIGHT_STORAGE_KEY = 'linly-talker-stream-editor-heights'
 const DEFAULT_EDITOR_HEIGHTS = Object.freeze({
@@ -1441,27 +1454,47 @@ const stagePreviewAvatarName = computed(() => (
 ))
 
 const stagePreviewBoardStyle = computed(() => {
-  const stageWidth = 405
-  const stageHeight = 720
+  const stageWidth = stagePreviewSize.value.width
+  const stageHeight = stagePreviewSize.value.height
   const box = placeStageBoard({
     stageW: stageWidth,
     stageH: stageHeight,
     targetW: Number(selectedBoardWidth.value),
     targetH: Number(selectedBoardHeight.value),
     x: Number(selectedBoardX.value),
-    y: Number(selectedBoardY.value)
+    y: Number(selectedBoardY.value),
+    captionRatio: stagePreviewCaptionRatio.value
   })
   return {
-    top: `${(box.top / stageHeight) * 100}%`,
-    left: `${(box.left / stageWidth) * 100}%`,
-    width: `${(box.width / stageWidth) * 100}%`,
-    height: `${(box.height / stageHeight) * 100}%`,
+    top: `${box.top}px`,
+    left: `${box.left}px`,
+    width: `${box.width}px`,
+    height: `${box.height}px`,
     opacity: Math.max(0.2, 1 - Number(selectedBoardTransparency.value) / 100)
   }
 })
 
 const stagePreviewMicStyle = computed(() => micStyle(selectedMicX.value, selectedMicY.value))
 const stagePreviewBoardOpenStyle = computed(() => micStyle(selectedBoardOpenX.value, selectedBoardOpenY.value))
+
+const measureStagePreview = () => {
+  const stageNode = stagePreviewRef.value
+  const captionsNode = stagePreviewCaptionsRef.value
+  if (!stageNode?.clientWidth || !stageNode?.clientHeight) return
+  stagePreviewSize.value = { width: stageNode.clientWidth, height: stageNode.clientHeight }
+  if (captionsNode) {
+    stagePreviewCaptionRatio.value = Math.max(0.18, (captionsNode.offsetHeight + 10) / stageNode.clientHeight)
+  }
+}
+
+const observeStagePreview = () => {
+  stagePreviewObserver?.disconnect()
+  if (!window.ResizeObserver) return
+  stagePreviewObserver = new ResizeObserver(measureStagePreview)
+  if (stagePreviewRef.value) stagePreviewObserver.observe(stagePreviewRef.value)
+  if (stagePreviewCaptionsRef.value) stagePreviewObserver.observe(stagePreviewCaptionsRef.value)
+  measureStagePreview()
+}
 
 const clampPercent = (value) => Math.max(0, Math.min(100, Math.round(value)))
 
@@ -1489,15 +1522,16 @@ const moveStageDirectEdit = (event) => {
     return
   }
 
-  const stageWidth = 405
-  const stageHeight = 720
+  const stageWidth = rect.width
+  const stageHeight = rect.height
   const box = placeStageBoard({
     stageW: stageWidth,
     stageH: stageHeight,
     targetW: Number(selectedBoardWidth.value),
     targetH: Number(selectedBoardHeight.value),
     x: Number(selectedBoardX.value),
-    y: Number(selectedBoardY.value)
+    y: Number(selectedBoardY.value),
+    captionRatio: stagePreviewCaptionRatio.value
   })
   const stageX = ((event.clientX - rect.left) / rect.width) * stageWidth
   const stageY = ((event.clientY - rect.top) / rect.height) * stageHeight
@@ -1830,6 +1864,7 @@ const loadRuntimePanel = async () => {
 }
 
 onMounted(() => {
+  observeStagePreview()
   loadRuntimePanel()
   const savedSettings = localStorage.getItem('linly-talker-stream-settings')
   if (savedSettings) {
@@ -1840,6 +1875,10 @@ onMounted(() => {
     }
   }
   selectedThemeValue.value = normalizeThemeValue(props.currentTheme)
+})
+
+onUnmounted(() => {
+  stagePreviewObserver?.disconnect()
 })
 
 watch(activeSettingsTab, (tab) => {

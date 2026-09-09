@@ -258,7 +258,8 @@
     width:28px; height:28px; border-radius:8px; cursor:pointer;
   }
   .board-reopen{
-    position:absolute; z-index:4; top:16px; right:16px;
+    position:absolute; z-index:4;
+    transform:translate(-50%,-50%);
     border:1px solid rgba(255,255,255,.18); background:rgba(12,16,26,.78);
     color:var(--ink); padding:6px 12px; border-radius:999px; font-size:12px; cursor:pointer;
   }
@@ -416,6 +417,7 @@ import {
     x:100, y:0, preset:'tr', preview:false
   };
   const micLayout={x:50, y:62, preset:'custom'};
+  const boardOpenLayout={x:50, y:8};
   const liveBoard={title:'', items:[], hidden:false, turnId:null};
   const displayedBoardReceipts=new Set();
 
@@ -465,6 +467,11 @@ import {
       micWrap.style.left=`${micLayout.x}%`;
       micWrap.style.top=`${micLayout.y}%`;
       micWrap.style.transform='translate(-50%,-50%)';
+    }
+    if(boardReopen){
+      boardReopen.style.left=`${boardOpenLayout.x}%`;
+      boardReopen.style.top=`${boardOpenLayout.y}%`;
+      boardReopen.style.transform='translate(-50%,-50%)';
     }
     if(!board || !captions) return;
     stage.dataset.boardStyle=boardLayout.style || 'glass';
@@ -647,6 +654,9 @@ import {
       if(Number.isInteger(y) && y >= 0 && y <= 100) boardLayout.y = y;
       if(typeof data.board_preset === 'string') boardLayout.preset = data.board_preset;
       boardLayout.preview = Boolean(data.board_preview);
+      const boardOpenX=Number(data.board_open_x), boardOpenY=Number(data.board_open_y);
+      if(Number.isInteger(boardOpenX) && boardOpenX>=0 && boardOpenX<=100) boardOpenLayout.x=boardOpenX;
+      if(Number.isInteger(boardOpenY) && boardOpenY>=0 && boardOpenY<=100) boardOpenLayout.y=boardOpenY;
       const micX=Number(data.mic_x), micY=Number(data.mic_y);
       if(Number.isInteger(micX) && micX>=0 && micX<=100) micLayout.x=micX;
       if(Number.isInteger(micY) && micY>=0 && micY<=100) micLayout.y=micY;

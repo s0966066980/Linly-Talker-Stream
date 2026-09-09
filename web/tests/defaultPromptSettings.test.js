@@ -14,6 +14,10 @@ const app = readFileSync(
   new URL('../src/App.vue', import.meta.url),
   'utf8'
 )
+const standaloneStage = readFileSync(
+  new URL('../stage.html', import.meta.url),
+  'utf8'
+)
 
 test('設定面板提供有標籤與說明的預設 Prompt 欄位', () => {
   assert.match(panel, /for="llm-system-prompt"/)
@@ -102,6 +106,28 @@ test('舞台直接編輯提供拖曳與滑桿兩種調整方式', () => {
   assert.match(panel, /await applyStageSettings\(\)/)
 })
 
+test('所見即所得預覽以獨立 stage.html 的舞台結構呈現', () => {
+  assert.match(panel, /class="interactive-large-stage stage-direct-editor standalone-stage-preview"/)
+  assert.match(panel, /class="stage-preview-mode"/)
+  assert.match(panel, /class="stage-preview-mic-wrap"/)
+  assert.match(panel, /class="stage-preview-captions"/)
+  assert.match(panel, /class="mini-board-rect stage-preview-float-board"/)
+  assert.match(panel, /stagePreviewCaptionRatio/)
+  assert.match(panel, /stagePreviewSize/)
+  assert.match(panel, /width: `\$\{box\.width\}px`/)
+  assert.match(standaloneStage, /class="stage" id="stage"/)
+  assert.match(standaloneStage, /class="mic-wrap" id="micWrap"/)
+  assert.match(standaloneStage, /class="float-board" id="board"/)
+})
+
+test('獨立 stage.html 套用展開看板按鈕位置', () => {
+  assert.match(standaloneStage, /boardOpenLayout=\{x:50, y:8\}/)
+  assert.match(standaloneStage, /data\.board_open_x/)
+  assert.match(standaloneStage, /data\.board_open_y/)
+  assert.match(standaloneStage, /boardReopen\.style\.left/)
+  assert.match(standaloneStage, /boardReopen\.style\.top/)
+})
+
 test('套用 LLM 設定時會送出並同步回覆字數', () => {
   assert.match(settings, /response_max_chars:\s*Number\(responseMaxChars\)/)
   assert.match(settings, /runtime\.llm\.response_max_chars\s*=\s*Number/)
@@ -153,7 +179,7 @@ test('舞台設定保留麥克風定位並以真實數位人預覽 9:16 對照�
 })
 
 test('放大的 9:16 舞台可直接拖曳看板與麥克風並保存位置', () => {
-  assert.match(panel, /class="interactive-large-stage stage-direct-editor"/)
+  assert.match(panel, /class="interactive-large-stage stage-direct-editor standalone-stage-preview"/)
   assert.match(panel, /@pointerdown\.stop\.prevent="startStageDirectEdit\('board', \$event\)"/)
   assert.match(panel, /@pointerdown\.stop\.prevent="startStageDirectEdit\('mic', \$event\)"/)
   assert.match(panel, /const moveStageDirectEdit = \(event\)/)

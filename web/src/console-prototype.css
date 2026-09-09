@@ -1252,8 +1252,8 @@
       gap: 10px;
     }
     .interactive-large-stage {
-      height: min(88vh, 960px);
-      min-height: 720px;
+      height: clamp(760px, 96dvh, 1280px);
+      min-height: 760px;
       aspect-ratio: 9 / 16;
       border-radius: var(--radius-md);
       background: radial-gradient(ellipse at 50% 30%, #25334d, #0b101c 80%);
@@ -1263,6 +1263,34 @@
       box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
     }
     .stage-direct-editor { touch-action: none; }
+    .standalone-stage-preview { isolation: isolate; background: #000; }
+    .standalone-stage-preview::after {
+      content: "";
+      position: absolute;
+      inset: auto 0 0;
+      height: 32%;
+      z-index: 1;
+      pointer-events: none;
+      background: linear-gradient(to top, rgba(4,5,8,.75), rgba(4,5,8,.25) 55%, transparent);
+    }
+    .stage-preview-mode {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      z-index: 6;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 14px;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 999px;
+      color: rgba(255,255,255,.75);
+      background: rgba(8,10,14,.66);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .stage-preview-mode-dot { width: 6px; height: 6px; border-radius: 50%; background: #8fa3bf; }
     .mini-avatar-shape {
       position: absolute;
       left: 50%;
@@ -1282,6 +1310,7 @@
     }
     .mini-board-rect {
       position: absolute;
+      z-index: 6;
       background: rgba(15, 20, 32, 0.88);
       backdrop-filter: blur(12px);
       border: 1px solid rgba(255, 255, 255, 0.2);
@@ -1305,6 +1334,11 @@
       font-weight: 800;
       border-bottom: 1px solid rgba(255,255,255,0.15);
     }
+    .stage-preview-count-pill { padding: 2px 8px; border: 1px solid rgba(61,220,151,.28); border-radius: 999px; color: #3ddc97; background: rgba(61,220,151,.16); }
+    .stage-preview-kicker { color: #3ddc97 !important; font-size: 10px; letter-spacing: 1.2px; }
+    .stage-preview-source { opacity: .65; font-size: 10px; }
+    .stage-preview-item { display: flex; align-items: flex-start; gap: 8px; padding: 7px; border-radius: 8px; background: rgba(255,255,255,.06); }
+    .stage-preview-item b { color: #3ddc97; font: 10px/20px ui-monospace, monospace; }
     .stage-preview-board-content {
       display: grid;
       gap: 7px;
@@ -1316,7 +1350,7 @@
     .stage-preview-board-content span { color: #d1d5db; }
     .stage-preview-board-open {
       position: absolute;
-      z-index: 5;
+      z-index: 7;
       padding: 6px 10px;
       border: 1px solid rgba(255,255,255,0.55);
       border-radius: 999px;
@@ -1339,9 +1373,16 @@
       border: 1px dashed rgba(255, 255, 255, 0.38);
       border-radius: 10px;
     }
-    .stage-preview-mic {
+    .stage-preview-mic-wrap {
       position: absolute;
-      z-index: 3;
+      z-index: 5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    .stage-preview-mic {
+      position: relative;
       width: 48px;
       height: 48px;
       display: grid;
@@ -1360,6 +1401,26 @@
       touch-action: none;
     }
     button.stage-preview-mic:active { cursor: grabbing; }
+    .stage-preview-ring { position: absolute; inset: -8px; border: 2px solid #8fa3bf; border-radius: 50%; opacity: .5; pointer-events: none; }
+    .stage-preview-ring.second { inset: -15px; opacity: .22; }
+    .stage-preview-mic-hint { padding: 4px 10px; border-radius: 999px; color: rgba(255,255,255,.8); background: rgba(8,10,14,.68); font-size: 10px; white-space: nowrap; pointer-events: none; }
+    .stage-preview-captions {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 4;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 7px;
+      padding: 0 14px 18px;
+      color: #fff;
+      text-align: center;
+      pointer-events: none;
+    }
+    .stage-preview-said { padding: 3px 10px; border: 1px solid rgba(255,255,255,.08); border-radius: 999px; background: rgba(8,10,16,.55); color: rgba(244,246,250,.58); font-size: 10px; }
+    .stage-preview-reply { width: 100%; padding: 12px 14px; border: 1px solid rgba(255,255,255,.12); border-radius: 14px; background: rgba(10,14,24,.65); backdrop-filter: blur(12px); font-size: 12px; }
     .stage-position-sliders {
       display: grid;
       grid-template-columns: max-content minmax(0, 1fr);
@@ -1374,7 +1435,7 @@
     .theme-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 10px; }
 
     @media (max-width: 820px) {
-      .interactive-large-stage { height: min(82vh, 720px); min-height: 520px; }
+      .interactive-large-stage { height: min(82dvh, 760px); min-height: 560px; }
     }
 
     /* 滿板固定底部動作條 */
