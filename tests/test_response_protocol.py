@@ -262,7 +262,81 @@ class EndToEndProtocolStreamingTests(unittest.TestCase):
         self.assertEqual(board_data["items"][0]["title"], "第一點")
         self.assertEqual(board_data["items"][0]["content"], "詳細說明一")
 
-        # 4. Session board context was saved
+        # 4. Generated board content is not follow-up context until rendered.
+        last_board = llm.get_last_board()
+        self.assertIsNone(last_board)
+        self.assertTrue(
+            llm.acknowledge_board_display(
+                turn_id="turn-test-1",
+                board_id="turn-test-1",
+                item_index=0,
+            )
+        )
         last_board = llm.get_last_board()
         self.assertIsNotNone(last_board)
         self.assertEqual(last_board.title, "建議架構")
+
+    def test_direct_json_transition_without_board_tag(self):
+        parser = ResponseProtocolParser(mode=ReplyMode.BOARD)
+        raw = (
+            "[[SPEECH]]\n"
+            "台灣歷史經歷了多個重要階段。\n\n"
+            '{"title": "台灣歷史", "items": [{"title": "原住民時期", "content": "多元文化。"}]}\n'
+            "[[END]]"
+        )
+        speech = parser.feed(raw)
+        flush_speech, board = parser.flush()
+        all_speech = "".join(speech + flush_speech).strip()
+        self.assertEqual(all_speech, "台灣歷史經歷了多個重要階段。")
+        self.assertIsNotNone(board)
+        self.assertEqual(board.title, "台灣歷史")
+        self.assertEqual(len(board.items), 1)
+        self.assertEqual(board.items[0].title, "原住民時期")
+
+    def test_tool_call_board_format(self):
+        parser = ResponseProtocolParser(mode=ReplyMode.AUTO)
+        raw = (
+            "<|tool_call_start|>[BOARD(MODE='BOARD', SPEECH='部署步驟如下：', "
+            "BOARD_JSON='{\"title\": \"部署步驟\", \"items\": [{\"title\": \"檢查網路\", \"content\": \"確認連通\"}]}')]<|tool_call_end|>"
+        )
+        speech = parser.feed(raw)
+        flush_speech, board = parser.flush()
+        all_speech = "".join(speech + flush_speech).strip()
+        self.assertIn("部署步驟如下：", all_speech)
+        self.assertNotIn("<|tool_call_start|>", all_speech)
+        self.assertIsNotNone(board)
+        self.assertEqual(board.title, "部署步驟")
+        self.assertEqual(len(board.items), 1)
+        self.assertEqual(board.items[0].title, "檢查網路")
+
+    def test_json_double_bracket_repair(self):
+        parser = ResponseProtocolParser(mode=ReplyMode.BOARD)
+        raw = (
+            "[[SPEECH]]\n"
+            "簡要概述。\n"
+            "[[BOARD_JSON]]\n"
+            '{"title": "測試修復", "items": [{"title": "項目一", "content": "說明一"}]]}\n'
+            "[[END]]"
+        )
+        speech = parser.feed(raw)
+        _, board = parser.flush()
+        self.assertIsNotNone(board)
+        self.assertEqual(board.title, "測試修復")
+        self.assertEqual(len(board.items), 1)
+
+    def test_markdown_bullet_fallback(self):
+        parser = ResponseProtocolParser(mode=ReplyMode.BOARD)
+        raw = (
+            "[[SPEECH]]\n"
+            "台灣歷史的整體結論。\n\n"
+            "- 原住民時期：多元文化與傳統部落社會。\n"
+            "- 清朝統治時期：設府開墾與行政發展。\n"
+        )
+        speech = parser.feed(raw)
+        flush_speech, board = parser.flush()
+        all_speech = "".join(speech + flush_speech).strip()
+        self.assertEqual(all_speech, "台灣歷史的整體結論。")
+        self.assertIsNotNone(board)
+        self.assertEqual(len(board.items), 2)
+        self.assertEqual(board.items[0].title, "原住民時期")
+        self.assertIn("多元文化", board.items[0].content)

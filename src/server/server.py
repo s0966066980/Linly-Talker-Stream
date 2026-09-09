@@ -43,6 +43,8 @@ def create_app():
     app.router.add_get("/api/settings", routes.get_settings)
     app.router.add_get("/api/llm/models", routes.list_llm_models)
     app.router.add_post("/api/llm/model", routes.set_llm_model)
+    app.router.add_get("/api/llm/rules", routes.get_llm_rules)
+    app.router.add_put("/api/llm/rules", routes.set_llm_rules)
     app.router.add_post("/api/avatar", routes.set_avatar)
     app.router.add_post("/api/avatar/quality", routes.set_mouth_quality)
     app.router.add_get("/api/vad", routes.get_vad_settings)

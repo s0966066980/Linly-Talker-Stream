@@ -10,6 +10,7 @@ export function useWebRTC(options = {}) {
   let shouldReconnect = false
   let lastStunServer = null
   let startPromise = null
+  const boardDisplayReceipts = new Set()
   const { onNotification, onVoiceEvent, onConnectionState, onSessionId } = options
 
   const notifyConnection = (state) => {
@@ -73,6 +74,23 @@ export function useWebRTC(options = {}) {
       track.enabled = true
     })
     return sendControl({ type: 'interrupt' })
+  }
+
+  const acknowledgeBoardDisplay = ({ turnId, boardId, itemIndex }) => {
+    if (!turnId || boardId !== turnId || !Number.isInteger(itemIndex) || itemIndex < 0) {
+      return false
+    }
+    const receiptKey = `${turnId}:${boardId}:${itemIndex}`
+    if (boardDisplayReceipts.has(receiptKey)) return true
+    const sent = sendControl({
+      type: 'board_displayed',
+      turn_id: turnId,
+      board_id: boardId,
+      item_index: itemIndex,
+      presenter: 'console'
+    })
+    if (sent) boardDisplayReceipts.add(receiptKey)
+    return sent
   }
 
   const startPlayOnce = async (stunServer = null, initialCapture = true) => {
@@ -221,5 +239,11 @@ export function useWebRTC(options = {}) {
     disposeConnection(true)
   }
 
-  return { startPlay, stopPlay, setCaptureEnabled, interruptVoice }
+  return {
+    startPlay,
+    stopPlay,
+    setCaptureEnabled,
+    interruptVoice,
+    acknowledgeBoardDisplay,
+  }
 }

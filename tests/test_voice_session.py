@@ -427,6 +427,64 @@ class ReplyModeBehaviorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([item["text"] for item in fragments], ["完整回覆"])
         await session.close()
 
+    async def test_board_events_include_a_stable_board_id(self):
+        session, _avatar, events = self.make_session(streaming=False)
+
+        def fake_llm(_text, _avatar_stream, **kwargs):
+            info = kwargs["datainfo"]
+            info["on_board"](
+                {"kind": "begin", "title": "部署前檢查", "turn_id": info["turn_id"]}
+            )
+            info["on_board"](
+                {
+                    "kind": "item",
+                    "index": 0,
+                    "title": "確認設定",
+                    "body": "確認環境變數已套用。",
+                    "turn_id": info["turn_id"],
+                }
+            )
+            return "先確認部署設定。"
+
+        with patch("src.server.voice_session.llm_response", side_effect=fake_llm):
+            started = await session.start_text_turn("列出部署步驟", interrupt=False)
+            await session._turn_task
+            await asyncio.sleep(0)
+
+        board_events = [event for event in events if event["type"] in {"board_begin", "board_item"}]
+        self.assertEqual([event["type"] for event in board_events], ["board_begin", "board_item"])
+        self.assertTrue(all(event["board_id"] == started["turn_id"] for event in board_events))
+        await session.close()
+
+    async def test_display_receipt_is_forwarded_once_per_presenter_item(self):
+        session, _avatar, _events = self.make_session(streaming=False)
+
+        with patch(
+            "src.server.voice_session.acknowledge_session_board_item",
+            create=True,
+            return_value=True,
+        ) as acknowledge:
+            receipt = json.dumps(
+                {
+                    "type": "board_displayed",
+                    "turn_id": "turn-42",
+                    "board_id": "turn-42",
+                    "item_index": 1,
+                    "presenter": "console",
+                }
+            )
+            session.handle_control(receipt)
+            session.handle_control(receipt)
+
+        acknowledge.assert_called_once_with(
+            session.sessionid,
+            turn_id="turn-42",
+            board_id="turn-42",
+            item_index=1,
+            presenter="console",
+        )
+        await session.close()
+
     async def test_legacy_no_first_audio_fails_and_releases_turn(self):
         session, avatar, events = self.make_session(streaming=False)
 

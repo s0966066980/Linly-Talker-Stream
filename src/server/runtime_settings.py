@@ -37,6 +37,7 @@ from src.llm.llamacpp import (
     server_status,
 )
 from src.llm.service import switch_llm_endpoint
+from src.llm.rules import default_rules, rules_from_config, snapshot_from_config, validate_rules
 from src.asr.factory import activate_asr_engine, create_asr_engine
 from src.asr.engines.funasr import local_funasr_model_ready
 from src.tts.cosyvoice_runtime import (
@@ -48,6 +49,7 @@ from src.tts.cosyvoice_runtime import (
 from src.utils.logging import logger
 
 _SWITCH_LOCK = threading.Lock()
+_RULES_LOCK = threading.RLock()
 
 DEFAULT_STAGE_CAPTION_MAX_CHARS = 120
 MIN_STAGE_CAPTION_MAX_CHARS = 20
@@ -142,6 +144,7 @@ def current_snapshot(config) -> Dict[str, Any]:
                 if bool(getattr(config.reply_streaming, "enabled", False))
                 else "legacy"
             ),
+            "reply_rules": rules_from_config(config),
         },
         "avatar": {
             "type": model_cfg.type,
@@ -154,6 +157,62 @@ def current_snapshot(config) -> Dict[str, Any]:
         "speech": speech_snapshot(config),
         "stage": stage_snapshot(config),
     }
+
+
+def reply_rules_snapshot(config) -> Dict[str, Any]:
+    """Return the currently published Rule snapshot and editable defaults."""
+    return {
+        "rules": rules_from_config(config),
+        "defaults": {"revision": 1, **default_rules()},
+        "limits": {"max_rule_chars": 12000, "max_total_chars": 24000},
+    }
+
+
+def apply_reply_rules(config, values: Any, expected_revision: Any = None) -> Dict[str, Any]:
+    """Validate, persist and publish all three rules as one version."""
+    if not isinstance(values, dict):
+        raise SettingsError("Rule 必須是物件")
+    with _RULES_LOCK:
+        current = snapshot_from_config(config)
+        if expected_revision is not None:
+            try:
+                expected = int(expected_revision)
+            except (TypeError, ValueError) as exc:
+                raise SettingsError("expected_revision 必須是整數") from exc
+            if isinstance(expected_revision, float) and not expected_revision.is_integer():
+                raise SettingsError("expected_revision 必須是整數")
+            if expected != current.revision:
+                raise SettingsError(
+                    "Rule 版本已更新，請重新載入後再儲存",
+                    status=409,
+                    extra={"current": current.as_dict()},
+                )
+        try:
+            checked = validate_rules(values, revision=current.revision + 1)
+        except ValueError as exc:
+            raise SettingsError(str(exc)) from exc
+        rule_config = getattr(config.llm, "reply_rules", None)
+        if rule_config is None:
+            from src.config.schema import ReplyRulesConfig
+            rule_config = ReplyRulesConfig()
+            config.llm.reply_rules = rule_config
+        rule_config.revision = int(checked["revision"])
+        rule_config.activation = str(checked["activation"])
+        rule_config.speech = str(checked["speech"])
+        rule_config.board = str(checked["board"])
+        try:
+            persist_runtime_overrides(config)
+        except Exception as exc:
+            # Restore the in-memory snapshot when persistence fails.
+            rule_config.revision = current.revision
+            rule_config.activation = current.activation
+            rule_config.speech = current.speech
+            rule_config.board = current.board
+            raise SettingsError(f"儲存 Rule 失敗：{exc}", status=500) from exc
+        return {
+            "rules": rules_from_config(config),
+            "applied_revision": int(checked["revision"]),
+        }
 
 
 def validate_stage_caption_max_chars(value) -> int:

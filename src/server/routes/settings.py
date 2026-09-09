@@ -25,6 +25,8 @@ from src.server.runtime_settings import (
     vad_snapshot,
     speech_snapshot,
     stage_snapshot,
+    apply_reply_rules,
+    reply_rules_snapshot,
 )
 from src.server.state import state
 from src.utils.logging import logger
@@ -51,6 +53,30 @@ async def get_settings(request):
     data["ready"] = bool(state.server_ready)
     data["model_ready"] = bool(getattr(state, "model_ready", False))
     return _json({"code": 0, "data": data})
+
+
+async def get_llm_rules(request):
+    if not state.config:
+        return _json({"code": -1, "msg": "服務尚未就緒"}, status=503)
+    return _json({"code": 0, "data": reply_rules_snapshot(state.config)})
+
+
+async def set_llm_rules(request):
+    if not state.config:
+        return _json({"code": -1, "msg": "服務尚未就緒"}, status=503)
+    try:
+        params = await request.json()
+        result = apply_reply_rules(
+            state.config,
+            params.get("rules"),
+            params.get("expected_revision"),
+        )
+        return _json({"code": 0, "msg": "ok", "data": result})
+    except SettingsError as exc:
+        return _json({"code": -1, "msg": exc.message, **exc.extra}, status=exc.status)
+    except Exception as exc:
+        logger.exception("更新 LLM 回覆規則失敗")
+        return _json({"code": -1, "msg": str(exc)}, status=500)
 
 
 async def list_llm_models(request):

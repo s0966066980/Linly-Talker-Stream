@@ -245,6 +245,15 @@ class BoardConfig:
 
 
 @dataclass
+class ReplyRulesConfig:
+    """提供給單一 LLM 的自然語言回覆規則。"""
+    revision: int = 1
+    activation: str = ""
+    speech: str = ""
+    board: str = ""
+
+
+@dataclass
 class LLMConfig:
     """LLM 配置"""
     api_key: str = ""
@@ -265,6 +274,7 @@ class LLMConfig:
     extra_body: Dict[str, Any] = field(default_factory=dict)
     response_router: ResponseRouterConfig = field(default_factory=ResponseRouterConfig)
     board: BoardConfig = field(default_factory=BoardConfig)
+    reply_rules: ReplyRulesConfig = field(default_factory=ReplyRulesConfig)
 
 
 @dataclass

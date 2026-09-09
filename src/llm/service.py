@@ -29,12 +29,6 @@ def llm_response(
     """呼叫 LLM 並將響應流式推送到 avatar"""
     try:
         from src.server.state import state as server_state
-        from src.llm.router import (
-            LLMFallbackClassifier,
-            ReplyMode,
-            ReplyRoute,
-            ReplyRouter,
-        )
 
         config = getattr(avatar_stream, 'config', None) or server_state.config
         _ensure_llamacpp_if_needed(config)
@@ -62,62 +56,23 @@ def llm_response(
         if api_key:
             llm.api_key = api_key
 
-        # 判定回覆模式 (Rule First -> LLM Fallback)
-        route: ReplyRoute
-        llm_cfg = getattr(config, "llm", None) if config is not None else None
-        router_cfg = getattr(llm_cfg, "response_router", None) if llm_cfg is not None else None
-        router_enabled = getattr(router_cfg, "enabled", True) if router_cfg is not None else True
-
-        if reply_mode is not None and str(reply_mode).lower() in (
-            ReplyMode.SIMPLE.value,
-            ReplyMode.BOARD.value,
-        ):
-            route = ReplyRoute(
-                mode=ReplyMode.BOARD if str(reply_mode).lower() == ReplyMode.BOARD.value else ReplyMode.SIMPLE,
-                source="forced",
-                score=0.0,
-                reason="caller specified reply_mode",
-            )
-        elif not router_enabled:
-            route = ReplyRoute(
-                mode=ReplyMode.SIMPLE,
-                source="disabled",
-                score=0.0,
-                reason="router disabled",
-            )
-        else:
-            classifier = None
-            if router_cfg and getattr(router_cfg, "llm_fallback", True):
-                classifier = LLMFallbackClassifier(
-                    llm_client_getter=lambda: llm.client,
-                    model=llm.model,
-                    max_tokens=int(getattr(router_cfg, "classifier_max_tokens", 4)),
-                )
-            router = ReplyRouter(
-                enabled=True,
-                rule_first=getattr(router_cfg, "rule_first", True),
-                llm_fallback=getattr(router_cfg, "llm_fallback", True),
-                board_threshold=float(getattr(router_cfg, "board_threshold", 3.0)),
-                simple_threshold=float(getattr(router_cfg, "simple_threshold", 0.0)),
-                classifier=classifier,
-            )
-            route = router.route(message, preference=reply_mode)
-
-        on_mode = (datainfo or {}).get("on_mode")
-        if callable(on_mode):
-            try:
-                on_mode(route.mode)
-            except Exception as exc:
-                logger.warning("on_mode callback failed: %s", exc)
-
+        generation_datainfo = dict(datainfo or {})
+        rules_snapshot = getattr(avatar_stream, "_reply_rules_snapshot", None)
+        if rules_snapshot is not None:
+            generation_datainfo["rules_snapshot"] = rules_snapshot
+        mode_callback = getattr(avatar_stream, "_reply_mode_callback", None)
+        if callable(mode_callback):
+            generation_datainfo["on_mode"] = mode_callback
+        if getattr(avatar_stream, "_incremental_board", False):
+            generation_datainfo["incremental_board"] = True
         return llm.generate_response(
             message,
             avatar_stream,
             stream_to_avatar=stream_to_avatar,
-            datainfo=datainfo,
+            datainfo=generation_datainfo,
             chunk_guard=chunk_guard,
             defer_history_commit=defer_history_commit,
-            reply_mode=route.mode,
+            reply_mode=reply_mode,
         )
         
     except Exception as e:
@@ -167,6 +122,28 @@ def get_session_board(sessionid: int):
         if callable(get_board):
             return get_board()
     return None
+
+
+def acknowledge_session_board_item(
+    sessionid: int,
+    *,
+    turn_id: str,
+    board_id: str,
+    item_index: int,
+    presenter: str,
+) -> bool:
+    """Commit one board item only after its assigned presenter rendered it."""
+    llm = _session_llm_instances.get(sessionid)
+    acknowledge = getattr(llm, "acknowledge_board_display", None)
+    if not callable(acknowledge):
+        return False
+    return bool(
+        acknowledge(
+            turn_id=turn_id,
+            board_id=board_id,
+            item_index=item_index,
+        )
+    )
 
 
 def commit_session_history(
@@ -237,6 +214,7 @@ __all__ = [
     "llm_response",
     "clear_session_history",
     "get_session_board",
+    "acknowledge_session_board_item",
     "commit_session_history",
     "remove_session",
     "switch_llm_model",

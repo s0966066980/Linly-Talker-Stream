@@ -1,6 +1,8 @@
 """設定面板寫入的執行時覆蓋，啟動時疊在主配置之上。"""
 from __future__ import annotations
 
+import os
+import tempfile
 from typing import Any, Dict
 
 import yaml
@@ -8,6 +10,7 @@ import yaml
 from src.avatars.mouth_quality import quality_from_model
 from src.utils.logging import logger
 from src.utils.paths import get_config_dir
+from src.llm.rules import rules_from_config
 
 RUNTIME_OVERRIDES_FILE = get_config_dir() / "runtime_overrides.yaml"
 
@@ -34,6 +37,7 @@ def persist_runtime_overrides(config) -> None:
             "response_max_chars": getattr(config.llm, "response_max_chars", 120),
             "system_prompt": getattr(config.llm, "system_prompt", ""),
             "extra_body": getattr(config.llm, "extra_body", {}) or {},
+            "reply_rules": rules_from_config(config),
         },
         "model": {
             "type": config.model.type,
@@ -73,9 +77,7 @@ def persist_runtime_overrides(config) -> None:
             "board_preset": str(
                 getattr(getattr(config, "stage", None), "board_preset", "tr")
             ),
-            "board_preview": bool(
-                getattr(getattr(config, "stage", None), "board_preview", False)
-            ),
+            "board_preview": False,
             "mic_x": int(getattr(getattr(config, "stage", None), "mic_x", 50)),
             "mic_y": int(getattr(getattr(config, "stage", None), "mic_y", 62)),
             "mic_preset": str(
@@ -122,7 +124,30 @@ def persist_runtime_overrides(config) -> None:
     RUNTIME_OVERRIDES_FILE.parent.mkdir(parents=True, exist_ok=True)
     header = (
         "# 由設定面板自動生成，請勿手改關鍵結構。\n"
-        "# 會在啟動時覆蓋主配置中的 llm / model / reply_streaming / vad / asr / tts。\n"
+        "# 會在啟動時覆蓋主配置中的 llm（含 reply_rules）/ model / reply_streaming / vad / asr / tts。\n"
     )
     text = yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
-    RUNTIME_OVERRIDES_FILE.write_text(header + text, encoding="utf-8")
+    # Write and replace in the same directory so a process restart sees either
+    # the previous complete file or the new complete file, never half YAML.
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=RUNTIME_OVERRIDES_FILE.parent,
+            prefix=f".{RUNTIME_OVERRIDES_FILE.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_path = handle.name
+            handle.write(header + text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, RUNTIME_OVERRIDES_FILE)
+    except Exception:
+        if temporary_path:
+            try:
+                Path(temporary_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise

@@ -7,7 +7,8 @@ const runtime = reactive({
     provider: 'ollama',
     system_prompt: '',
     response_max_chars: 120,
-    reply_mode: 'legacy'
+    reply_mode: 'legacy',
+    reply_rules: { revision: 1, activation: '', speech: '', board: '' }
   },
   stage: {
     caption_max_chars: 120,
@@ -183,6 +184,19 @@ const selectedLlm = ref('')
 const selectedSystemPrompt = ref('')
 const selectedResponseMaxChars = ref(120)
 const selectedReplyMode = ref('legacy')
+const rulesDraft = reactive({ activation: '', speech: '', board: '' })
+const rulesApplied = reactive({ revision: 1, activation: '', speech: '', board: '' })
+const rulesDefaults = reactive({ revision: 1, activation: '', speech: '', board: '' })
+const rulesLimits = reactive({ max_rule_chars: 12000, max_total_chars: 24000 })
+const rulesLoading = ref(false)
+const rulesSaving = ref(false)
+const rulesError = ref('')
+const rulesNotice = ref('')
+const rulesDirty = computed(() => JSON.stringify(rulesDraft) !== JSON.stringify({
+  activation: rulesApplied.activation,
+  speech: rulesApplied.speech,
+  board: rulesApplied.board
+}))
 const selectedStageCaptionMaxChars = ref(120)
 const selectedBoardStyle = ref('glass')
 const selectedBoardWidth = ref(252)
@@ -192,6 +206,7 @@ const selectedBoardX = ref(100)
 const selectedBoardY = ref(0)
 const selectedBoardPreset = ref('tr')
 const selectedBoardPreview = ref(false)
+const isStageConfiguring = ref(false)
 const selectedMicX = ref(50)
 const selectedMicY = ref(62)
 const selectedMicPreset = ref('custom')
@@ -599,6 +614,15 @@ async function applyMouthQuality() {
 
 function applySnapshot(data) {
   runtime.llm = data.llm
+  const snapshotRules = data.llm?.reply_rules
+  if (snapshotRules) {
+    Object.assign(rulesApplied, snapshotRules)
+    Object.assign(rulesDraft, {
+      activation: snapshotRules.activation || '',
+      speech: snapshotRules.speech || '',
+      board: snapshotRules.board || ''
+    })
+  }
   runtime.stage = {
     caption_max_chars: Number(data.stage?.caption_max_chars || 120),
     board_style: data.stage?.board_style || 'glass',
@@ -653,12 +677,69 @@ async function loadRuntimeSettings() {
   try {
     const data = await parseJson(await fetch('/api/settings'))
     applySnapshot(data)
+    await loadReplyRules()
     return data
   } catch (error) {
     settingsError.value = error.message
     throw error
   } finally {
     loadingSettings.value = false
+  }
+}
+
+async function loadReplyRules() {
+  rulesLoading.value = true
+  rulesError.value = ''
+  try {
+    const data = await parseJson(await fetch('/api/llm/rules'))
+    Object.assign(rulesApplied, data.rules || {})
+    runtime.llm.reply_rules = { ...rulesApplied }
+    Object.assign(rulesDraft, {
+      activation: data.rules?.activation || '',
+      speech: data.rules?.speech || '',
+      board: data.rules?.board || ''
+    })
+    Object.assign(rulesDefaults, data.defaults || {})
+    Object.assign(rulesLimits, data.limits || {})
+    return data
+  } catch (error) {
+    rulesError.value = error.message
+    throw error
+  } finally {
+    rulesLoading.value = false
+  }
+}
+
+function restoreDefaultRules() {
+  rulesDraft.activation = rulesDefaults.activation || ''
+  rulesDraft.speech = rulesDefaults.speech || ''
+  rulesDraft.board = rulesDefaults.board || ''
+  rulesNotice.value = '已回填預設規則，請按儲存並套用。'
+}
+
+async function applyReplyRules() {
+  if (!rulesDirty.value) return rulesApplied
+  rulesSaving.value = true
+  rulesError.value = ''
+  rulesNotice.value = ''
+  try {
+    const data = await parseJson(await fetch('/api/llm/rules', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        expected_revision: rulesApplied.revision,
+        rules: { ...rulesDraft }
+      })
+    }))
+    Object.assign(rulesApplied, data.rules || {})
+    runtime.llm.reply_rules = { ...rulesApplied }
+    rulesNotice.value = '已套用，從下一輪生效。'
+    return data
+  } catch (error) {
+    rulesError.value = error.message
+    throw error
+  } finally {
+    rulesSaving.value = false
   }
 }
 
@@ -952,6 +1033,18 @@ export function useRuntimeSettings() {
     selectedSystemPrompt,
     selectedResponseMaxChars,
     selectedReplyMode,
+    rulesDraft,
+    rulesApplied,
+    rulesDefaults,
+    rulesLimits,
+    rulesLoading,
+    rulesSaving,
+    rulesError,
+    rulesNotice,
+    rulesDirty,
+    loadReplyRules,
+    restoreDefaultRules,
+    applyReplyRules,
     selectedStageCaptionMaxChars,
     selectedBoardStyle,
     selectedBoardWidth,
@@ -961,6 +1054,7 @@ export function useRuntimeSettings() {
     selectedBoardY,
     selectedBoardPreset,
     selectedBoardPreview,
+    isStageConfiguring,
     selectedMicX,
     selectedMicY,
     selectedMicPreset,

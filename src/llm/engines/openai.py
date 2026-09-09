@@ -53,7 +53,9 @@ class OpenAILLM(BaseLLM):
         self.response_max_chars = validate_response_max_chars(
             getattr(llm_cfg, "response_max_chars", DEFAULT_RESPONSE_MAX_CHARS)
         )
-        self.max_tokens = response_token_budget(self.response_max_chars)
+        # The configurable character limit applies to speech only. A board
+        # response needs room for its JSON items and fixed protocol markers.
+        self.max_tokens = max(1024, response_token_budget(self.response_max_chars))
 
         logger.info(
             f"LLM initialized: model={self.model}, base_url={self.base_url}"

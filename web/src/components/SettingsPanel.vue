@@ -233,6 +233,40 @@
               </div>
             </div>
 
+            <div class="settings-section rules-editor" aria-labelledby="reply-rules-title">
+              <h4 id="reply-rules-title"><i class="bi bi-list-check"></i> 回覆規則（Rule）</h4>
+              <p class="section-hint">規則會交給目前選定的單一 LLM；儲存後從下一輪生效。固定輸出格式由系統管理。</p>
+              <p v-if="rulesApplied.revision" class="field-hint">目前生效版本：{{ rulesApplied.revision }}<span v-if="rulesDirty"> · 有未儲存變更</span></p>
+
+              <div v-for="field in ruleFields" :key="field.key" class="setting-item setting-item-stack">
+                <div class="setting-label">
+                  <label :for="`reply-rule-${field.key}`">{{ field.label }}</label>
+                  <span class="setting-desc">{{ field.description }}</span>
+                </div>
+                <div class="setting-control setting-control-grow">
+                  <textarea
+                    :id="`reply-rule-${field.key}`"
+                    v-model="rulesDraft[field.key]"
+                    rows="5"
+                    :maxlength="rulesLimits.max_rule_chars"
+                    :disabled="rulesLoading || rulesSaving"
+                  ></textarea>
+                  <span class="character-count">{{ rulesDraft[field.key].length }} / {{ rulesLimits.max_rule_chars }}</span>
+                </div>
+              </div>
+              <p v-if="rulesError" class="inline-error" role="alert">{{ rulesError }}</p>
+              <p v-if="rulesNotice" class="field-hint status-ok" role="status">{{ rulesNotice }}</p>
+              <div class="rules-actions">
+                <button class="btn-secondary" type="button" :disabled="rulesLoading || rulesSaving" @click="restoreDefaultRules">
+                  還原預設
+                </button>
+                <button class="btn-apply" type="button" :disabled="!rulesDirty || rulesLoading || rulesSaving" @click="handleApplyReplyRules">
+                  <i :class="rulesSaving ? 'bi bi-hourglass-split spin' : 'bi bi-check-lg'"></i>
+                  {{ rulesSaving ? '儲存中…' : '儲存並套用' }}
+                </button>
+              </div>
+            </div>
+
             <button
               class="btn-apply"
               type="button"
@@ -1576,6 +1610,16 @@ const {
   selectedSystemPrompt,
   selectedResponseMaxChars,
   selectedReplyMode,
+  rulesDraft,
+  rulesApplied,
+  rulesLimits,
+  rulesLoading,
+  rulesSaving,
+  rulesError,
+  rulesNotice,
+  rulesDirty,
+  restoreDefaultRules,
+  applyReplyRules,
   selectedStageCaptionMaxChars,
   selectedBoardStyle,
   selectedBoardWidth,
@@ -1585,6 +1629,7 @@ const {
   selectedBoardY,
   selectedBoardPreset,
   selectedBoardPreview,
+  isStageConfiguring,
   selectedMicX,
   selectedMicY,
   selectedMicPreset,
@@ -1633,6 +1678,12 @@ const {
 const isCosyVoiceFamily = computed(() => (
   ttsDraft.type === 'cosyvoice' || ttsDraft.type === 'fun-cosyvoice3'
 ))
+
+const ruleFields = [
+  { key: 'activation', label: '看板啟用規則', description: '判斷本輪使用簡答或看板；理解語意，不只比對關鍵字。' },
+  { key: 'speech', label: '口語回答規則', description: '控制數字人口語摘要與看板提示方式。' },
+  { key: 'board', label: '看板內容規則', description: '控制條列項目、細節與追問指涉方式。' }
+]
 
 const COSYVOICE_LANGUAGE_FALLBACK = [
   { id: 'zh', label: '中文' },
@@ -1844,6 +1895,15 @@ const handleApplyLlm = async () => {
   }
 }
 
+const handleApplyReplyRules = async () => {
+  try {
+    await applyReplyRules()
+    emit('notification', '回覆規則已儲存，從下一輪生效。', 'success')
+  } catch (error) {
+    emit('notification', error.message, 'error')
+  }
+}
+
 const handleApplyStage = async () => {
   try {
     await applyStageSettings()
@@ -2014,6 +2074,10 @@ watch(showSettings, (open) => {
   }
 })
 
+watch([showSettings, activeSettingsTab], ([open, tab]) => {
+  isStageConfiguring.value = Boolean(open && tab === 'stage')
+}, { immediate: true })
+
 // 監聽設定變化，自動儲存
 watch(settings, () => {
   emit('settings-changed', settings.value)
@@ -2037,6 +2101,27 @@ watch(settings, () => {
   cursor: pointer;
   transition: all 0.2s;
   font-weight: 600;
+}
+
+.rules-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.btn-secondary {
+  padding: 0.65rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .settings-trigger:hover {

@@ -83,6 +83,16 @@ test('設定面板可選擇舊有或串流回覆模式並持久化', () => {
   assert.match(settings, /runtime\.llm\.reply_mode\s*=\s*data\.reply_mode/)
 })
 
+test('設定面板提供三區可編輯 Rule 並使用版本套用 API', () => {
+  assert.match(panel, /key: 'activation'/)
+  assert.match(panel, /key: 'speech'/)
+  assert.match(panel, /key: 'board'/)
+  assert.match(panel, /儲存並套用/)
+  assert.match(settings, /fetch\('\/api\/llm\/rules'/)
+  assert.match(settings, /expected_revision:/)
+  assert.match(settings, /restoreDefaultRules/)
+})
+
 test('文字回覆由事件模式呈現而非 HTTP 完整 response', () => {
   assert.match(app, /assistant_response/)
   assert.match(app, /assistant_fragment/)

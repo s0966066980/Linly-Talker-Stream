@@ -21,7 +21,12 @@ import soundfile as sf
 from av.audio.resampler import AudioResampler
 
 from src.asr.factory import get_asr_engine
-from src.llm.service import commit_session_history, llm_response
+from src.llm.service import (
+    acknowledge_session_board_item,
+    commit_session_history,
+    llm_response,
+)
+from src.llm.rules import snapshot_from_config
 from src.server.reply_streaming.circuit_breaker import ReplyCircuitBreaker
 from src.server.reply_streaming.metrics import TurnMetrics
 from src.server.reply_streaming.turn import TurnContext, TurnEnvelope, TurnState
@@ -43,10 +48,12 @@ class VoiceTurnSession:
         avatar,
         *,
         clock: Callable[[], float] = time.monotonic,
+        presenter: str = "console",
     ) -> None:
         self.sessionid = sessionid
         self.config = config
         self.avatar = avatar
+        self._presenter = presenter if presenter in {"console", "stage"} else "console"
         self._event_sink: Optional[EventSink] = None
         self._sequence = 0
         self._turn_id: Optional[str] = None
@@ -66,6 +73,7 @@ class VoiceTurnSession:
         self._metrics_clock = clock
         self._metrics: Optional[TurnMetrics] = None
         self._turn_context: Optional[TurnContext] = None
+        self._rules_snapshot = None
         self._circuit_breaker = ReplyCircuitBreaker(clock=clock)
         self._pipeline_mode = "legacy"
         self._fragment_lock = RLock()
@@ -75,6 +83,7 @@ class VoiceTurnSession:
         self._played_fragments: list[str] = []
         self._history_finalized_turns: set[str] = set()
         self._metrics_emitted_turns: set[str] = set()
+        self._board_display_receipts: set[tuple[str, str, int, str]] = set()
         self._llm_finished = False
         self._media_player = None
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -200,6 +209,30 @@ class VoiceTurnSession:
             self._refresh_gate()
         elif kind == "interrupt":
             asyncio.create_task(self.interrupt())
+        elif kind == "board_displayed":
+            turn_id = str(message.get("turn_id") or "")
+            board_id = str(message.get("board_id") or "")
+            presenter = str(message.get("presenter") or "")
+            item_index = message.get("item_index")
+            if presenter != self._presenter or not turn_id or board_id != turn_id:
+                return
+            if isinstance(item_index, bool):
+                return
+            try:
+                item_index = int(item_index)
+            except (TypeError, ValueError):
+                return
+            receipt_key = (turn_id, board_id, item_index, presenter)
+            if receipt_key in self._board_display_receipts:
+                return
+            if acknowledge_session_board_item(
+                self.sessionid,
+                turn_id=turn_id,
+                board_id=board_id,
+                item_index=item_index,
+                presenter=presenter,
+            ):
+                self._board_display_receipts.add(receipt_key)
 
     def start_track(self, track) -> None:
         if self._track_task:
@@ -407,29 +440,6 @@ class VoiceTurnSession:
         self.mark_stage_start("llm_total")
         self.mark_stage_start("first_fragment")
 
-        # Determine and emit response mode before streaming chunks
-        mode_str = "simple"
-        reply_mode = None
-        try:
-            from src.llm.router import ReplyRouter, ReplyMode
-            llm_cfg = getattr(self.config, "llm", None)
-            router_cfg = getattr(llm_cfg, "response_router", None) if llm_cfg else None
-            if router_cfg and getattr(router_cfg, "enabled", True):
-                r_router = ReplyRouter(
-                    enabled=True,
-                    rule_first=getattr(router_cfg, "rule_first", True),
-                    llm_fallback=False,
-                    board_threshold=float(getattr(router_cfg, "board_threshold", 3.0)),
-                    simple_threshold=float(getattr(router_cfg, "simple_threshold", 0.0)),
-                )
-                route = r_router.route(text)
-                reply_mode = route.mode
-                mode_str = route.mode.value
-        except Exception:
-            pass
-
-        self._emit("assistant_response_mode", turn_id=turn_id, mode=mode_str)
-
         kwargs = {
             "stream_to_avatar": self._pipeline_mode == "streaming",
             "datainfo": {
@@ -438,6 +448,14 @@ class VoiceTurnSession:
                 "on_board": self._on_board_event,
             },
         }
+        # Keep the immutable snapshot on the session/avatar seam so legacy
+        # test doubles and TTS metadata do not receive internal rule text.
+        try:
+            self.avatar._reply_rules_snapshot = self._rules_snapshot
+            self.avatar._reply_mode_callback = lambda mode: self._on_mode_event(turn_id, mode)
+            self.avatar._incremental_board = True
+        except Exception:
+            pass
         if self._pipeline_mode == "streaming":
             kwargs.update(
                 {
@@ -450,10 +468,7 @@ class VoiceTurnSession:
             )
 
         def _call_llm():
-            try:
-                return llm_response(text, self.avatar, reply_mode=reply_mode, **kwargs)
-            except TypeError:
-                return llm_response(text, self.avatar, **kwargs)
+            return llm_response(text, self.avatar, **kwargs)
 
         response = await loop.run_in_executor(None, _call_llm)
         self.mark_stage_end("llm_total")
@@ -1027,6 +1042,9 @@ class VoiceTurnSession:
                 turn_id=turn_id,
                 generation=self._generation,
             )
+            # Capture once at turn acceptance. A later control-panel save only
+            # affects the next turn, even while this one is still generating.
+            self._rules_snapshot = snapshot_from_config(self.config)
             enabled = bool(
                 getattr(getattr(self.config, "reply_streaming", None), "enabled", False)
             )
@@ -1108,14 +1126,36 @@ class VoiceTurnSession:
     def _on_board_event(self, payload: dict) -> None:
         if not isinstance(payload, dict):
             return
+        payload_turn = payload.get("turn_id") or self._turn_id
+        if not payload_turn or not self._is_current(str(payload_turn), self._generation):
+            return
         loop = self._event_loop
         if loop is not None and not loop.is_closed():
             loop.call_soon_threadsafe(self._dispatch_board_event, payload)
         else:
             self._dispatch_board_event(payload)
 
+    def _on_mode_event(self, turn_id: str, mode) -> None:
+        """Forward parser-confirmed mode from the worker thread safely."""
+        if not self._is_current(str(turn_id), self._generation):
+            return
+        value = getattr(mode, "value", str(mode))
+        loop = self._event_loop
+        if loop is not None and not loop.is_closed():
+            loop.call_soon_threadsafe(
+                partial(
+                    self._emit,
+                    "assistant_response_mode",
+                    turn_id=turn_id,
+                    mode=value,
+                )
+            )
+        else:
+            self._emit("assistant_response_mode", turn_id=turn_id, mode=value)
+
     def _dispatch_board_event(self, payload: dict) -> None:
         turn_id = payload.get("turn_id") or self._turn_id
+        board_id = str(payload.get("board_id") or turn_id or "")
         if "items" in payload:
             items = payload.get("items") or []
             board_obj = {
@@ -1123,34 +1163,54 @@ class VoiceTurnSession:
                 "summary": payload.get("summary"),
                 "items": items,
             }
-            self._emit("assistant_board", turn_id=turn_id, board=board_obj)
-            self._emit("board_begin", turn_id=turn_id, title=board_obj["title"])
+            self._emit(
+                "assistant_board",
+                turn_id=turn_id,
+                board_id=board_id,
+                board=board_obj,
+            )
+            if payload.get("incremental"):
+                self._emit("board_end", turn_id=turn_id, board_id=board_id)
+                return
+            self._emit(
+                "board_begin",
+                turn_id=turn_id,
+                board_id=board_id,
+                title=board_obj["title"],
+            )
             for idx, item in enumerate(items):
                 self._emit(
                     "board_item",
                     turn_id=turn_id,
+                    board_id=board_id,
                     index=idx,
                     title=str(item.get("title") or ""),
                     body=str(item.get("content") or item.get("body") or ""),
                 )
-            self._emit("board_end", turn_id=turn_id)
+            self._emit("board_end", turn_id=turn_id, board_id=board_id)
             return
 
         kind = str(payload.get("kind") or "")
         if kind == "begin":
-            self._emit("board_begin", turn_id=turn_id, title=str(payload.get("title") or ""))
+            self._emit(
+                "board_begin",
+                turn_id=turn_id,
+                board_id=board_id,
+                title=str(payload.get("title") or ""),
+            )
             return
         if kind == "item":
             self._emit(
                 "board_item",
                 turn_id=turn_id,
+                board_id=board_id,
                 index=int(payload.get("index") or 0),
                 title=str(payload.get("title") or ""),
                 body=str(payload.get("body") or ""),
             )
             return
         if kind == "end":
-            self._emit("board_end", turn_id=turn_id)
+            self._emit("board_end", turn_id=turn_id, board_id=board_id)
 
     def _emit(self, event_type: str, *, turn_id: Optional[str] = None, **payload) -> None:
         if self._event_sink is None:

@@ -417,6 +417,21 @@ import {
   };
   const micLayout={x:50, y:62, preset:'custom'};
   const liveBoard={title:'', items:[], hidden:false, turnId:null};
+  const displayedBoardReceipts=new Set();
+
+  function acknowledgeBoardDisplay(ev, itemIndex){
+    const turnId=String(ev.turn_id||'');
+    const boardId=String(ev.board_id||turnId);
+    if(!turnId || boardId!==turnId || !Number.isInteger(itemIndex) || itemIndex<0) return;
+    const receiptKey=`${turnId}:${boardId}:${itemIndex}`;
+    if(displayedBoardReceipts.has(receiptKey)) return;
+    requestAnimationFrame(()=>{
+      if(displayedBoardReceipts.has(receiptKey)) return;
+      if(send({type:'board_displayed', turn_id:turnId, board_id:boardId, item_index:itemIndex, presenter:'stage'})){
+        displayedBoardReceipts.add(receiptKey);
+      }
+    });
+  }
 
   function displayBoard(){
     if(liveBoard.items.length){
@@ -660,7 +675,9 @@ import {
       liveBoard.title=ev.board.title||'';
       liveBoard.items=Array.isArray(ev.board.items)?ev.board.items:[];
       liveBoard.hidden=false;
-      renderBoardItems(); applyBoardLayout(); return;
+      renderBoardItems(); applyBoardLayout();
+      liveBoard.items.forEach((_item,index)=>acknowledgeBoardDisplay(ev,index));
+      return;
     }
     if(ev.type === 'board_begin'){
       liveBoard.turnId=ev.turn_id||null;
@@ -671,7 +688,7 @@ import {
     }
     if(ev.type === 'board_item'){
       liveBoard.items.push({title:ev.title||'', body:ev.body||''});
-      renderBoardItems(); applyBoardLayout(); return;
+      renderBoardItems(); applyBoardLayout(); acknowledgeBoardDisplay(ev, Number(ev.index)); return;
     }
     if(ev.type === 'board_end'){ applyBoardLayout(); return; }
     if(ev.type === 'assistant_fragment' && ev.text){

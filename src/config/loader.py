@@ -9,7 +9,7 @@ from .schema import (
     Config, AppConfig, ModelConfig, TTSConfig, ASRConfig, VADConfig, LLMConfig,
     AudioConfig, VideoConfig, CustomVideoConfig, ERNeRfConfig, TalkingGaussianConfig,
     MuseTalkQualityConfig, Wav2LipQualityConfig, ReplyStreamingConfig, StageConfig,
-    ResponseRouterConfig, BoardConfig,
+    ResponseRouterConfig, BoardConfig, ReplyRulesConfig,
 )
 
 
@@ -120,6 +120,12 @@ def dict_to_config(config_dict: Dict) -> Config:
         allowed_board = {item.name for item in fields(BoardConfig)}
         llm_dict['board'] = BoardConfig(
             **{k: v for k, v in board_val.items() if k in allowed_board}
+        )
+    rules_val = llm_dict.get('reply_rules')
+    if isinstance(rules_val, dict):
+        allowed_rules = {item.name for item in fields(ReplyRulesConfig)}
+        llm_dict['reply_rules'] = ReplyRulesConfig(
+            **{k: v for k, v in rules_val.items() if k in allowed_rules}
         )
     llm_config = LLMConfig(**llm_dict)
     audio_config = AudioConfig(**config_dict.get('audio', {}))

@@ -16,6 +16,7 @@ from src.llm.response_protocol import (
     ResponseProtocolParser,
     SessionBoardContext,
 )
+from src.llm.rules import snapshot_from_config
 from src.llm.router import ReplyMode
 from src.server.reply_streaming.fragmenter import SemanticFragmenter
 from src.utils.logging import logger
@@ -129,6 +130,8 @@ class BaseLLM(ABC):
         self.parent = parent
         self.system_prompt = self._load_system_prompt()
         self._last_board: Optional[SessionBoardContext] = None
+        self._pending_boards: dict[str, SessionBoardContext] = {}
+        self._pending_board_receipts: dict[str, set[int]] = {}
     
     def _load_system_prompt(self) -> str:
         return load_system_prompt(self.config)
@@ -140,6 +143,45 @@ class BaseLLM(ABC):
     def set_last_board(self, board: Optional[SessionBoardContext]) -> None:
         """Store the most recent board context."""
         self._last_board = board
+        if board is None:
+            self._pending_boards.clear()
+            self._pending_board_receipts.clear()
+
+    def queue_board_for_display(self, board: SessionBoardContext) -> None:
+        """Retain generated board content until a presenter confirms rendering it."""
+        self._pending_boards[board.turn_id] = board
+        self._publish_displayed_board(board.turn_id)
+
+    def acknowledge_board_display(
+        self,
+        *,
+        turn_id: str,
+        board_id: str,
+        item_index: int,
+    ) -> bool:
+        """Record one renderer receipt; only receipts become follow-up context."""
+        if not turn_id or board_id != turn_id or item_index < 0:
+            return False
+        self._pending_board_receipts.setdefault(turn_id, set()).add(item_index)
+        self._publish_displayed_board(turn_id)
+        return True
+
+    def _publish_displayed_board(self, turn_id: str) -> None:
+        pending = self._pending_boards.get(turn_id)
+        if pending is None:
+            return
+        received = self._pending_board_receipts.get(turn_id, set())
+        displayed = [
+            item for index, item in enumerate(pending.items) if index in received
+        ]
+        if not displayed:
+            return
+        self._last_board = SessionBoardContext(
+            turn_id=pending.turn_id,
+            title=pending.title,
+            summary=pending.summary,
+            items=displayed,
+        )
     
     @abstractmethod
     def chat_stream(self, message: str, system_prompt: Optional[str] = None) -> Generator[str, None, None]:
@@ -164,11 +206,16 @@ class BaseLLM(ABC):
             if isinstance(reply_mode, ReplyMode)
             else str(reply_mode or "").lower()
         )
-        norm_mode = (
-            ReplyMode.BOARD
-            if (reply_mode == ReplyMode.BOARD or pref_str in ("board", "replymode.board"))
-            else ReplyMode.SIMPLE
-        )
+        if reply_mode == ReplyMode.BOARD or pref_str in ("board", "replymode.board"):
+            norm_mode = ReplyMode.BOARD
+        elif (
+            reply_mode == ReplyMode.SIMPLE
+            or pref_str in ("simple", "replymode.simple")
+            or (reply_mode is None and not callable((datainfo or {}).get("on_mode")))
+        ):
+            norm_mode = ReplyMode.SIMPLE
+        else:
+            norm_mode = ReplyMode.AUTO
 
         max_items = 8
         llm_cfg = getattr(self.config, "llm", None) if self.config is not None else None
@@ -178,10 +225,15 @@ class BaseLLM(ABC):
                 max_items = int(board_cfg.max_items)
 
         resp_chars = getattr(self, "response_max_chars", None)
+        rules_snapshot = (datainfo or {}).get("rules_snapshot")
+        if rules_snapshot is None:
+            rules_snapshot = snapshot_from_config(self.config)
         composed_system_prompt = compose_system_prompt(
             self.system_prompt,
             reply_mode=norm_mode,
             response_max_chars=resp_chars,
+            rules=rules_snapshot,
+            displayed_board=self.get_last_board(),
         )
 
         semantic_stream = bool(
@@ -235,12 +287,37 @@ class BaseLLM(ABC):
         
         target_avatar = (avatar_stream or self.parent) if stream_to_avatar else None
         fragment_sequence = 0
-        parser = ResponseProtocolParser(mode=norm_mode, max_items=max_items)
+        on_mode = (datainfo or {}).get("on_mode")
+        on_board = (datainfo or {}).get("on_board")
+        incremental_board = bool((datainfo or {}).get("incremental_board"))
+        incremental_started = False
+
+        def emit_board_item(index: int, item: BoardItem) -> None:
+            nonlocal incremental_started
+            if not callable(on_board) or fenced:
+                return
+            if not incremental_started:
+                on_board({"kind": "begin", "title": "看板回覆", "turn_id": turn_id})
+                incremental_started = True
+            on_board({
+                "kind": "item",
+                "index": index,
+                "title": item.title,
+                "body": item.content,
+                "turn_id": turn_id,
+            })
+
+        parser = ResponseProtocolParser(
+            mode=norm_mode,
+            max_items=max_items,
+            on_mode=on_mode if callable(on_mode) else None,
+            on_board_item=emit_board_item if incremental_board else None,
+        )
+        if norm_mode != ReplyMode.AUTO and callable(on_mode):
+            on_mode(norm_mode)
         legacy_splitter = AnswerBoardSplitter()
         is_legacy_markup = False
         spoken_response = ""
-        on_board = (datainfo or {}).get("on_board")
-        
         def send_to_avatar(text: str) -> None:
             nonlocal fragment_sequence, spoken_response
             if not text:
@@ -250,6 +327,8 @@ class BaseLLM(ABC):
                 fragment_info = dict(datainfo or {})
                 fragment_info.pop("on_board", None)
                 fragment_info.pop("on_mode", None)
+                fragment_info.pop("rules_snapshot", None)
+                fragment_info.pop("incremental_board", None)
                 if (
                     fragment_info.get("turn_id")
                     and fragment_info.get("generation") is not None
@@ -270,13 +349,15 @@ class BaseLLM(ABC):
             if isinstance(payload, BoardPayload):
                 board_dict = payload.to_dict()
                 board_dict["turn_id"] = turn_id
+                if incremental_started:
+                    board_dict["incremental"] = True
                 on_board(board_dict)
-                self._last_board = SessionBoardContext(
+                self.queue_board_for_display(SessionBoardContext(
                     turn_id=turn_id,
                     title=payload.title,
                     summary=payload.summary,
                     items=payload.items,
-                )
+                ))
             else:
                 on_board({"kind": "begin", "title": payload.title, "turn_id": turn_id})
                 for index, item in enumerate(payload.items):

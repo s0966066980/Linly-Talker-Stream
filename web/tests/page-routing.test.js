@@ -88,6 +88,13 @@ test('舞台讀取控制台套用的看板視窗樣式', () => {
   assert.match(stage, /placeStageBoard/)
 })
 
+test('控制台與舞台在看板項目完成渲染後回傳一次顯示收據', () => {
+  assert.match(consoleWebRTC, /board_displayed/)
+  assert.match(consoleWebRTC, /presenter:\s*'console'/)
+  assert.match(stage, /board_displayed/)
+  assert.match(stage, /presenter:'stage'/)
+})
+
 test('控制台不會把舊模式完整回覆與播放提交片段重複顯示', () => {
   const app = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
   assert.doesNotMatch(app, /event\.type === 'assistant_text'/)

@@ -22,6 +22,7 @@ class ReplyMode(str, Enum):
     SIMPLE = "simple"
     BOARD = "board"
     AMBIGUOUS = "ambiguous"  # Internal router state only; never sent to frontend
+    AUTO = "auto"  # The single answer generation chooses the mode.
 
 
 class ReplyModePreference(str, Enum):

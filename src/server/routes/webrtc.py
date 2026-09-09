@@ -76,7 +76,12 @@ async def offer(request):
     )
     state.add_session(sessionid, avatar_stream, role=client_role)
 
-    voice_session = VoiceTurnSession(sessionid, state.config, avatar_stream)
+    voice_session = VoiceTurnSession(
+        sessionid,
+        state.config,
+        avatar_stream,
+        presenter=client_role,
+    )
     state.voice_sessions[sessionid] = voice_session
     # This is intentionally before "listening": Silero and STT failures degrade
     # the session to text without ever opening the microphone gate.

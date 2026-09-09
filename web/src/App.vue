@@ -424,17 +424,63 @@ marked.setOptions({
 })
 
 const { t, setLocale, loadLocale } = useI18n()
-const { vad, vadDraft, loadVadSettings, applyVadSettings, runtime } = useRuntimeSettings()
+const { vad, vadDraft, loadVadSettings, applyVadSettings, runtime, isStageConfiguring, selectedBoardPreview } = useRuntimeSettings()
 const handsFreeTalk = computed(() => Boolean(vad.enabled))
+
+// 對話文字清理函式：過濾協定標記與 JSON 格式，避免 [speech 等符號洩漏到介面
+const sanitizeChatText = (text) => {
+  if (!text) return ''
+  let clean = String(text)
+  // Strip tool-call tags and reasoning
+  clean = clean.replace(/<\|tool_call_start\|>[\s\S]*?<\|tool_call_end\|>/g, '')
+  clean = clean.replace(/<\|tool_call_start\|>[\s\S]*/g, '')
+  clean = clean.replace(/<\|tool_call_end\|>/g, '')
+  clean = clean.replace(/\[(?:BOARD|think|thought|speech)\([\s\S]*?\)?\]/g, '')
+
+  // Strip mode markers
+  clean = clean.replace(/\[{1,2}\s*MODE:\s*(?:SIMPLE|BOARD)\s*\]{1,2}/gi, '')
+  clean = clean.replace(/模式\s*[:：]\s*(?:簡答|看板)/g, '')
+
+  // Strip speech markers
+  clean = clean.replace(/\[{1,2}\s*\/?\s*(?:SPEECH|speech)(?::\s*)?\]{1,2}/gi, '')
+  clean = clean.replace(/\[{1,2}\s*(?:SPEECH|speech)\s*:\s*/gi, '')
+  clean = clean.replace(/(?:^|[\r\n]+)\s*SPEECH\s*:\s*/gi, '\n')
+  clean = clean.replace(/(?:^|[\r\n]+)\s*口語\s*[:：]\s*/g, '\n')
+
+  // Strip board markers
+  clean = clean.replace(/\[{1,2}\s*\/?\s*BOARD(?:_JSON)?(?::\s*)?\]{1,2}/gi, '')
+  clean = clean.replace(/\[{1,2}\s*BOARD(?:_JSON)?\s*:\s*/gi, '')
+  clean = clean.replace(/(?:^|[\r\n]+)\s*BOARD(?:_JSON)?\s*:\s*/gi, '\n')
+  clean = clean.replace(/看板(?:資料)?\s*[:：]/g, '')
+  clean = clean.replace(/資料\s*[:：]/g, '')
+
+  // Strip end markers
+  clean = clean.replace(/\[{1,2}\s*\/?\s*END\s*\]{1,2}/gi, '')
+
+  // Cut off before raw JSON or markdown JSON fence
+  const jsonMatch = clean.match(/(?:```(?:json)?\s*)?[\r\n]+\s*\{(?:\s*"title"|\s*"items"|\s*"summary")/i)
+  if (jsonMatch && jsonMatch.index !== undefined) {
+    clean = clean.slice(0, jsonMatch.index)
+  }
+
+  // Strip trailing unclosed bracket if [speech: was stripped
+  if (clean.endsWith(']') && clean.split(']').length > clean.split('[').length) {
+    clean = clean.slice(0, -1)
+  }
+
+  return clean.trim()
+}
 
 // Markdown 渲染函式
 const renderMarkdown = (text) => {
   if (!text) return ''
+  const clean = sanitizeChatText(text)
+  if (!clean) return ''
   try {
-    return marked.parse(text)
+    return marked.parse(clean)
   } catch (error) {
     console.error('Markdown 解析錯誤:', error)
-    return text
+    return clean
   }
 }
 
@@ -453,16 +499,63 @@ const messagesRef = ref(null)
 const notifications = ref([])
 let notificationIdCounter = 0
 const lastRecordFile = ref(null)  // 最後一次錄製的檔案資訊
+
+// 快速指令選單狀態
+const showQuickCommands = ref(false)
+const quickCommands = [
+  '你好，請介紹一下自己',
+  '請用看板列出三個健康飲食原則',
+  '今天天氣如何？',
+  '講一個有趣的笑話',
+  '如何學習程式設計？'
+]
+
+// 插入快速指令
+const insertQuickCommand = (cmd) => {
+  chatInput.value = cmd
+  showQuickCommands.value = false
+  // 自動聚焦輸入框
+  nextTick(() => {
+    const textarea = document.querySelector('.textarea-wrapper textarea')
+    if (textarea) textarea.focus()
+  })
+}
+
+// 點擊外部關閉快速指令選單
+const closeQuickCommandsOnOutsideClick = (e) => {
+  if (showQuickCommands.value && !e.target.closest('.quick-commands-menu') && !e.target.closest('.btn-quick-cmd')) {
+    showQuickCommands.value = false
+  }
+}
+
+function askPreset(query) {
+  chatInput.value = query
+  sendChatMessage()
+}
 const backendReady = ref(false)  // 後端是否就緒
 const modelReady = ref(false)    // 是否已套用數字人引擎
 const stageBoard = reactive({ title: '', items: [], hidden: false })
+const showTestPanel = ref(false)
+const currentResponseMode = ref('')
+const testPresets = [
+  { mode: 'board', label: '分析台灣歷史', query: '請分析台灣的歷史。' },
+  { mode: 'board', label: '安裝部署步驟', query: '請列出系統安裝與部署的關鍵步驟' },
+  { mode: 'board', label: '方案優缺點比較', query: '比較方案 A 與方案 B 的優缺點' },
+  { mode: 'simple', label: '日常問候', query: '你好！很高興認識你。' },
+  { mode: 'simple', label: '今天是幾月幾號', query: '今天是幾月幾號？' },
+  { mode: 'simple', label: '簡短自我介紹', query: '請用一句話簡短介紹你自己。' }
+]
+const runTestQuery = (query) => {
+  chatInput.value = query
+  sendChatMessage()
+}
 const videoWrapperRef = ref(null)
 const videoSizeBox = reactive({ w: 400, h: 400 })
 const visibleBoard = computed(() => {
   if (stageBoard.items.length) {
     return { title: stageBoard.title, items: stageBoard.items, preview: false }
   }
-  if (runtime.stage?.board_preview) {
+  if (isStageConfiguring.value && (selectedBoardPreview.value || runtime.stage?.board_preview)) {
     return { title: STAGE_BOARD_PREVIEW_TITLE, items: STAGE_BOARD_PREVIEW_ITEMS, preview: true }
   }
   return { title: '', items: [], preview: false }
@@ -703,22 +796,27 @@ const handleVoiceEvent = (event) => {
     ) {
       lastMessage.time = getCurrentTime()
     }
+  } else if (event.type === 'assistant_response_mode') {
+    currentResponseMode.value = event.mode || ''
   } else if (event.type === 'board_clear') {
     stageBoard.title = ''
     stageBoard.items = []
     stageBoard.hidden = false
+    currentResponseMode.value = ''
   } else if (event.type === 'assistant_board' && event.board) {
     stageBoard.title = event.board.title || ''
     stageBoard.items = Array.isArray(event.board.items)
       ? event.board.items.map(it => ({ title: it.title || '', body: it.body || '' }))
       : []
     stageBoard.hidden = false
+    acknowledgeRenderedBoardItems(event, stageBoard.items.length)
   } else if (event.type === 'board_begin') {
     stageBoard.title = event.title || ''
     stageBoard.items = []
     stageBoard.hidden = false
   } else if (event.type === 'board_item') {
     stageBoard.items.push({ title: event.title || '', body: event.body || '' })
+    acknowledgeRenderedBoardItems(event, 1, Number(event.index))
   } else if (event.type === 'assistant_fragment' && event.text) {
     isThinking.value = false
     const lastMessage = chatMessages.value[chatMessages.value.length - 1]
@@ -744,7 +842,13 @@ const handleVoiceEvent = (event) => {
   }
 }
 
-const { startPlay, stopPlay, setCaptureEnabled, interruptVoice } = useWebRTC({
+const {
+  startPlay,
+  stopPlay,
+  setCaptureEnabled,
+  interruptVoice,
+  acknowledgeBoardDisplay,
+} = useWebRTC({
   onNotification: showNotification,
   onVoiceEvent: handleVoiceEvent,
   onSessionId: (id) => {
@@ -757,6 +861,20 @@ const { startPlay, stopPlay, setCaptureEnabled, interruptVoice } = useWebRTC({
     if (state === 'text_only') voiceState.value = 'degraded'
   }
 })
+
+function acknowledgeRenderedBoardItems(event, count, onlyIndex = null) {
+  const turnId = event.turn_id || ''
+  const boardId = event.board_id || turnId
+  if (!turnId || boardId !== turnId) return
+  nextTick(() => {
+    const indices = Number.isInteger(onlyIndex)
+      ? [onlyIndex]
+      : Array.from({ length: count }, (_item, index) => index)
+    indices.forEach((itemIndex) => {
+      acknowledgeBoardDisplay({ turnId, boardId, itemIndex })
+    })
+  })
+}
 
 // 設定變更處理
 const onSettingsChanged = (newSettings) => {
