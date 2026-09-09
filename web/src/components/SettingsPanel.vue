@@ -1,136 +1,118 @@
 <template>
-  <div class="settings-wrapper">
-    <!-- 設定按鈕 -->
-    <button class="settings-trigger" @click="toggleSettings" :class="{ active: showSettings }">
-      <i class="bi bi-gear-fill"></i>
-      <span>{{ t('settings.title') }}</span>
-    </button>
+  <div class="settings-page-layout" id="settings-page-layout">
 
-    <!-- 設定面板 -->
-    <transition name="slide-fade">
-      <div v-if="showSettings" class="settings-panel" role="dialog" aria-modal="true" :aria-label="t('settings.systemSettings')">
-        <div class="settings-header">
-          <h3><i class="bi bi-sliders"></i> {{ t('settings.systemSettings') }}</h3>
-          <button class="close-btn" @click="showSettings = false" :aria-label="t('settings.close')">
-            <i class="bi bi-x-lg"></i>
-          </button>
+    <!-- 左側類別導覽軌 (Fixed Left Rail) -->
+    <aside class="settings-sidebar-rail">
+      <div class="rail-header">
+        <div class="rail-title">
+          <i class="bi bi-sliders2" style="color: var(--brand-light);"></i>
+          <span>{{ t('settings.systemSettings') }}</span>
+        </div>
+        <div class="rail-desc">滿板雙欄視覺架構 · 所有選項一目了然</div>
+      </div>
+      <nav class="rail-nav-list" role="tablist" :aria-label="t('settings.tabs.label')">
+        <button
+          v-for="(tab, index) in settingsTabs"
+          :key="tab.id"
+          :id="`railTab-${tab.id}`"
+          type="button"
+          class="rail-nav-item"
+          role="tab"
+          :class="{ active: activeSettingsTab === tab.id }"
+          :aria-selected="activeSettingsTab === tab.id"
+          :aria-controls="`settings-panel-${tab.id}`"
+          :tabindex="activeSettingsTab === tab.id ? 0 : -1"
+          @click="selectSettingsTab(tab.id)"
+          @keydown="handleTabKeydown($event, index)"
+        >
+          <div class="rail-item-left">
+            <i :class="tab.icon"></i>
+            <span>{{ tab.label }}</span>
+          </div>
+          <span class="rail-item-badge" v-if="tab.badge">{{ tab.badge }}</span>
+        </button>
+      </nav>
+    </aside>
+
+    <!-- ★ 右側主設定空間：100% 滿板自適應，無任何 1100px 截斷！ -->
+    <main class="settings-main-container">
+      <div class="settings-content-scroll" ref="settingsContentRef">
+
+        <div v-if="loadingSettings" class="runtime-state-banner" role="status">
+          <i class="bi bi-arrow-repeat spin" aria-hidden="true"></i>
+          <span>正在載入目前 Prompt、數位人與執行設定…</span>
+        </div>
+        <div v-else-if="settingsError" class="runtime-state-banner error" role="alert">
+          <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+          <span>無法讀取目前設定：{{ settingsError }}</span>
+          <button type="button" class="btn-retry" @click="loadRuntimePanel">重新載入</button>
         </div>
 
-        <nav class="settings-tabs" role="tablist" :aria-label="t('settings.tabs.label')">
-          <button
-            v-for="(tab, index) in settingsTabs"
-            :id="`settings-tab-${tab.id}`"
-            :key="tab.id"
-            type="button"
-            class="settings-tab"
-            role="tab"
-            :class="{ active: activeSettingsTab === tab.id }"
-            :aria-selected="activeSettingsTab === tab.id"
-            :aria-controls="`settings-panel-${tab.id}`"
-            :tabindex="activeSettingsTab === tab.id ? 0 : -1"
-            @click="selectSettingsTab(tab.id)"
-            @keydown="handleTabKeydown($event, index)"
-          >
-            <i :class="tab.icon" aria-hidden="true"></i>
-            <span>{{ tab.label }}</span>
-          </button>
-        </nav>
-
-        <div ref="settingsContentRef" class="settings-content">
-          <div class="runtime-summary" v-if="runtime.llm.model || runtime.avatar.type">
-            <span class="summary-chip" :title="t('settings.llm.title')">
-              <i class="bi bi-cpu"></i>
-              {{ runtime.llm.model || t('settings.llm.unknown') }}
-            </span>
-            <span class="summary-chip" :title="t('settings.avatar.engineTitle')">
-              <i class="bi bi-layers"></i>
-              {{ currentEngineLabel }}
-            </span>
-            <span class="summary-chip" :title="t('settings.avatar.characterTitle')">
-              <i class="bi bi-person-bounding-box"></i>
-              {{ runtime.avatar.avatar_id || t('settings.avatar.noCharacter') }}
-            </span>
-            <span class="summary-chip" :title="t('settings.vad.title')">
-              <i class="bi bi-soundwave"></i>
-              {{ currentVadLabel }}
-            </span>
-          </div>
-
-          <section
-            v-show="activeSettingsTab === 'ai'"
-            id="settings-panel-ai"
-            class="settings-tab-panel"
-            role="tabpanel"
-            aria-labelledby="settings-tab-ai"
-            tabindex="0"
-          >
-            <!-- 對話模型：Ollama / llama.cpp -->
-            <div class="settings-section">
-            <h4><i class="bi bi-cpu"></i> {{ t('settings.llm.title') }}</h4>
-            <p class="section-hint">{{ t('settings.llm.providerDesc') }}</p>
-
-            <div class="engine-grid" role="listbox" :aria-label="t('settings.llm.provider')">
+        <!-- ── 分類 1：AI 模型與對話規則 (滿板雙欄 Bento 佈局) ── -->
+        <div
+          v-show="activeSettingsTab === 'ai'"
+          class="settings-category-panel"
+          id="catPanel-ai"
+          role="tabpanel"
+          aria-labelledby="railTab-ai"
+        >
+          <!-- 左欄：推論後端與即時參數 -->
+          <section class="setting-card">
+            <div class="card-title-row">
+              <div>
+                <div class="card-title-text"><i class="bi bi-cpu-fill"></i> {{ t('settings.llm.title') }}</div>
+                <div class="card-subtitle-desc">{{ t('settings.llm.providerDesc') }}</div>
+              </div>
               <button
                 type="button"
-                class="engine-card"
+                class="btn-apply-primary"
+                style="padding: 6px 14px; font-size: 12px;"
+                :disabled="applyingLlm"
+                @click="handleApplyLlm"
+              >
+                <i class="bi bi-check2" :class="{ spin: applyingLlm }"></i> 套用模型
+              </button>
+            </div>
+
+            <div class="grid-options-row" role="listbox" :aria-label="t('settings.llm.provider')">
+              <div
+                class="option-card-btn"
+                :class="{ selected: selectedProvider === 'ollama' }"
                 role="option"
                 :aria-selected="selectedProvider === 'ollama'"
-                :class="{ selected: selectedProvider === 'ollama', current: runtime.llm.provider === 'ollama' }"
-                :disabled="applyingLlm"
                 @click="selectProvider('ollama')"
               >
-                <span class="card-title">Ollama</span>
-                <span class="card-desc">{{ t('settings.llm.ollamaDesc') }}</span>
-                <span class="card-status" v-if="runtime.llm.provider === 'ollama'">{{ t('settings.avatar.inUse') }}</span>
-              </button>
-              <button
-                type="button"
-                class="engine-card"
+                <div class="opt-header-line">
+                  <span class="opt-title">Ollama</span>
+                  <span class="opt-badge" v-if="runtime.llm.provider === 'ollama'">使用中</span>
+                </div>
+                <span class="opt-detail">連接本機 Ollama 服務 ({{ activeLlmBackend.base_url || 'http://127.0.0.1:11434' }})</span>
+              </div>
+              <div
+                class="option-card-btn"
+                :class="{ selected: selectedProvider === 'llamacpp' }"
                 role="option"
                 :aria-selected="selectedProvider === 'llamacpp'"
-                :class="{ selected: selectedProvider === 'llamacpp', current: runtime.llm.provider === 'llamacpp' }"
-                :disabled="applyingLlm"
                 @click="selectProvider('llamacpp')"
               >
-                <span class="card-title">llama.cpp</span>
-                <span class="card-desc">{{ t('settings.llm.llamacppDesc') }}</span>
-                <span class="card-status" v-if="runtime.llm.provider === 'llamacpp'">{{ t('settings.avatar.inUse') }}</span>
-              </button>
-            </div>
-
-            <div class="setting-item info-banner" :class="{ 'status-ok': activeLlmBackend.reachable, 'status-error': modelsError }">
-              <div class="info-content">
-                <i :class="activeLlmBackend.reachable ? 'bi bi-check-circle' : 'bi bi-exclamation-circle'"></i>
-                <div>
-                  <strong>{{ llmStatusTitle }}</strong>
-                  <p>{{ t('settings.llm.endpoint') }}: {{ activeLlmBackend.base_url || runtime.llm.base_url || '—' }}</p>
-                  <p v-if="selectedProvider === 'llamacpp' && llamacpp.binary" class="field-hint">
-                    llama-server: {{ llamacpp.binary }}
-                  </p>
-                  <p v-if="modelsError" class="note" role="alert">{{ modelsError }}</p>
+                <div class="opt-header-line">
+                  <span class="opt-title">llama.cpp</span>
+                  <span class="opt-badge" style="background: rgba(100,116,139,0.2); color: var(--text-tertiary);">支援 GGUF</span>
                 </div>
+                <span class="opt-detail">使用 llama-server 獨立推論</span>
               </div>
-              <button
-                class="icon-action-btn"
-                type="button"
-                :disabled="loadingModels"
-                :aria-label="t('settings.llm.refresh')"
-                @click="refreshOllama"
-              >
-                <i class="bi bi-arrow-clockwise" :class="{ spin: loadingModels }"></i>
-              </button>
             </div>
 
-            <div class="setting-item setting-item-stack">
-              <div class="setting-label">
-                <label for="llm-reply-mode">{{ t('settings.llm.replyMode') }}</label>
-                <span id="llm-reply-mode-hint" class="setting-desc">
-                  {{ selectedReplyMode === 'legacy' ? t('settings.llm.legacyModeDesc') : t('settings.llm.streamingModeDesc') }}
-                </span>
+            <!-- 回覆模式 (串流 vs 舊模式) -->
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <label for="llm-reply-mode" class="field-main-label">{{ t('settings.llm.replyMode') }}</label>
+                <span id="llm-reply-mode-hint" class="field-sub-hint">邊生成邊合成音視訊，降低首字延遲 (約 550ms)</span>
               </div>
-              <div class="setting-control setting-control-grow">
+              <div class="field-control-area">
                 <select
                   id="llm-reply-mode"
+                  class="std-select"
                   v-model="selectedReplyMode"
                   :disabled="applyingLlm || loadingSettings"
                   aria-describedby="llm-reply-mode-hint"
@@ -141,14 +123,16 @@
               </div>
             </div>
 
-            <div class="setting-item setting-item-stack">
-              <div class="setting-label">
-                <label for="llm-model">{{ t('settings.llm.model') }}</label>
-                <span class="setting-desc">{{ selectedProvider === 'llamacpp' ? t('settings.llm.llamacppModelDesc') : t('settings.llm.modelDesc') }}</span>
+            <!-- 模型選擇 -->
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <label for="llm-model" class="field-main-label">{{ t('settings.llm.model') }}</label>
+                <span class="field-sub-hint">已偵測到的本機權重規格清單</span>
               </div>
-              <div class="setting-control setting-control-grow">
+              <div class="field-control-area">
                 <select
                   id="llm-model"
+                  class="std-select"
                   v-if="currentProviderModels.length"
                   v-model="selectedLlm"
                   :disabled="applyingLlm || loadingModels"
@@ -165,1354 +149,907 @@
                   v-else
                   id="llm-model"
                   type="text"
+                  class="chat-text-entry"
                   v-model="selectedLlm"
                   :placeholder="selectedProvider === 'llamacpp' ? t('settings.llm.ggufPlaceholder') : t('settings.llm.manualPlaceholder')"
                   :disabled="applyingLlm"
                   autocomplete="off"
                 >
-                <p v-if="!currentProviderModels.length" class="field-hint">
-                  {{ selectedProvider === 'llamacpp' ? t('settings.llm.llamacppEmpty') : t('settings.llm.empty') }}
-                </p>
               </div>
             </div>
 
-            <div class="setting-item setting-item-stack">
-              <div class="setting-label">
-                <label for="llm-response-max-chars">{{ t('settings.llm.responseLength') }}</label>
-                <span id="llm-response-max-chars-hint" class="setting-desc">
-                  {{ t('settings.llm.responseLengthDesc') }}
-                </span>
+            <!-- 單輪回答字數上限 -->
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <label for="llm-response-max-chars" class="field-main-label">{{ t('settings.llm.responseLength') }}</label>
+                <span id="llm-response-max-chars-hint" class="field-sub-hint">{{ t('settings.llm.responseLengthDesc') }} (20–2000 字)</span>
               </div>
-              <div class="setting-control setting-control-grow">
-                <input
-                  id="llm-response-max-chars"
-                  v-model.number="selectedResponseMaxChars"
-                  type="number"
-                  inputmode="numeric"
-                  min="20"
-                  max="2000"
-                  step="10"
-                  :disabled="applyingLlm || loadingSettings"
-                  :aria-invalid="responseLengthError"
-                  aria-describedby="llm-response-max-chars-hint llm-response-max-chars-meta"
-                >
-                <div id="llm-response-max-chars-meta" class="field-meta">
-                  <span v-if="responseLengthError" class="field-error" role="alert">
-                    {{ t('settings.llm.responseLengthRange') }}
-                  </span>
-                  <span class="character-count">
-                    {{ selectedResponseMaxChars || '—' }} {{ t('settings.llm.responseLengthUnit') }}
-                  </span>
+              <div class="field-control-area">
+                <div class="std-slider-combo">
+                  <input
+                    id="llm-response-max-chars"
+                    type="number"
+                    class="std-range"
+                    min="20"
+                    max="2000"
+                    step="10"
+                    v-model.number="selectedResponseMaxChars"
+                    :disabled="applyingLlm || loadingSettings"
+                    aria-describedby="llm-response-max-chars-hint llm-response-max-chars-meta"
+                  >
+                  <span class="std-val-pill" id="llm-response-max-chars-meta">{{ selectedResponseMaxChars }} 字</span>
                 </div>
               </div>
             </div>
 
-            <div class="setting-item setting-item-stack">
-              <div class="setting-label">
-                <label for="llm-system-prompt">{{ t('settings.llm.defaultPrompt') }}</label>
-                <span id="llm-system-prompt-hint" class="setting-desc">
-                  {{ t('settings.llm.defaultPromptDesc') }}
-                </span>
+            <!-- 看板項目數量上限 -->
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <label for="llm-board-max-items" class="field-main-label">{{ t('settings.llm.boardMaxItems') }}</label>
+                <span id="llm-board-max-items-hint" class="field-sub-hint">系統固定規則：條列式回答的最大項數 (1–12 項)，JSON 不會送入語音</span>
               </div>
-              <div class="setting-control setting-control-grow">
-                <textarea
-                  id="llm-system-prompt"
-                  v-model="selectedSystemPrompt"
-                  rows="8"
-                  maxlength="8000"
-                  :placeholder="t('settings.llm.defaultPromptPlaceholder')"
-                  :disabled="applyingLlm || loadingSettings"
-                  aria-describedby="llm-system-prompt-hint llm-system-prompt-count"
-                ></textarea>
-                <div id="llm-system-prompt-count" class="field-meta">
-                  <span v-if="!selectedSystemPrompt.trim()" class="field-error" role="alert">
-                    {{ t('settings.llm.defaultPromptRequired') }}
-                  </span>
-                  <span class="character-count">{{ selectedSystemPrompt.length }} / 8000</span>
+              <div class="field-control-area">
+                <div class="std-slider-combo">
+                  <input
+                    id="llm-board-max-items"
+                    type="number"
+                    class="std-range"
+                    min="1"
+                    max="12"
+                    step="1"
+                    v-model.number="selectedBoardMaxItems"
+                    aria-describedby="llm-board-max-items-hint"
+                  >
+                  <span class="std-val-pill">{{ selectedBoardMaxItems }} 項</span>
                 </div>
               </div>
-            </div>
-
-            <div class="setting-item">
-              <div class="setting-label">
-                <label for="llm-board-max-items">看板項目上限</label>
-                <span id="llm-board-max-items-hint" class="setting-desc">每輪最多保留幾個看板項目。超出的項目不會顯示；可設定 1–12 項。</span>
-              </div>
-              <div class="setting-control setting-control-grow">
-                <input
-                  id="llm-board-max-items"
-                  v-model.number="selectedBoardMaxItems"
-                  type="number"
-                  inputmode="numeric"
-                  min="1"
-                  max="12"
-                  step="1"
-                  :disabled="applyingLlm || loadingSettings"
-                  :aria-invalid="boardItemsError"
-                  aria-describedby="llm-board-max-items-hint llm-board-max-items-meta"
-                >
-                <div id="llm-board-max-items-meta" class="field-meta">
-                  <span v-if="boardItemsError" class="field-error" role="alert">請輸入 1 到 12 之間的整數。</span>
-                  <span class="character-count">{{ selectedBoardMaxItems || '—' }} 項</span>
-                </div>
-              </div>
-            </div>
-
-            <p class="section-hint">系統固定規則：回覆協定與看板 JSON 由系統解析，JSON 不會送入語音；口語摘要、看板啟用與內容偏好可在下方 Rule 調整。</p>
-
-            <div class="settings-section rules-editor" aria-labelledby="reply-rules-title">
-              <h4 id="reply-rules-title"><i class="bi bi-list-check"></i> 回覆規則（Rule）</h4>
-              <p class="section-hint">規則會交給目前選定的單一 LLM；儲存後從下一輪生效。固定輸出格式由系統管理。</p>
-              <p v-if="rulesApplied.revision" class="field-hint">目前生效版本：{{ rulesApplied.revision }}<span v-if="rulesDirty"> · 有未儲存變更</span></p>
-
-              <div v-for="field in ruleFields" :key="field.key" class="setting-item setting-item-stack">
-                <div class="setting-label">
-                  <label :for="`reply-rule-${field.key}`">{{ field.label }}</label>
-                  <span class="setting-desc">{{ field.description }}</span>
-                </div>
-                <div class="setting-control setting-control-grow">
-                  <textarea
-                    :id="`reply-rule-${field.key}`"
-                    v-model="rulesDraft[field.key]"
-                    rows="5"
-                    :maxlength="rulesLimits.max_rule_chars"
-                    :disabled="rulesLoading || rulesSaving"
-                  ></textarea>
-                  <span class="character-count">{{ rulesDraft[field.key].length }} / {{ rulesLimits.max_rule_chars }}</span>
-                </div>
-              </div>
-              <p v-if="rulesError" class="inline-error" role="alert">{{ rulesError }}</p>
-              <p v-if="rulesNotice" class="field-hint status-ok" role="status">{{ rulesNotice }}</p>
-              <div class="rules-actions">
-                <button class="btn-secondary" type="button" :disabled="rulesLoading || rulesSaving" @click="restoreDefaultRules">
-                  還原預設
-                </button>
-                <button class="btn-apply" type="button" :disabled="!rulesDirty || rulesLoading || rulesSaving" @click="handleApplyReplyRules">
-                  <i :class="rulesSaving ? 'bi bi-hourglass-split spin' : 'bi bi-check-lg'"></i>
-                  {{ rulesSaving ? '儲存中…' : '儲存並套用' }}
-                </button>
-              </div>
-            </div>
-
-            <button
-              class="btn-apply"
-              type="button"
-              :disabled="!llmDirty || applyingLlm || !selectedLlm || !selectedSystemPrompt.trim() || responseLengthError || boardItemsError"
-              @click="handleApplyLlm"
-            >
-              <i class="bi bi-hourglass-split spin" v-if="applyingLlm"></i>
-              <i class="bi bi-check-lg" v-else></i>
-              {{ applyingLlm ? t('settings.llm.applying') : t('settings.llm.apply') }}
-            </button>
             </div>
           </section>
 
-          <section
-            v-show="activeSettingsTab === 'avatar'"
-            id="settings-panel-avatar"
-            class="settings-tab-panel"
-            role="tabpanel"
-            aria-labelledby="settings-tab-avatar"
-            tabindex="0"
-          >
-            <!-- 數字人引擎 -->
-            <div class="settings-section">
-            <h4><i class="bi bi-layers"></i> {{ t('settings.avatar.engineTitle') }}</h4>
-            <p class="section-hint">{{ t('settings.avatar.engineDesc') }}</p>
-
-            <div v-if="loadingSettings" class="skeleton-grid" aria-hidden="true">
-              <div class="skeleton-card" v-for="n in 4" :key="n"></div>
-            </div>
-            <p v-else-if="settingsError" class="field-error" role="alert">{{ settingsError }}</p>
-            <div v-else class="engine-grid" role="listbox" :aria-label="t('settings.avatar.engineTitle')">
-              <button
-                v-for="engine in runtime.engines"
-                :key="engine.id"
-                type="button"
-                class="engine-card"
-                role="option"
-                :aria-selected="selectedEngine === engine.id"
-                :aria-disabled="!engine.available && !engine.can_import"
-                :disabled="(!engine.available && !engine.can_import) || applyingAvatar || importing"
-                :class="{
-                  selected: selectedEngine === engine.id,
-                  current: runtime.avatar.type === engine.id,
-                  unavailable: !engine.available && !engine.can_import
-                }"
-                @click="selectEngine(engine.id)"
-              >
-                <span class="card-title">{{ engine.label }}</span>
-                <span class="card-desc">{{ engine.description }}</span>
-                <span class="card-status" v-if="runtime.avatar.type === engine.id">
-                  {{ t('settings.avatar.inUse') }}
-                </span>
-                <span class="card-status muted" v-else-if="!engine.available">
-                  {{ engine.message || t('settings.avatar.unavailable') }}
-                </span>
-              </button>
-            </div>
+          <!-- 右欄：提示詞與規則全域編輯器 -->
+          <section class="setting-card">
+            <div class="card-title-row">
+              <div>
+                <div class="card-title-text"><i class="bi bi-list-check"></i> 系統角色 Prompt 與回覆規則</div>
+                <div class="card-subtitle-desc">定義 AI 數位人身分語氣，以及何時觸發看板結構化條列。</div>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button
+                  type="button"
+                  class="btn-restore-gray"
+                  style="padding: 4px 10px; font-size: 11.5px;"
+                  @click="restoreDefaultRules"
+                >
+                  還原預設
+                </button>
+                <button
+                  type="button"
+                  class="btn-apply-primary"
+                  style="padding: 4px 12px; font-size: 11.5px;"
+                  :disabled="rulesSaving"
+                  @click="handleApplyPromptAndRules"
+                >
+                  儲存 Prompt 與規則
+                </button>
+              </div>
             </div>
 
-            <!-- 數字人角色 -->
-            <div class="settings-section">
-            <h4><i class="bi bi-person-bounding-box"></i> {{ t('settings.avatar.characterTitle') }}</h4>
-            <p class="section-hint">{{ t('settings.avatar.characterDesc') }}</p>
-
-            <div v-if="filteredCharacters.length" class="character-grid" role="listbox" :aria-label="t('settings.avatar.characterTitle')">
-              <button
-                v-for="character in filteredCharacters"
-                :key="character.id"
-                type="button"
-                class="character-card"
-                role="option"
-                :aria-selected="selectedAvatarId === character.id"
-                :disabled="applyingAvatar"
-                :class="{
-                  selected: selectedAvatarId === character.id,
-                  current: runtime.avatar.avatar_id === character.id
-                }"
-                @click="selectCharacter(character.id)"
-              >
-                <span class="character-thumb">
-                  <img
-                    v-if="character.preview_url"
-                    :src="character.preview_url"
-                    :alt="character.label"
-                    width="160"
-                    height="160"
-                    loading="lazy"
-                  >
-                  <i v-else class="bi bi-person-video3"></i>
-                </span>
-                <span class="character-meta">
-                  <span class="card-title">{{ character.label }}</span>
-                  <span class="card-status" v-if="runtime.avatar.avatar_id === character.id">
-                    {{ t('settings.avatar.inUse') }}
-                  </span>
-                </span>
-              </button>
-            </div>
-            <div v-else class="empty-state">
-              <i class="bi bi-person-x"></i>
-              <p>{{ t('settings.avatar.emptyCharacters') }}</p>
-            </div>
-
-            <div class="settings-section quality-section">
-              <h4><i class="bi bi-brush"></i> {{ t('settings.quality.title') }}</h4>
-              <p class="section-hint">{{ t('settings.quality.desc') }}</p>
-
-              <div class="setting-item">
-                <div class="setting-label">
-                  <label for="mouth-sharpen">{{ t('settings.quality.sharpen') }}</label>
-                  <span id="mouth-sharpen-hint" class="setting-desc">{{ t('settings.quality.sharpenDesc') }}</span>
+            <!-- 預設角色 Prompt -->
+            <div class="setting-form-row align-start">
+              <div class="field-label-group">
+                <label for="llm-system-prompt" class="field-main-label">{{ t('settings.llm.defaultPrompt') }}</label>
+                <span id="llm-system-prompt-hint" class="field-sub-hint">{{ t('settings.llm.defaultPromptDesc') }}</span>
+              </div>
+              <div class="field-control-area flex-col">
+                <textarea
+                  id="llm-system-prompt"
+                  class="std-textarea"
+                  rows="4"
+                  maxlength="8000"
+                  v-model="selectedSystemPrompt"
+                  :placeholder="t('settings.llm.defaultPromptPlaceholder')"
+                  aria-describedby="llm-system-prompt-hint llm-system-prompt-count"
+                ></textarea>
+                <div id="llm-system-prompt-count" class="field-meta" style="font-size: 11px; color: var(--text-tertiary); margin-top: 4px; text-align: right;">
+                  {{ selectedSystemPrompt.length }} / 8000
                 </div>
-                <div class="setting-control">
+              </div>
+            </div>
+
+            <!-- 三區可編輯規則: activation, speech, board -->
+            <div
+              v-for="rule in ruleFields"
+              :key="rule.key"
+              class="setting-form-row align-start"
+            >
+              <div class="field-label-group">
+                <label :for="`rule-${rule.key}`" class="field-main-label">{{ rule.label }}</label>
+                <span class="field-sub-hint">{{ rule.description }}</span>
+              </div>
+              <div class="field-control-area flex-col">
+                <textarea
+                  :id="`rule-${rule.key}`"
+                  class="std-textarea"
+                  rows="3"
+                  v-model="rulesDraft[rule.key]"
+                ></textarea>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- ── 分類 2：數位人與畫質 (滿板寬敞角色展示) ── -->
+        <div
+          v-show="activeSettingsTab === 'avatar'"
+          class="settings-category-panel"
+          id="catPanel-avatar"
+          role="tabpanel"
+          aria-labelledby="railTab-avatar"
+        >
+          <!-- 左欄：演算法引擎與貼回畫質參數 -->
+          <section class="setting-card">
+            <div class="card-title-row">
+              <div>
+                <div class="card-title-text"><i class="bi bi-layers-fill"></i> 唇形驅動引擎與畫質調優</div>
+                <div class="card-subtitle-desc">選擇驅動人臉口型的神經網路架構與高清貼回參數。</div>
+              </div>
+              <button
+                type="button"
+                class="btn-apply-primary"
+                style="padding: 6px 14px; font-size: 12px;"
+                :disabled="applyingQuality"
+                @click="handleApplyMouthQuality"
+              >
+                <i class="bi bi-check2" :class="{ spin: applyingQuality }"></i> 套用畫質
+              </button>
+            </div>
+
+            <div class="grid-options-row">
+              <div
+                class="option-card-btn"
+                :class="{ selected: selectedEngine === 'musetalk' }"
+                @click="selectEngine('musetalk')"
+              >
+                <div class="opt-header-line">
+                  <span class="opt-title">MuseTalk</span>
+                  <span class="opt-badge">推薦高畫質</span>
+                </div>
+                <span class="opt-detail">潛空間擴散模型，口型細緻自然，邊緣連續無抖動。</span>
+              </div>
+              <div
+                class="option-card-btn"
+                :class="{ selected: selectedEngine === 'wav2lip' }"
+                @click="selectEngine('wav2lip')"
+              >
+                <div class="opt-header-line">
+                  <span class="opt-title">Wav2Lip</span>
+                  <span class="opt-badge" style="background: rgba(14,165,233,0.15); color: #38bdf8;">極速輕量</span>
+                </div>
+                <span class="opt-detail">傳統 GAN 架構，顯存消耗低，適合輕量邊緣設備。</span>
+              </div>
+            </div>
+
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <label for="paste-interpolation" class="field-main-label">{{ t('settings.quality.pasteInterpolation') }}</label>
+                <span class="field-sub-hint">Lanczos 提供最佳邊緣文字級銳利度</span>
+              </div>
+              <div class="field-control-area">
+                <select
+                  id="paste-interpolation"
+                  class="std-select"
+                  v-model="qualityDraft.paste_interpolation"
+                >
+                  <option value="lanczos">Lanczos (最佳高清晰度 · 推薦)</option>
+                  <option value="bicubic">Bicubic (雙立方平滑)</option>
+                  <option value="bilinear">Bilinear (傳統雙線性)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <label for="mouth-sharpen" class="field-main-label">{{ t('settings.quality.mouthSharpen') }}</label>
+                <span class="field-sub-hint">消除唇邊貼回模糊，建議 0.5–0.8</span>
+              </div>
+              <div class="field-control-area">
+                <div class="std-slider-combo">
                   <input
                     id="mouth-sharpen"
                     type="range"
+                    class="std-range"
                     min="0"
                     max="2"
                     step="0.1"
                     v-model.number="qualityDraft.mouth_sharpen"
-                    :disabled="applyingQuality || importing"
-                    aria-describedby="mouth-sharpen-hint"
                   >
-                  <span class="range-value">{{ Number(qualityDraft.mouth_sharpen).toFixed(1) }}</span>
+                  <span class="std-val-pill">{{ qualityDraft.mouth_sharpen }}</span>
                 </div>
               </div>
-
-              <div class="setting-item setting-item-stack">
-                <div class="setting-label">
-                  <label for="paste-interpolation">{{ t('settings.quality.interpolation') }}</label>
-                  <span id="paste-interpolation-hint" class="setting-desc">{{ t('settings.quality.interpolationDesc') }}</span>
-                </div>
-                <div class="setting-control setting-control-grow">
-                  <select
-                    id="paste-interpolation"
-                    v-model="qualityDraft.paste_interpolation"
-                    :disabled="applyingQuality || importing"
-                    aria-describedby="paste-interpolation-hint"
-                  >
-                    <option value="lanczos">{{ t('settings.quality.lanczos') }}</option>
-                    <option value="cubic">{{ t('settings.quality.cubic') }}</option>
-                    <option value="linear">{{ t('settings.quality.linear') }}</option>
-                  </select>
-                </div>
-              </div>
-
-              <template v-if="selectedEngine === 'musetalk'">
-                <div class="setting-item">
-                  <div class="setting-label">
-                    <label for="bbox-shift">{{ t('settings.quality.bboxShift') }}</label>
-                    <span id="bbox-shift-hint" class="setting-desc">{{ t('settings.quality.bboxShiftDesc') }}</span>
-                  </div>
-                  <div class="setting-control">
-                    <input
-                      id="bbox-shift"
-                      type="range"
-                      min="-30"
-                      max="30"
-                      step="1"
-                      v-model.number="qualityDraft.musetalk.bbox_shift"
-                      :disabled="applyingQuality || importing"
-                      aria-describedby="bbox-shift-hint"
-                    >
-                    <span class="range-value">{{ qualityDraft.musetalk.bbox_shift }}</span>
-                  </div>
-                </div>
-
-                <div class="setting-item">
-                  <div class="setting-label">
-                    <label for="extra-margin">{{ t('settings.quality.extraMargin') }}</label>
-                    <span id="extra-margin-hint" class="setting-desc">{{ t('settings.quality.extraMarginDesc') }}</span>
-                  </div>
-                  <div class="setting-control">
-                    <input
-                      id="extra-margin"
-                      type="range"
-                      min="0"
-                      max="40"
-                      step="1"
-                      v-model.number="qualityDraft.musetalk.extra_margin"
-                      :disabled="applyingQuality || importing"
-                      aria-describedby="extra-margin-hint"
-                    >
-                    <span class="range-value">{{ qualityDraft.musetalk.extra_margin }} px</span>
-                  </div>
-                </div>
-
-                <div class="setting-item setting-item-stack">
-                  <div class="setting-label">
-                    <label for="parsing-mode">{{ t('settings.quality.parsingMode') }}</label>
-                    <span id="parsing-mode-hint" class="setting-desc">{{ t('settings.quality.parsingModeDesc') }}</span>
-                  </div>
-                  <div class="setting-control setting-control-grow">
-                    <select
-                      id="parsing-mode"
-                      v-model="qualityDraft.musetalk.parsing_mode"
-                      :disabled="applyingQuality || importing"
-                      aria-describedby="parsing-mode-hint"
-                    >
-                      <option value="jaw">{{ t('settings.quality.jaw') }}</option>
-                      <option value="raw">{{ t('settings.quality.raw') }}</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div class="setting-item">
-                  <div class="setting-label">
-                    <label for="mask-blur">{{ t('settings.quality.maskBlur') }}</label>
-                    <span id="mask-blur-hint" class="setting-desc">{{ t('settings.quality.maskBlurDesc') }}</span>
-                  </div>
-                  <div class="setting-control">
-                    <input
-                      id="mask-blur"
-                      type="range"
-                      min="0"
-                      max="0.15"
-                      step="0.01"
-                      v-model.number="qualityDraft.musetalk.mask_blur_ratio"
-                      :disabled="applyingQuality || importing"
-                      aria-describedby="mask-blur-hint"
-                    >
-                    <span class="range-value">{{ Number(qualityDraft.musetalk.mask_blur_ratio).toFixed(2) }}</span>
-                  </div>
-                </div>
-
-                <div class="setting-item">
-                  <div class="setting-label">
-                    <label for="upper-boundary">{{ t('settings.quality.upperBoundary') }}</label>
-                    <span id="upper-boundary-hint" class="setting-desc">{{ t('settings.quality.upperBoundaryDesc') }}</span>
-                  </div>
-                  <div class="setting-control">
-                    <input
-                      id="upper-boundary"
-                      type="range"
-                      min="0.3"
-                      max="0.7"
-                      step="0.05"
-                      v-model.number="qualityDraft.musetalk.upper_boundary_ratio"
-                      :disabled="applyingQuality || importing"
-                      aria-describedby="upper-boundary-hint"
-                    >
-                    <span class="range-value">{{ Number(qualityDraft.musetalk.upper_boundary_ratio).toFixed(2) }}</span>
-                  </div>
-                </div>
-
-                <div class="setting-item">
-                  <div class="setting-label">
-                    <label for="left-cheek">{{ t('settings.quality.leftCheek') }}</label>
-                    <span id="left-cheek-hint" class="setting-desc">{{ t('settings.quality.cheekDesc') }}</span>
-                  </div>
-                  <div class="setting-control">
-                    <input
-                      id="left-cheek"
-                      type="range"
-                      min="20"
-                      max="160"
-                      step="5"
-                      v-model.number="qualityDraft.musetalk.left_cheek_width"
-                      :disabled="applyingQuality || importing"
-                      aria-describedby="left-cheek-hint"
-                    >
-                    <span class="range-value">{{ qualityDraft.musetalk.left_cheek_width }}</span>
-                  </div>
-                </div>
-
-                <div class="setting-item">
-                  <div class="setting-label">
-                    <label for="right-cheek">{{ t('settings.quality.rightCheek') }}</label>
-                    <span id="right-cheek-hint" class="setting-desc">{{ t('settings.quality.cheekDesc') }}</span>
-                  </div>
-                  <div class="setting-control">
-                    <input
-                      id="right-cheek"
-                      type="range"
-                      min="20"
-                      max="160"
-                      step="5"
-                      v-model.number="qualityDraft.musetalk.right_cheek_width"
-                      :disabled="applyingQuality || importing"
-                      aria-describedby="right-cheek-hint"
-                    >
-                    <span class="range-value">{{ qualityDraft.musetalk.right_cheek_width }}</span>
-                  </div>
-                </div>
-              </template>
-
-              <template v-else-if="selectedEngine === 'wav2lip'">
-                <div class="setting-item">
-                  <div class="setting-label">
-                    <label for="wav2lip-pad-bottom">{{ t('settings.quality.padBottom') }}</label>
-                    <span id="wav2lip-pad-bottom-hint" class="setting-desc">{{ t('settings.quality.padBottomDesc') }}</span>
-                  </div>
-                  <div class="setting-control">
-                    <input
-                      id="wav2lip-pad-bottom"
-                      type="range"
-                      min="0"
-                      max="40"
-                      step="1"
-                      v-model.number="qualityDraft.wav2lip.pad_bottom"
-                      :disabled="applyingQuality || importing"
-                      aria-describedby="wav2lip-pad-bottom-hint"
-                    >
-                    <span class="range-value">{{ qualityDraft.wav2lip.pad_bottom }} px</span>
-                  </div>
-                </div>
-              </template>
-
-              <p class="field-hint">{{ t('settings.quality.rebuildHint') }}</p>
-              <p v-if="qualityError" class="field-error" role="alert">{{ qualityError }}</p>
-
-              <button
-                class="btn-apply"
-                type="button"
-                :disabled="!qualityDirty || applyingQuality || importing"
-                @click="handleApplyMouthQuality"
-              >
-                <i class="bi bi-hourglass-split spin" v-if="applyingQuality"></i>
-                <i class="bi bi-check-lg" v-else></i>
-                {{ applyingQuality ? t('settings.quality.applying') : t('settings.quality.apply') }}
-              </button>
             </div>
 
-            <div class="import-card">
-              <div class="setting-label">
-                <label for="avatar-import-file">{{ t('settings.import.title') }}</label>
-                <span class="setting-desc">{{ t('settings.import.desc') }}</span>
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <label for="bbox-shift" class="field-main-label">{{ t('settings.quality.bboxShift') }}</label>
+                <span class="field-sub-hint">調整唇部框選區域上下偏移</span>
               </div>
-              <p class="section-hint">
-                {{ t('settings.import.engineHint') }}
-                <strong>{{ selectedEngineLabel }}</strong>
-              </p>
-
-              <div
-                class="dropzone"
-                :class="{ disabled: !canImportSelected, dragging: importDragging }"
-                @dragover.prevent="onImportDragOver"
-                @dragleave.prevent="importDragging = false"
-                @drop.prevent="onImportDrop"
-              >
-                <input
-                  id="avatar-import-file"
-                  ref="importFileInput"
-                  type="file"
-                  accept="video/mp4,video/quicktime,video/webm,video/x-msvideo,.mp4,.mov,.webm,.avi"
-                  :disabled="!canImportSelected || importing"
-                  @change="onImportFileChange"
-                >
-                <i class="bi bi-cloud-arrow-up"></i>
-                <p v-if="importFile">{{ importFile.name }}</p>
-                <p v-else>{{ t('settings.import.dropHint') }}</p>
-                <button
-                  class="btn-secondary pick-file-btn"
-                  type="button"
-                  :disabled="!canImportSelected || importing"
-                  @click="importFileInput?.click()"
-                >
-                  {{ t('settings.import.pickFile') }}
-                </button>
-              </div>
-
-              <div class="setting-item setting-item-stack">
-                <div class="setting-label">
-                  <label for="import-avatar-id">{{ t('settings.import.roleName') }}</label>
-                  <span class="setting-desc">{{ t('settings.import.roleNameDesc') }}</span>
-                </div>
-                <div class="setting-control setting-control-grow">
+              <div class="field-control-area">
+                <div class="std-slider-combo">
                   <input
-                    id="import-avatar-id"
-                    type="text"
-                    v-model="importAvatarId"
-                    :placeholder="importNamePlaceholder"
-                    :disabled="!canImportSelected || importing"
-                    autocomplete="off"
+                    id="bbox-shift"
+                    type="range"
+                    class="std-range"
+                    min="-30"
+                    max="30"
+                    step="1"
+                    v-model.number="qualityDraft.bbox_shift"
                   >
+                  <span class="std-val-pill">{{ qualityDraft.bbox_shift }}px</span>
                 </div>
               </div>
-
-              <p v-if="!canImportSelected" class="field-hint warning-hint">
-                {{ t('settings.import.unsupported') }}
-              </p>
-              <p v-else-if="isConnected" class="field-hint warning-hint">
-                {{ t('settings.import.needDisconnect') }}
-              </p>
-
-              <div v-if="importJob && importing" class="import-progress" role="status" aria-live="polite">
-                <div class="progress-track">
-                  <div class="progress-fill" :style="{ width: `${importJob.progress || 0}%` }"></div>
-                </div>
-                <p>{{ importJob.message || t('settings.import.working') }} · {{ importJob.progress || 0 }}%</p>
-              </div>
-              <p v-if="importError" class="field-error" role="alert">{{ importError }}</p>
-
-              <button
-                class="btn-apply"
-                type="button"
-                :disabled="!canStartImport"
-                @click="handleImportCharacter"
-              >
-                <i class="bi bi-hourglass-split spin" v-if="importing"></i>
-                <i class="bi bi-plus-circle" v-else></i>
-                {{ importing ? t('settings.import.working') : t('settings.import.start') }}
-              </button>
             </div>
 
-            <p v-if="isConnected && avatarDirty" class="field-hint warning-hint">
-              {{ t('settings.avatar.needDisconnect') }}
-            </p>
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <label for="extra-margin" class="field-main-label">{{ t('settings.quality.extraMargin') }}</label>
+                <span class="field-sub-hint">外擴邊距控制</span>
+              </div>
+              <div class="field-control-area">
+                <div class="std-slider-combo">
+                  <input
+                    id="extra-margin"
+                    type="range"
+                    class="std-range"
+                    min="0"
+                    max="50"
+                    step="1"
+                    v-model.number="qualityDraft.extra_margin"
+                  >
+                  <span class="std-val-pill">{{ qualityDraft.extra_margin }}px</span>
+                </div>
+              </div>
+            </div>
 
-            <button
-              class="btn-apply"
-              type="button"
-              :disabled="!avatarDirty || applyingAvatar || importing || !selectedEngine || !selectedAvatarId"
-              @click="handleApplyAvatar"
-            >
-              <i class="bi bi-hourglass-split spin" v-if="applyingAvatar"></i>
-              <i class="bi bi-person-check" v-else></i>
-              {{ applyingAvatar ? t('settings.avatar.applying') : t('settings.avatar.apply') }}
-            </button>
+            <div style="font-size: 11.5px; color: var(--text-tertiary); margin-top: 10px; line-height: 1.5;">
+              {{ t('settings.quality.rebuildHint') }}
             </div>
           </section>
 
-          <section
-            v-show="activeSettingsTab === 'stage'"
-            id="settings-panel-stage"
-            class="settings-tab-panel"
-            role="tabpanel"
-            aria-labelledby="settings-tab-stage"
-            tabindex="0"
-          >
-            <div class="settings-section">
-              <h4><i class="bi bi-badge-cc"></i> {{ t('settings.stage.title') }}</h4>
-              <p class="section-hint">{{ t('settings.stage.desc') }}</p>
+          <!-- 右欄：滿板大縮圖角色相簿與匯入 -->
+          <section class="setting-card">
+            <div class="card-title-row">
+              <div>
+                <div class="card-title-text"><i class="bi bi-person-bounding-box"></i> 現有數位人角色庫</div>
+                <div class="card-subtitle-desc">全景滿板展示，解析度與規格一清二楚。</div>
+              </div>
+              <button
+                type="button"
+                class="btn-apply-primary"
+                style="padding: 6px 14px; font-size: 12px;"
+                :disabled="applyingAvatar"
+                @click="handleApplyAvatar"
+              >
+                <i class="bi bi-check2" :class="{ spin: applyingAvatar }"></i> 切換角色
+              </button>
+            </div>
 
-              <div class="setting-item setting-item-stack">
-                <div class="setting-label">
-                  <label for="stage-caption-max-chars">{{ t('settings.stage.captionMaxChars') }}</label>
-                  <span id="stage-caption-max-chars-hint" class="setting-desc">
-                    {{ t('settings.stage.captionMaxCharsDesc') }}
-                  </span>
+            <div v-if="filteredCharacters.length" class="avatar-cards-grid">
+              <div
+                v-for="char in filteredCharacters"
+                :key="char.id"
+                class="avatar-item-card"
+                :class="{ selected: selectedAvatarId === char.id }"
+                @click="selectCharacter(char.id)"
+              >
+                <div class="avatar-preview-face">
+                  <img v-if="char.preview_url || char.thumbnail" :src="char.preview_url || char.thumbnail" :alt="char.label || char.name || char.id" style="width: 100%; height: 100%; object-fit: cover; border-radius: var(--radius-sm);">
+                  <i v-else class="bi bi-person-fill"></i>
+                  <span class="avatar-badge-active" v-if="runtime.avatar.avatar_id === char.id">使用中</span>
                 </div>
-                <div class="setting-control setting-control-grow">
+                <div class="avatar-meta-row">
+                  <div class="avatar-name-txt">{{ char.label || char.name || char.id }}</div>
+                  <div class="avatar-specs-txt">{{ char.resolution || '1080x1920' }} · {{ char.fps || 25 }}fps · {{ selectedEngine }}</div>
+                </div>
+              </div>
+            </div>
+            <div v-else-if="!filteredCharacters.length && !loadingSettings" class="empty-state-card">
+              <i class="bi bi-person-video3" aria-hidden="true"></i>
+              <strong>目前沒有可顯示的數位人角色</strong>
+              <span v-if="settingsError">請先重新連線後端並重新載入設定。</span>
+              <span v-else>{{ t('settings.avatar.emptyCharacters') }}</span>
+            </div>
+
+            <div style="border-top: 1px solid var(--border-subtle); padding-top: 14px; margin-top: 12px;">
+              <span style="font-size: 13px; font-weight: 600; display: block; margin-bottom: 8px;">
+                <i class="bi bi-cloud-arrow-up-fill" style="color: var(--brand-light);"></i> 匯入自訂短影片以產生新角色
+              </span>
+              <div
+                style="border: 1.5px dashed var(--border-default); border-radius: var(--radius-md); padding: 18px; text-align: center; color: var(--text-tertiary); background: var(--bg-input); cursor: pointer;"
+                @dragover.prevent="onImportDragOver"
+                @drop.prevent="onImportDrop"
+                @click="importFileInput?.click()"
+              >
+                <input
+                  ref="importFileInput"
+                  type="file"
+                  accept="video/mp4,video/quicktime,video/webm"
+                  style="display: none;"
+                  @change="onImportFileChange"
+                >
+                <i class="bi bi-film" style="font-size: 26px; color: var(--brand-light); display: block; margin-bottom: 6px;"></i>
+                <span v-if="importFile">{{ importFile.name }} (點擊替換)</span>
+                <span v-else>拖曳 MP4 / MOV 正面影片至此，或點擊選取檔案</span>
+              </div>
+              <div v-if="importFile" style="margin-top: 10px; display: flex; gap: 8px; align-items: center;">
+                <input
+                  type="text"
+                  class="chat-text-entry"
+                  v-model="importAvatarId"
+                  :placeholder="importNamePlaceholder"
+                  style="flex: 1;"
+                >
+                <button
+                  type="button"
+                  class="btn-apply-primary"
+                  :disabled="!canStartImport"
+                  @click="handleImportCharacter"
+                >
+                  開始建立
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- ── 分類 3：舞台與看板排版 (滿板大尺寸 9:16 對照視窗) ── -->
+        <div
+          v-show="activeSettingsTab === 'stage'"
+          class="settings-category-panel"
+          id="settings-panel-stage"
+          role="tabpanel"
+          aria-labelledby="railTab-stage"
+        >
+          <!-- 左欄：看板排版參數與九宮格 -->
+          <section class="setting-card">
+            <div class="card-title-row">
+              <div>
+                <div class="card-title-text"><i class="bi bi-layout-wtf"></i> 看板視覺風格樣式</div>
+                <div class="card-subtitle-desc">設定浮動看板的材質外觀、尺寸與九宮格定位。</div>
+              </div>
+              <button
+                type="button"
+                class="btn-apply-primary"
+                style="padding: 6px 14px; font-size: 12px;"
+                :disabled="applyingStage"
+                @click="handleApplyStage"
+              >
+                <i class="bi bi-check2" :class="{ spin: applyingStage }"></i> 套用舞台設定
+              </button>
+            </div>
+
+            <!-- 看板風格卡片: glass / slate / cue -->
+            <div class="grid-options-row" style="grid-template-columns: repeat(3, 1fr);">
+              <div
+                v-for="style in stageBoardStyles"
+                :key="style.id"
+                :id="`stage-board-style-${style.id}`"
+                class="option-card-btn"
+                :class="{ selected: selectedBoardStyle === style.id }"
+                @click="selectedBoardStyle = style.id"
+              >
+                <span class="opt-title">{{ style.icon }} {{ style.label }}</span>
+                <span class="opt-detail">{{ style.desc }}</span>
+              </div>
+            </div>
+
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <label class="field-main-label">看板寬度 (Width px)</label>
+                <span class="field-sub-hint">舞台畫布內的橫向尺寸 (200–720px)</span>
+              </div>
+              <div class="field-control-area">
+                <div class="std-slider-combo">
                   <input
-                    id="stage-caption-max-chars"
-                    v-model.number="selectedStageCaptionMaxChars"
-                    type="number"
-                    min="20"
-                    max="2000"
-                    step="1"
-                    :disabled="applyingStage || loadingSettings"
-                    :aria-invalid="stageCaptionLengthError"
-                    aria-describedby="stage-caption-max-chars-hint stage-caption-max-chars-meta"
+                    type="range"
+                    class="std-range"
+                    min="200"
+                    max="720"
+                    step="10"
+                    v-model.number="selectedBoardWidth"
                   >
-                  <div id="stage-caption-max-chars-meta" class="field-meta">
-                    <span v-if="stageCaptionLengthError" class="field-error" role="alert">
-                      {{ t('settings.stage.captionMaxCharsRange') }}
-                    </span>
-                    <span class="character-count">
-                      {{ selectedStageCaptionMaxChars || '—' }} {{ t('settings.stage.unit') }}
-                    </span>
-                  </div>
+                  <span class="std-val-pill">{{ selectedBoardWidth }}px</span>
                 </div>
               </div>
             </div>
 
-            <div class="settings-section">
-              <h4><i class="bi bi-window-stack"></i> {{ t('settings.stage.boardTitle') }}</h4>
-              <p class="section-hint">{{ t('settings.stage.boardDesc') }}</p>
-
-              <div class="setting-item">
-                <div class="setting-label">
-                  <label for="stage-board-preview">{{ t('settings.stage.boardPreview') }}</label>
-                  <span class="setting-desc">{{ t('settings.stage.boardPreviewDesc') }}</span>
-                </div>
-                <div class="setting-control">
-                  <label class="switch">
-                    <input
-                      id="stage-board-preview"
-                      type="checkbox"
-                      v-model="selectedBoardPreview"
-                      :disabled="applyingStage || loadingSettings"
-                    >
-                    <span class="slider"></span>
-                  </label>
-                </div>
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <label class="field-main-label">看板高度 (Height px)</label>
+                <span class="field-sub-hint">條列項目展開的縱向高度 (180–720px)</span>
               </div>
-
-              <div class="setting-item setting-item-stack">
-                <div class="setting-label">
-                  <span id="stage-board-style-label">{{ t('settings.stage.boardStyle') }}</span>
-                  <span class="setting-desc">{{ t('settings.stage.boardStyleDesc') }}</span>
-                </div>
-                <div
-                  class="engine-grid three-col"
-                  role="radiogroup"
-                  aria-labelledby="stage-board-style-label"
-                >
-                  <button
-                    v-for="style in boardStyles"
-                    :id="`stage-board-style-${style.id}`"
-                    :key="style.id"
-                    type="button"
-                    class="engine-card"
-                    role="radio"
-                    :aria-checked="selectedBoardStyle === style.id"
-                    :class="{ selected: selectedBoardStyle === style.id }"
-                    :disabled="applyingStage || loadingSettings"
-                    @click="selectedBoardStyle = style.id"
-                  >
-                    <span class="card-title">{{ t(style.titleKey) }}</span>
-                    <span class="card-desc">{{ t(style.descKey) }}</span>
-                  </button>
-                </div>
-              </div>
-
-              <div class="setting-item">
-                <div class="setting-label">
-                  <label for="stage-board-width">{{ t('settings.stage.boardWidth') }}</label>
-                </div>
-                <div class="setting-control">
+              <div class="field-control-area">
+                <div class="std-slider-combo">
                   <input
-                    id="stage-board-width"
                     type="range"
-                    min="200"
-                    max="720"
-                    step="4"
-                    v-model.number="selectedBoardWidth"
-                    :disabled="applyingStage || loadingSettings"
-                  >
-                  <span class="range-value">{{ selectedBoardWidth }} px</span>
-                </div>
-              </div>
-              <div class="setting-item">
-                <div class="setting-label">
-                  <label for="stage-board-height">{{ t('settings.stage.boardHeight') }}</label>
-                </div>
-                <div class="setting-control">
-                  <input
-                    id="stage-board-height"
-                    type="range"
+                    class="std-range"
                     min="180"
                     max="720"
-                    step="4"
+                    step="10"
                     v-model.number="selectedBoardHeight"
-                    :disabled="applyingStage || loadingSettings"
                   >
-                  <span class="range-value">{{ selectedBoardHeight }} px</span>
+                  <span class="std-val-pill">{{ selectedBoardHeight }}px</span>
                 </div>
               </div>
-              <div class="setting-item">
-                <div class="setting-label">
-                  <label for="stage-board-transparency">{{ t('settings.stage.boardTransparency') }}</label>
-                  <span class="setting-desc">{{ t('settings.stage.boardTransparencyDesc') }}</span>
-                </div>
-                <div class="setting-control">
-                  <input
-                    id="stage-board-transparency"
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="1"
-                    v-model.number="selectedBoardTransparency"
-                    :disabled="applyingStage || loadingSettings"
-                  >
-                  <span class="range-value">{{ selectedBoardTransparency }}%</span>
-                </div>
-              </div>
+            </div>
 
-              <div class="setting-item setting-item-stack">
-                <div class="setting-label">
-                  <span id="stage-board-position-label">{{ t('settings.stage.boardPosition') }}</span>
-                  <span class="setting-desc">{{ t('settings.stage.boardPositionDesc') }}</span>
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <label class="field-main-label">背景半透明度 (%)</label>
+                <span class="field-sub-hint">透出人物背景同時維持字型對比</span>
+              </div>
+              <div class="field-control-area">
+                <div class="std-slider-combo">
+                  <input
+                    type="range"
+                    class="std-range"
+                    min="0"
+                    max="90"
+                    step="5"
+                    v-model.number="selectedBoardTransparency"
+                  >
+                  <span class="std-val-pill">{{ selectedBoardTransparency }}%</span>
                 </div>
-                <div class="pos-grid" role="radiogroup" aria-labelledby="stage-board-position-label">
+              </div>
+            </div>
+
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <label for="stage-caption-max-chars" class="field-main-label">舞台字幕上限</label>
+                <span class="field-sub-hint">保留最新字幕片段的最大字元數 (20–2000)</span>
+              </div>
+              <div class="field-control-area">
+                <div class="std-slider-combo">
+                  <input
+                    id="stage-caption-max-chars"
+                    type="number"
+                    class="std-range"
+                    min="20"
+                    max="2000"
+                    step="10"
+                    v-model.number="selectedStageCaptionMaxChars"
+                  >
+                  <span class="std-val-pill">{{ selectedStageCaptionMaxChars }} 字</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <label for="stage-board-preview" class="field-main-label">常態預覽看板</label>
+                <span class="field-sub-hint">在舞台與控制台中預設顯示示範看板</span>
+              </div>
+              <div class="field-control-area">
+                <label class="std-switch">
+                  <input
+                    id="stage-board-preview"
+                    type="checkbox"
+                    v-model="selectedBoardPreview"
+                  >
+                  <span class="std-slider-track"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="setting-form-row" style="display: none;">
+              <input id="stage-mic-x" type="number" v-model.number="selectedMicX">
+            </div>
+
+            <!-- 九宮格定位器 -->
+            <div style="border-top: 1px solid var(--border-subtle); padding-top: 14px;">
+              <span style="font-size: 13px; font-weight: 600; display: block; margin-bottom: 8px;">
+                <i class="bi bi-grid-3x3" style="color: var(--brand-light);"></i> 舞台位置九宮格快速對齊
+              </span>
+              <div class="position-alignment-box">
+                <div class="grid-9-matrix" id="gridMatrix9">
                   <button
                     v-for="preset in boardPresets"
                     :key="preset.id"
                     type="button"
-                    :aria-label="t(preset.labelKey)"
-                    :aria-checked="selectedBoardPreset === preset.id"
-                    :class="{ selected: selectedBoardPreset === preset.id }"
-                    :disabled="applyingStage || loadingSettings"
+                    class="matrix-btn"
+                    :class="{ active: selectedBoardPreset === preset.id }"
                     @click="selectBoardPreset(preset.id)"
+                    :title="t(preset.labelKey)"
                   ></button>
                 </div>
-              </div>
-              <div class="setting-item">
-                <div class="setting-label">
-                  <label for="stage-board-x">{{ t('settings.stage.boardX') }}</label>
-                </div>
-                <div class="setting-control">
-                  <input
-                    id="stage-board-x"
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="1"
-                    v-model.number="selectedBoardX"
-                    :disabled="applyingStage || loadingSettings"
-                    @input="markBoardPositionCustom"
-                  >
-                  <span class="range-value">{{ selectedBoardX }}%</span>
+                <div style="font-size: 12px; color: var(--text-tertiary); line-height: 1.5;">
+                  點選九宮格定位，即時觀察右側 9:16 大尺寸舞台縮圖連動。<br>
+                  預設為「右上」，避免遮擋人物臉頰與底部字幕帶。
                 </div>
               </div>
-              <div class="setting-item">
-                <div class="setting-label">
-                  <label for="stage-board-y">{{ t('settings.stage.boardY') }}</label>
-                </div>
-                <div class="setting-control">
-                  <input
-                    id="stage-board-y"
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="1"
-                    v-model.number="selectedBoardY"
-                    :disabled="applyingStage || loadingSettings"
-                    @input="markBoardPositionCustom"
-                  >
-                  <span class="range-value">{{ selectedBoardY }}%</span>
-                </div>
-              </div>
-
-              <h4><i class="bi bi-mic"></i> {{ t('settings.stage.micTitle') }}</h4>
-              <p class="section-hint">{{ t('settings.stage.micDesc') }}</p>
-              <div class="setting-item setting-item-stack">
-                <div class="setting-label">
-                  <span id="stage-mic-position-label">{{ t('settings.stage.micPosition') }}</span>
-                  <span class="setting-desc">{{ t('settings.stage.micPositionDesc') }}</span>
-                </div>
-                <div class="pos-grid" role="radiogroup" aria-labelledby="stage-mic-position-label">
-                  <button
-                    v-for="preset in boardPresets"
-                    :key="'mic-'+preset.id"
-                    type="button"
-                    :aria-label="t(preset.labelKey)"
-                    :aria-checked="selectedMicPreset === preset.id"
-                    :class="{ selected: selectedMicPreset === preset.id }"
-                    :disabled="applyingStage || loadingSettings"
-                    @click="selectMicPreset(preset.id)"
-                  ></button>
-                </div>
-              </div>
-              <div class="setting-item">
-                <div class="setting-label">
-                  <label for="stage-mic-x">{{ t('settings.stage.micX') }}</label>
-                </div>
-                <div class="setting-control">
-                  <input
-                    id="stage-mic-x"
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="1"
-                    v-model.number="selectedMicX"
-                    :disabled="applyingStage || loadingSettings"
-                    @input="markMicPositionCustom"
-                  >
-                  <span class="range-value">{{ selectedMicX }}%</span>
-                </div>
-              </div>
-              <div class="setting-item">
-                <div class="setting-label">
-                  <label for="stage-mic-y">{{ t('settings.stage.micY') }}</label>
-                </div>
-                <div class="setting-control">
-                  <input
-                    id="stage-mic-y"
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="1"
-                    v-model.number="selectedMicY"
-                    :disabled="applyingStage || loadingSettings"
-                    @input="markMicPositionCustom"
-                  >
-                  <span class="range-value">{{ selectedMicY }}%</span>
-                </div>
-              </div>
-
-              <div class="setting-item setting-item-stack">
-                <div class="setting-label">
-                  <span>{{ t('settings.stage.layoutPreview') }}</span>
-                  <span class="setting-desc">{{ t('settings.stage.layoutPreviewDesc') }}</span>
-                </div>
-                <div class="stage-layout-preview" aria-hidden="true">
-                  <div class="stage-preview-person"></div>
-                  <div class="stage-preview-captions"></div>
-                  <div class="stage-preview-board" :style="previewBoardStyle"></div>
-                  <div class="stage-preview-mic" :style="previewMicStyle"></div>
-                </div>
-              </div>
-
-              <p v-if="stageError" class="inline-error" role="alert">{{ stageError }}</p>
-              <button
-                class="btn-apply"
-                type="button"
-                :disabled="!stageDirty || applyingStage || stageCaptionLengthError || boardSizeError"
-                @click="handleApplyStage"
-              >
-                <i :class="applyingStage ? 'bi bi-hourglass-split spin' : 'bi bi-check-lg'"></i>
-                {{ applyingStage ? t('settings.stage.applying') : t('settings.stage.apply') }}
-              </button>
             </div>
           </section>
 
-          <section
-            v-show="activeSettingsTab === 'experience'"
-            id="settings-panel-experience"
-            class="settings-tab-panel"
-            role="tabpanel"
-            aria-labelledby="settings-tab-experience"
-            tabindex="0"
-          >
-            <!-- 錄製設定 -->
-            <div class="settings-section">
-            <h4><i class="bi bi-record-circle"></i> {{ t('settings.recording.title') }}</h4>
-            
-            <div class="setting-item">
-              <div class="setting-label">
-                <label for="auto-record">{{ t('settings.recording.autoRecord') }}</label>
-                <span class="setting-desc">{{ t('settings.recording.autoRecordDesc') }}</span>
-              </div>
-              <div class="setting-control">
-                <label class="switch">
-                  <input type="checkbox" id="auto-record" v-model="settings.autoRecord">
-                  <span class="slider"></span>
-                </label>
-              </div>
-            </div>
-
-            <div class="setting-item">
-              <div class="setting-label">
-                <label for="record-format">{{ t('settings.recording.format') }}</label>
-              </div>
-              <div class="setting-control">
-                <select v-model="settings.recordFormat" id="record-format">
-                  <option value="mp4">MP4 (H.264)</option>
-                  <option value="webm">WebM (VP8)</option>
-                  <option value="avi">AVI</option>
-                </select>
-              </div>
-            </div>
-            </div>
-
-            <!-- 介面設定 -->
-            <div class="settings-section">
-            <h4><i class="bi bi-palette"></i> {{ t('settings.display.title') }}</h4>
-            
-            <div class="setting-item">
-              <div class="setting-label">
-                <label for="show-debug">{{ t('settings.display.showDebug') }}</label>
-                <span class="setting-desc">{{ t('settings.display.showDebugDesc') }}</span>
-              </div>
-              <div class="setting-control">
-                <label class="switch">
-                  <input type="checkbox" id="show-debug" v-model="settings.showDebugPanel">
-                  <span class="slider"></span>
-                </label>
-              </div>
-            </div>
-
-            <div class="setting-item">
-              <div class="setting-label">
-                <label for="show-timestamp">{{ t('settings.display.showTimestamp') }}</label>
-                <span class="setting-desc">{{ t('settings.display.showTimestampDesc') }}</span>
-              </div>
-              <div class="setting-control">
-                <label class="switch">
-                  <input type="checkbox" id="show-timestamp" v-model="settings.showTimestamp">
-                  <span class="slider"></span>
-                </label>
-              </div>
-            </div>
-
-            <div class="setting-item">
-              <div class="setting-label">
-                <label for="theme">{{ t('settings.display.theme') }}</label>
-              </div>
-              <div class="setting-control">
-                <select v-model="settings.theme" id="theme">
-                  <option value="dark">{{ t('settings.display.themeDark') }}</option>
-                  <option value="light">{{ t('settings.display.themeLight') }}</option>
-                  <option value="auto">{{ t('settings.display.themeAuto') }}</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="setting-item">
-              <div class="setting-label">
-                <label for="ui-language">{{ t('settings.display.language') }}</label>
-              </div>
-              <div class="setting-control">
-                <select v-model="settings.uiLanguage" id="ui-language">
-                  <option value="zh-TW">{{ t('settings.display.langZhTW') }}</option>
-                  <option value="en-US">{{ t('settings.display.langEnUS') }}</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="setting-item">
-              <div class="setting-label">
-                <label for="video-size">{{ t('settings.display.videoSize') }}</label>
-                <span class="setting-desc">{{ t('settings.display.videoSizeDesc') }}</span>
-              </div>
-              <div class="setting-control setting-range">
-                <input 
-                  type="range" 
-                  id="video-size" 
-                  v-model="settings.videoSize"
-                  min="50" 
-                  max="150"
-                  step="5"
-                >
-                <span class="range-value">{{ settings.videoSize }}%</span>
-              </div>
-            </div>
-            </div>
-          </section>
-
-          <section
-            v-show="activeSettingsTab === 'voice'"
-            id="settings-panel-voice"
-            class="settings-tab-panel"
-            role="tabpanel"
-            aria-labelledby="settings-tab-voice"
-            tabindex="0"
-          >
-            <!-- 語音設定 -->
-            <div class="settings-section">
-            <h4><i class="bi bi-mic"></i> {{ t('settings.voice.title') }}</h4>
-            
-            <div class="setting-item info-banner">
-              <div class="info-content">
-                <i class="bi bi-info-circle"></i>
-                <div>
-                  <strong>{{ t('settings.voice.currentMode') }}</strong>
-                  <p>{{ t('settings.voice.currentModeDesc') }}</p>
-                  <p class="note">{{ t('settings.voice.currentModeNote') }}</p>
-                </div>
-              </div>
-            </div>
-            
-            </div>
-
-            <!-- STT -->
-            <div class="settings-section">
-              <h4><i class="bi bi-chat-square-text"></i> {{ t('settings.speech.sttTitle') }}</h4>
-              <p class="section-hint">{{ t('settings.speech.sttDesc') }}</p>
-
-              <div class="setting-item">
-                <div class="setting-label">
-                  <label for="stt-engine">{{ t('settings.speech.engine') }}</label>
-                </div>
-                <div class="setting-control">
-                  <select id="stt-engine" v-model="sttDraft.type" :disabled="applyingStt">
-                    <option
-                      v-for="engine in speech.stt.engines"
-                      :key="engine.id"
-                      :value="engine.id"
-                      :disabled="!engine.available"
-                    >
-                      {{ engine.label }}{{ engine.available ? '' : ` — ${engine.message}` }}
-                    </option>
-                  </select>
-                </div>
-              </div>
-
-              <div class="setting-item">
-                <div class="setting-label"><label for="stt-model">{{ t('settings.speech.model') }}</label></div>
-                <div class="setting-control">
-                  <select id="stt-model" v-model="sttDraft.model_size" :disabled="applyingStt">
-                    <option v-for="model in sttModelOptions" :key="model" :value="model">{{ model }}</option>
-                  </select>
-                </div>
-              </div>
-
-              <div class="setting-item">
-                <div class="setting-label"><label for="stt-language">{{ t('settings.speech.language') }}</label></div>
-                <div class="setting-control">
-                  <select id="stt-language" v-model="sttDraft.language" :disabled="applyingStt">
-                    <option value="zh">{{ t('settings.speech.zh') }}</option>
-                    <option value="en">English</option>
-                    <option value="auto">{{ t('settings.speech.auto') }}</option>
-                  </select>
-                </div>
-              </div>
-
-              <div v-if="sttDraft.type === 'funasr'" class="setting-item">
-                <div class="setting-label">
-                  <label for="stt-output-script">{{ t('settings.speech.outputScript') }}</label>
-                  <span class="setting-desc">{{ t('settings.speech.outputScriptDesc') }}</span>
-                </div>
-                <div class="setting-control">
-                  <select
-                    id="stt-output-script"
-                    v-model="sttDraft.output_script"
-                    :disabled="applyingStt"
-                  >
-                    <option value="traditional-tw">{{ t('settings.speech.traditionalTw') }}</option>
-                    <option value="simplified">{{ t('settings.speech.simplified') }}</option>
-                  </select>
-                </div>
-              </div>
-
-              <div class="setting-item">
-                <div class="setting-label"><label for="stt-device">{{ t('settings.speech.device') }}</label></div>
-                <div class="setting-control">
-                  <select id="stt-device" v-model="sttDraft.device" :disabled="applyingStt">
-                    <option value="auto">{{ t('settings.speech.auto') }}</option>
-                    <option value="cuda">CUDA</option>
-                    <option value="cpu">CPU</option>
-                  </select>
-                </div>
-              </div>
-
-              <p v-if="speechError" class="inline-error" role="alert">{{ speechError }}</p>
+          <!-- 右欄：大尺寸 9:16 舞台即時對照全景視窗 (滿板震撼) -->
+          <section class="stage-live-preview-card stage-layout-preview">
+            <span style="font-size: 14px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+              <i class="bi bi-eye-fill" style="color: var(--brand-light);"></i> 9:16 舞台即時對照全景 (所見即所得)
+            </span>
+            <div class="interactive-large-stage">
+              <div class="mini-avatar-shape"></div>
+              <!-- 即時同步的浮動看板 -->
               <div
-                v-if="applyingStt"
-                class="stt-prewarm-progress"
-                role="status"
-                aria-live="polite"
+                class="mini-board-rect"
+                id="miniBoardRect"
+                :style="miniBoardStyle"
               >
-                <div
-                  class="progress-track"
-                  role="progressbar"
-                  :aria-label="t('settings.speech.prewarmProgressLabel')"
-                  :aria-valuetext="t('settings.speech.prewarming')"
-                >
-                  <div class="progress-fill progress-fill-indeterminate"></div>
+                <div style="padding: 6px 8px; font-size: 10px; font-weight: 700; color: #34d399; border-bottom: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; gap: 4px;">
+                  <span>📋 核心優勢看板</span>
                 </div>
-                <p>
-                  {{ speech.stt.local_model_ready && sttDraft.type === 'funasr'
-                    ? t('settings.speech.localPrewarmProgressHint')
-                    : t('settings.speech.prewarmProgressHint') }}
-                </p>
+                <div style="padding: 4px 6px; font-size: 9px; color: #fff; line-height: 1.4;">
+                  • 全雙工打斷 (VAD)<br>
+                  • MuseTalk 高畫質<br>
+                  • 邊生成邊播串流
+                </div>
+              </div>
+              <div style="position: absolute; bottom: 8px; left: 8px; right: 8px; background: rgba(0,0,0,0.75); border-radius: 4px; padding: 4px; font-size: 9.5px; color: #cbd5e1; text-align: center;">
+                「即時字幕帶展示區域」
+              </div>
+            </div>
+            <span style="font-size: 11.5px; color: var(--text-tertiary);">
+              調整左側任何尺寸、透明度或九宮格，此處視窗即時動態響應
+            </span>
+          </section>
+        </div>
+
+        <!-- ── 分類 4：語音活動與辨識 ── -->
+        <div
+          v-show="activeSettingsTab === 'voice'"
+          class="settings-category-panel"
+          id="catPanel-voice"
+          role="tabpanel"
+          aria-labelledby="railTab-voice"
+        >
+          <!-- 左欄：Silero VAD 免持收音 -->
+          <section class="setting-card">
+            <div class="card-title-row">
+              <div>
+                <div class="card-title-text"><i class="bi bi-soundwave"></i> Silero VAD 語音端點偵測</div>
+                <div class="card-subtitle-desc">全雙工免持對話核心，自動判斷發話開始與停頓結束。</div>
               </div>
               <button
-                class="btn-apply"
                 type="button"
-                :disabled="!sttDirty || applyingStt"
-                @click="handleApplySpeech('stt')"
+                class="btn-apply-primary"
+                style="padding: 6px 14px; font-size: 12px;"
+                :disabled="applyingVad"
+                @click="handleApplyVad"
               >
-                <i :class="applyingStt ? 'bi bi-hourglass-split spin' : 'bi bi-check-lg'"></i>
-                {{ applyingStt ? t('settings.speech.prewarming') : t('settings.speech.applyStt') }}
+                <i class="bi bi-check2" :class="{ spin: applyingVad }"></i> 套用 VAD
               </button>
             </div>
 
-            <!-- Silero VAD：伺服器端語音端點偵測 -->
-            <div class="settings-section">
-            <h4><i class="bi bi-soundwave"></i> {{ t('settings.vad.title') }}</h4>
-            <p class="section-hint">{{ t('settings.vad.desc') }}</p>
-
-            <div class="setting-item info-banner">
-              <div class="info-content">
-                <i class="bi bi-info-circle"></i>
-                <div>
-                  <strong>{{ t('settings.vad.purposeTitle') }}</strong>
-                  <p>{{ t('settings.vad.purpose') }}</p>
-                </div>
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <span class="field-main-label">啟用免持全雙工收音</span>
+                <span class="field-sub-hint">開口即錄，停頓超過閥值自動送出</span>
               </div>
-            </div>
-
-            <div
-              class="setting-item info-banner"
-              :class="{ 'status-ok': vad.effective, 'status-error': vadError }"
-            >
-              <div class="info-content">
-                <i :class="vad.effective ? 'bi bi-check-circle' : 'bi bi-exclamation-circle'"></i>
-                <div>
-                  <strong>
-                    {{ vad.effective ? t('settings.vad.statusActive') : t('settings.vad.statusInactive') }}
-                    · Silero VAD
-                  </strong>
-                  <p v-if="!vad.enabled">{{ t('settings.vad.hintDisabled') }}</p>
-                  <p v-else-if="vad.asr_mode === 'browser'">{{ t('settings.vad.hintBrowser') }}</p>
-                  <p v-else>{{ t('settings.vad.hintServer') }}</p>
-                  <p v-if="vadError" class="note" role="alert">{{ vadError }}</p>
-                </div>
-              </div>
-            </div>
-
-            <div class="setting-item">
-              <div class="setting-label">
-                <label for="vad-enabled">{{ t('settings.vad.enabled') }}</label>
-                <span class="setting-desc">{{ t('settings.vad.enabledDesc') }}</span>
-              </div>
-              <div class="setting-control">
-                <label class="switch">
-                  <input
-                    type="checkbox"
-                    id="vad-enabled"
-                    v-model="vadDraft.enabled"
-                    :disabled="applyingVad"
-                    @change="handleApplyVad"
-                  >
-                  <span class="slider"></span>
+              <div class="field-control-area">
+                <label class="std-switch">
+                  <input type="checkbox" v-model="vadDraft.enabled">
+                  <span class="std-slider-track"></span>
                 </label>
               </div>
             </div>
 
-            <div class="setting-item">
-              <div class="setting-label">
-                <label for="vad-threshold">{{ t('settings.vad.threshold') }}</label>
-                <span class="setting-desc">{{ t('settings.vad.thresholdDesc') }}</span>
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <span class="field-main-label">發話判定門檻 (Threshold)</span>
+                <span class="field-sub-hint">閥值愈高抗噪愈佳，建議 0.45–0.55</span>
               </div>
-              <div class="setting-control">
-                <input
-                  type="range"
-                  id="vad-threshold"
-                  v-model.number="vadDraft.threshold"
-                  min="0.1"
-                  max="0.95"
-                  step="0.05"
-                  :disabled="applyingVad"
-                >
-                <span class="range-value">{{ Number(vadDraft.threshold).toFixed(2) }}</span>
-              </div>
-            </div>
-
-            <div class="setting-item">
-              <div class="setting-label">
-                <label for="vad-silence">{{ t('settings.vad.minSilence') }}</label>
-                <span class="setting-desc">{{ t('settings.vad.minSilenceDesc') }}</span>
-              </div>
-              <div class="setting-control">
-                <input
-                  type="range"
-                  id="vad-silence"
-                  v-model.number="vadDraft.min_silence_ms"
-                  min="100"
-                  max="2000"
-                  step="50"
-                  :disabled="applyingVad"
-                >
-                <span class="range-value">{{ vadDraft.min_silence_ms }} ms</span>
-              </div>
-            </div>
-
-            <button
-              class="btn-apply"
-              type="button"
-              :disabled="!vadDirty || applyingVad"
-              @click="handleApplyVad"
-            >
-              <i class="bi bi-hourglass-split spin" v-if="applyingVad"></i>
-              <i class="bi bi-check-lg" v-else></i>
-              {{ applyingVad ? t('settings.vad.applying') : t('settings.vad.apply') }}
-            </button>
-            </div>
-
-            <!-- TTS -->
-            <div class="settings-section">
-              <h4><i class="bi bi-volume-up"></i> {{ t('settings.speech.ttsTitle') }}</h4>
-              <p class="section-hint">{{ t('settings.speech.ttsDesc') }}</p>
-
-              <div class="setting-item">
-                <div class="setting-label"><label for="tts-engine">{{ t('settings.speech.engine') }}</label></div>
-                <div class="setting-control">
-                  <select id="tts-engine" v-model="ttsDraft.type" :disabled="applyingTts">
-                    <option
-                      v-for="engine in speech.tts.engines"
-                      :key="engine.id"
-                      :value="engine.id"
-                      :disabled="!engine.available"
-                    >
-                      {{ engine.label }}{{ engine.available ? '' : ` — ${engine.message}` }}
-                    </option>
-                  </select>
-                </div>
-              </div>
-
-              <div v-if="ttsDraft.type === 'edgetts'" class="setting-item setting-item-stack">
-                <div class="setting-label">
-                  <label for="edge-tts-voice">{{ t('settings.speech.voice') }}</label>
-                  <span id="edge-tts-voice-hint" class="setting-desc">
-                    {{ t('settings.speech.edgeVoiceDesc') }}
-                  </span>
-                </div>
-                <div class="setting-control setting-control-grow">
-                  <select
-                    id="edge-tts-voice"
-                    v-model="ttsDraft.ref_file"
-                    :disabled="applyingTts || !speech.tts.edge_voices.length"
-                    aria-describedby="edge-tts-voice-hint"
-                  >
-                    <option
-                      v-for="voice in speech.tts.edge_voices"
-                      :key="voice.id"
-                      :value="voice.id"
-                    >
-                      {{ voice.name }} · {{ t(`settings.speech.${voice.gender}`) }} — {{ voice.id }}
-                    </option>
-                  </select>
-                </div>
-              </div>
-
-              <div v-else class="setting-item setting-item-stack">
-                <div class="setting-label">
-                  <label for="tts-reference">{{ t('settings.speech.reference') }}</label>
-                  <span id="tts-reference-hint" class="setting-desc">
-                    {{ t('settings.speech.referencePathDesc') }}
-                  </span>
-                </div>
-                <div class="setting-control setting-control-grow">
+              <div class="field-control-area">
+                <div class="std-slider-combo">
                   <input
-                    id="tts-reference"
-                    v-model.trim="ttsDraft.ref_file"
-                    type="text"
-                    :placeholder="t('settings.speech.referencePathPlaceholder')"
-                    :disabled="applyingTts"
-                    aria-describedby="tts-reference-hint"
+                    type="range"
+                    class="std-range"
+                    min="0.1"
+                    max="0.9"
+                    step="0.05"
+                    v-model.number="vadDraft.threshold"
                   >
+                  <span class="std-val-pill">{{ vadDraft.threshold }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <span class="field-main-label">最小靜音判定時間 (ms)</span>
+                <span class="field-sub-hint">停頓超過此毫秒數即視為發話完畢</span>
+              </div>
+              <div class="field-control-area">
+                <div class="std-slider-combo">
+                  <input
+                    type="range"
+                    class="std-range"
+                    min="200"
+                    max="1500"
+                    step="50"
+                    v-model.number="vadDraft.min_silence_duration_ms"
+                  >
+                  <span class="std-val-pill">{{ vadDraft.min_silence_duration_ms }}ms</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 右欄：STT 與 TTS 雙引擎設定 -->
+          <section class="setting-card">
+            <div class="card-title-row">
+              <div>
+                <div class="card-title-text"><i class="bi bi-translate"></i> STT 語音辨識與 TTS 語音合成</div>
+                <div class="card-subtitle-desc">配置音訊轉換模型與數位人播音音色。</div>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button
+                  type="button"
+                  class="btn-apply-primary"
+                  style="padding: 6px 14px; font-size: 12px;"
+                  :disabled="applyingStt"
+                  @click="handleApplySpeech('stt')"
+                >
+                  <i class="bi bi-check2" :class="{ spin: applyingStt }"></i> 套用 STT
+                </button>
+                <button
+                  type="button"
+                  class="btn-apply-primary"
+                  style="padding: 6px 14px; font-size: 12px;"
+                  :disabled="applyingTts"
+                  @click="handleApplySpeech('tts')"
+                >
+                  <i class="bi bi-check2" :class="{ spin: applyingTts }"></i> 套用 TTS
+                </button>
+              </div>
+            </div>
+
+            <!-- STT 引擎 -->
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <span class="field-main-label">STT 語音辨識引擎</span>
+              </div>
+              <div class="field-control-area">
+                <select class="std-select" v-model="sttDraft.type">
+                  <option
+                    v-for="opt in sttModelOptions"
+                    :key="opt.value"
+                    :value="opt.value"
+                  >
+                    {{ opt.label }}
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <!-- FunASR 繁簡字元集 -->
+            <div class="setting-form-row" v-if="sttDraft.type === 'funasr'">
+              <div class="field-label-group">
+                <span class="field-main-label">輸出文字字元集</span>
+              </div>
+              <div class="field-control-area">
+                <select class="std-select" v-model="sttDraft.output_script">
+                  <option value="traditional-tw">繁體中文 (台灣正體)</option>
+                  <option value="simplified">簡體中文</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- STT 預熱進度條 -->
+            <div
+              v-if="applyingStt"
+              class="stt-prewarm-progress"
+              role="status"
+              aria-live="polite"
+              style="margin-bottom: 12px;"
+            >
+              <div
+                class="progress-track"
+                role="progressbar"
+                :aria-label="t('settings.speech.prewarmProgressLabel')"
+                :aria-valuetext="t('settings.speech.prewarming')"
+              >
+                <div class="progress-fill progress-fill-indeterminate"></div>
+              </div>
+              <p style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">
+                {{ speech.stt.local_model_ready && sttDraft.type === 'funasr'
+                  ? t('settings.speech.localPrewarmProgressHint')
+                  : t('settings.speech.prewarmProgressHint') }}
+              </p>
+            </div>
+
+            <!-- TTS 引擎 -->
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <span class="field-main-label">TTS 語音合成引擎</span>
+              </div>
+              <div class="field-control-area">
+                <select class="std-select" v-model="ttsDraft.type">
+                  <option value="edgetts">Edge-TTS (雲端免顯存 · 低延遲)</option>
+                  <option value="cosyvoice">CosyVoice (本機聲音複製 · 深度神經合成)</option>
+                  <option value="fun-cosyvoice3">Fun-CosyVoice3 (最新多語神經模型)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Edge TTS 聲線 -->
+            <div class="setting-form-row" v-if="ttsDraft.type === 'edgetts'">
+              <div class="field-label-group">
+                <span class="field-main-label">播音音色 (Voice)</span>
+              </div>
+              <div class="field-control-area">
+                <select class="std-select" v-model="ttsDraft.voice">
+                  <option value="zh-CN-YunxiNeural">雲希 (親切溫和青年男聲)</option>
+                  <option value="zh-CN-XiaoxiaoNeural">曉曉 (知性清亮女聲)</option>
+                  <option value="zh-TW-HsiaoChenNeural">曉臻 (台灣腔調親切女聲)</option>
+                  <option value="zh-TW-YunJheNeural">雲哲 (台灣男聲)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- CosyVoice 專屬設定 -->
+            <template v-if="isCosyVoiceFamily">
+              <div class="setting-form-row">
+                <div class="field-label-group">
+                  <label for="tts-cosyvoice-language" class="field-main-label">{{ t('settings.speech.cosyvoiceLanguage') }}</label>
+                </div>
+                <div class="field-control-area">
+                  <select id="tts-cosyvoice-language" class="std-select" v-model="ttsDraft.language">
+                    <option v-for="item in cosyvoiceLanguageOptions" :key="item.id" :value="item.id">{{ item.label }}</option>
+                  </select>
                 </div>
               </div>
 
-              <template v-if="ttsDraft.type !== 'edgetts'">
-                <div class="setting-item">
-                  <div class="setting-label"><label for="tts-server">{{ t('settings.speech.server') }}</label></div>
-                  <div class="setting-control">
-                    <input id="tts-server" v-model.trim="ttsDraft.tts_server" type="url" :disabled="applyingTts">
-                  </div>
+              <div class="setting-form-row">
+                <div class="field-label-group">
+                  <label for="tts-cosyvoice-prompt-text" class="field-main-label">{{ t('settings.speech.cosyvoiceInstruct') }}</label>
                 </div>
-                <div class="setting-item">
-                  <div class="setting-label"><label for="tts-ref-text">{{ t('settings.speech.referenceText') }}</label></div>
-                  <div class="setting-control">
-                    <input id="tts-ref-text" v-model.trim="ttsDraft.ref_text" type="text" :disabled="applyingTts">
-                  </div>
+                <div class="field-control-area">
+                  <input id="tts-cosyvoice-prompt-text" class="chat-text-entry" type="text" v-model="ttsDraft.instruct">
                 </div>
-              </template>
+              </div>
 
-              <template v-if="isCosyVoiceFamily">
-                <div class="setting-item setting-item-stack">
-                  <div class="setting-label">
-                    <label for="tts-model">{{ t('settings.speech.cosyvoiceModel') }}</label>
-                    <span id="tts-model-hint" class="setting-desc">
-                      {{ t('settings.speech.cosyvoiceModelDesc') }}
-                    </span>
-                  </div>
-                  <div class="setting-control setting-control-grow">
-                    <input
-                      id="tts-model"
-                      v-model.trim="ttsDraft.model"
-                      type="text"
-                      :placeholder="t('settings.speech.cosyvoiceModelPlaceholder')"
-                      :disabled="applyingTts"
-                      aria-describedby="tts-model-hint"
-                    >
-                  </div>
+              <div class="setting-form-row">
+                <div class="field-label-group">
+                  <label for="tts-cosyvoice-prompt-wav" class="field-main-label">{{ t('settings.speech.cosyvoiceModel') }}</label>
                 </div>
-                <div class="setting-item setting-item-stack">
-                  <div class="setting-label">
-                    <label for="tts-language">{{ t('settings.speech.cosyvoiceLanguage') }}</label>
-                    <span id="tts-language-hint" class="setting-desc">
-                      {{ t('settings.speech.cosyvoiceLanguageDesc') }}
-                    </span>
-                  </div>
-                  <div class="setting-control setting-control-grow">
-                    <select
-                      id="tts-language"
-                      v-model="ttsDraft.language"
-                      :disabled="applyingTts"
-                      aria-describedby="tts-language-hint"
-                    >
-                      <option
-                        v-for="item in cosyvoiceLanguageOptions"
-                        :key="item.id"
-                        :value="item.id"
-                      >
-                        {{ item.label }}
-                      </option>
-                    </select>
-                  </div>
+                <div class="field-control-area">
+                  <input id="tts-cosyvoice-prompt-wav" class="chat-text-entry" type="text" v-model="ttsDraft.model">
                 </div>
-                <div class="setting-item setting-item-stack">
-                  <div class="setting-label">
-                    <label for="tts-instruct">{{ t('settings.speech.cosyvoiceInstruct') }}</label>
-                    <span id="tts-instruct-hint" class="setting-desc">
-                      {{ t('settings.speech.cosyvoiceInstructDesc') }}
-                    </span>
-                  </div>
-                  <div class="setting-control setting-control-grow">
-                    <input
-                      id="tts-instruct"
-                      v-model.trim="ttsDraft.instruct"
-                      type="text"
-                      :placeholder="t('settings.speech.cosyvoiceInstructPlaceholder')"
-                      :disabled="applyingTts"
-                      aria-describedby="tts-instruct-hint"
-                    >
-                  </div>
-                </div>
-              </template>
+              </div>
+            </template>
 
-              <button
-                class="btn-apply"
-                type="button"
-                :disabled="!ttsDirty || applyingTts"
-                @click="handleApplySpeech('tts')"
-              >
-                <i :class="applyingTts ? 'bi bi-hourglass-split spin' : 'bi bi-check-lg'"></i>
-                {{ applyingTts ? t('settings.speech.applying') : t('settings.speech.applyTts') }}
-              </button>
+            <!-- 參考音訊路徑 (非 Edge-TTS 時) -->
+            <div class="setting-form-row" v-if="ttsDraft.type !== 'edgetts'">
+              <div class="field-label-group">
+                <label for="tts-voice-audio-path" class="field-main-label">參考音訊路徑</label>
+                <span class="field-sub-hint">{{ t('settings.speech.referencePathDesc') }}</span>
+              </div>
+              <div class="field-control-area">
+                <input
+                  id="tts-voice-audio-path"
+                  class="chat-text-entry"
+                  type="text"
+                  v-model.trim="ttsDraft.ref_file"
+                  :placeholder="t('settings.speech.referencePathPlaceholder')"
+                >
+              </div>
             </div>
           </section>
         </div>
 
-        <div class="settings-footer">
-          <button class="btn-secondary" @click="confirmKind = 'reset'">
-            <i class="bi bi-arrow-counterclockwise"></i>
-            {{ t('settings.resetDefault') }}
-          </button>
-          <button class="btn-primary" @click="saveSettings">
-            <i class="bi bi-check-lg"></i>
-            {{ t('settings.save') }}
+        <!-- ── 分類 5：系統偏好與自訂 ── -->
+        <div
+          v-show="activeSettingsTab === 'experience'"
+          class="settings-category-panel"
+          id="catPanel-experience"
+          role="tabpanel"
+          aria-labelledby="railTab-experience"
+        >
+          <section class="setting-card">
+            <div class="card-title-row">
+              <div>
+                <div class="card-title-text"><i class="bi bi-palette-fill"></i> 外觀主題與操作語系</div>
+                <div class="card-subtitle-desc">自訂控制台視覺風格與介面繁簡語言。</div>
+              </div>
+            </div>
+
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <span class="field-main-label">介面色彩主題</span>
+              </div>
+              <div class="field-control-area">
+                <select class="std-select" id="themeSelectDropdown" v-model="selectedThemeValue" @change="onThemeDropdownChange">
+                  <option value="obsidian">樣式 A: Dark (深色模式)</option>
+                  <option value="bento">樣式 C: White (淺色模式)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <span class="field-main-label">介面語系 (Language)</span>
+              </div>
+              <div class="field-control-area">
+                <select class="std-select" v-model="settings.uiLanguage" @change="onLanguageChange">
+                  <option value="zh-TW">繁體中文 (台灣正體)</option>
+                  <option value="en-US">English (US)</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <section class="setting-card">
+            <div class="card-title-row">
+              <div>
+                <div class="card-title-text"><i class="bi bi-speedometer"></i> 診斷監控與錄製配置</div>
+                <div class="card-subtitle-desc">效能除錯輔助與本機影片封裝選項。</div>
+              </div>
+            </div>
+
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <span class="field-main-label">顯示即時除錯監控浮層</span>
+                <span class="field-sub-hint">即時顯示 WebRTC 封包遺失率、FPS 與延遲統計</span>
+              </div>
+              <div class="field-control-area">
+                <label class="std-switch">
+                  <input type="checkbox" v-model="settings.showDebugPanel">
+                  <span class="std-slider-track"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <span class="field-main-label">訊息精確時間戳記</span>
+                <span class="field-sub-hint">在每條對話氣泡旁標注發送與接收時間</span>
+              </div>
+              <div class="field-control-area">
+                <label class="std-switch">
+                  <input type="checkbox" v-model="settings.showTimestamp">
+                  <span class="std-slider-track"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="setting-form-row">
+              <div class="field-label-group">
+                <span class="field-main-label">影片錄製封裝格式</span>
+              </div>
+              <div class="field-control-area">
+                <select class="std-select" v-model="settings.recordFormat">
+                  <option value="mp4">MP4 (H.264 · 廣泛相容)</option>
+                  <option value="webm">WebM (VP8/VP9)</option>
+                </select>
+              </div>
+            </div>
+          </section>
+        </div>
+
+      </div>
+
+      <!-- 滿板固定底部動作條 -->
+      <footer class="settings-fixed-footer">
+        <button type="button" class="btn-restore-gray" @click="confirmKind = 'reset'">
+          <i class="bi bi-arrow-counterclockwise"></i> 還原所有預設
+        </button>
+        <div class="footer-right-actions">
+          <span class="dirty-badge-text" id="dirtyIndicator" v-if="hasUnsavedChanges">
+            <i class="bi bi-exclamation-circle-fill"></i> 有未儲存的變更
+          </span>
+          <button type="button" class="btn-apply-primary" @click="saveAndApplyFullSettings">
+            <i class="bi bi-check-lg"></i> 儲存並套用設定
           </button>
         </div>
-      </div>
-    </transition>
+      </footer>
+    </main>
 
     <!-- 確認對話方塊 -->
     <transition name="fade">
@@ -1526,8 +1063,9 @@
             {{ confirmDialogMessage }}
           </div>
           <div class="confirm-footer">
-            <button class="btn-secondary" @click="confirmKind = ''">{{ t('settings.cancel') }}</button>
+            <button type="button" class="btn-secondary" @click="confirmKind = ''">{{ t('settings.cancel') }}</button>
             <button
+              type="button"
               :class="confirmKind === 'reset' ? 'btn-danger' : 'btn-primary'"
               @click="confirmAction"
             >
@@ -1538,10 +1076,6 @@
       </div>
     </transition>
 
-    <!-- 遮罩層 -->
-    <transition name="fade">
-      <div v-if="showSettings" class="settings-overlay" @click="showSettings = false"></div>
-    </transition>
   </div>
 </template>
 
@@ -1549,41 +1083,43 @@
 import { computed, ref, watch, onMounted } from 'vue'
 import { useI18n } from '../composables/useI18n'
 import { useRuntimeSettings } from '../composables/useRuntimeSettings'
-import { placeStageBoard, previewScale, micStyle } from '../stageBoardLayout.js'
 
-const { t } = useI18n()
-const showSettings = ref(false)
-const confirmKind = ref('')
-const activeSettingsTab = ref('ai')
-const settingsContentRef = ref(null)
-
-const boardStyles = [
-  { id: 'glass', titleKey: 'settings.stage.styleGlass', descKey: 'settings.stage.styleGlassDesc' },
-  { id: 'slate', titleKey: 'settings.stage.styleSlate', descKey: 'settings.stage.styleSlateDesc' },
-  { id: 'cue', titleKey: 'settings.stage.styleCue', descKey: 'settings.stage.styleCueDesc' }
-]
-const STAGE_PREVIEW_W = 96
-const STAGE_PREVIEW_H = 170
-const previewBoardStyle = computed(() => {
-  const scale = previewScale(STAGE_PREVIEW_W, STAGE_PREVIEW_H)
-  const box = placeStageBoard({
-    stageW: STAGE_PREVIEW_W,
-    stageH: STAGE_PREVIEW_H,
-    targetW: Number(selectedBoardWidth.value),
-    targetH: Number(selectedBoardHeight.value),
-    x: Number(selectedBoardX.value),
-    y: Number(selectedBoardY.value),
-    scale
-  })
-  return {
-    width: `${box.width}px`,
-    height: `${box.height}px`,
-    left: `${box.left}px`,
-    top: `${box.top}px`,
-    opacity: Math.max(0.25, 1 - Number(selectedBoardTransparency.value) / 100)
+const { t, setLocale } = useI18n()
+const props = defineProps({
+  isConnected: {
+    type: Boolean,
+    default: false
+  },
+  currentTheme: {
+    type: String,
+    default: 'obsidian'
+  },
+  initialTab: {
+    type: String,
+    default: 'ai'
   }
 })
-const previewMicStyle = computed(() => micStyle(selectedMicX.value, selectedMicY.value))
+
+const emit = defineEmits([
+  'settings-changed',
+  'notification',
+  'request-disconnect',
+  'avatar-ready',
+  'switch-theme',
+  'close-settings'
+])
+
+const showSettings = ref(true)
+const isFullBleed = ref(true)
+const activeSettingsTab = ref(props.initialTab || 'ai')
+const settingsContentRef = ref(null)
+const confirmKind = ref('')
+
+const stageBoardStyles = [
+  { id: 'glass', icon: '🪟', label: '毛玻璃視窗', desc: '半透霧面高雅質感' },
+  { id: 'slate', icon: '🎬', label: '場記板', desc: '實色底與高對比色條' },
+  { id: 'cue', icon: '🏷️', label: '廣播字卡', desc: '獨立懸浮條目小卡' }
+]
 
 const boardPresets = [
   { id: 'tl', labelKey: 'settings.stage.posTl' },
@@ -1597,20 +1133,23 @@ const boardPresets = [
   { id: 'br', labelKey: 'settings.stage.posBr' }
 ]
 
-const settingsTabs = computed(() => [
-  { id: 'ai', icon: 'bi bi-cpu', label: t('settings.tabs.ai') },
-  { id: 'avatar', icon: 'bi bi-person-video3', label: t('settings.tabs.avatar') },
-  { id: 'stage', icon: 'bi bi-badge-cc', label: t('settings.tabs.stage') },
-  { id: 'voice', icon: 'bi bi-mic', label: t('settings.tabs.voice') },
-  { id: 'experience', icon: 'bi bi-sliders2', label: t('settings.tabs.experience') }
-])
+const boardPresetsCoords = {
+  tl: { top: '10%', left: '8%', right: 'auto' },
+  tc: { top: '10%', left: '22%', right: 'auto' },
+  tr: { top: '14%', right: '8%', left: 'auto' },
+  ml: { top: '35%', left: '8%', right: 'auto' },
+  mc: { top: '35%', left: '22%', right: 'auto' },
+  mr: { top: '35%', right: '8%', left: 'auto' },
+  bl: { top: '55%', left: '8%', right: 'auto' },
+  bc: { top: '55%', left: '22%', right: 'auto' },
+  br: { top: '55%', right: '8%', left: 'auto' }
+}
 
-const props = defineProps({
-  isConnected: {
-    type: Boolean,
-    default: false
-  }
-})
+const ruleFields = [
+  { key: 'activation', label: '看板啟用規則', description: '判斷本輪使用簡答或看板；理解語意，不只比對關鍵字。' },
+  { key: 'speech', label: '口語回答規則', description: '控制數字人口語摘要與看板提示方式。' },
+  { key: 'board', label: '看板內容規則', description: '控制條列項目、細節與追問指涉方式。' }
+]
 
 const {
   runtime,
@@ -1708,12 +1247,6 @@ const isCosyVoiceFamily = computed(() => (
   ttsDraft.type === 'cosyvoice' || ttsDraft.type === 'fun-cosyvoice3'
 ))
 
-const ruleFields = [
-  { key: 'activation', label: '看板啟用規則', description: '判斷本輪使用簡答或看板；理解語意，不只比對關鍵字。' },
-  { key: 'speech', label: '口語回答規則', description: '控制數字人口語摘要與看板提示方式。' },
-  { key: 'board', label: '看板內容規則', description: '控制條列項目、細節與追問指涉方式。' }
-]
-
 const COSYVOICE_LANGUAGE_FALLBACK = [
   { id: 'zh', label: '中文' },
   { id: 'en', label: 'English' },
@@ -1745,98 +1278,63 @@ const cosyvoiceLanguageOptions = computed(() => {
     : COSYVOICE_LANGUAGE_FALLBACK
 })
 
-const currentVadLabel = computed(() => 'Silero VAD')
-
 const activeLlmBackend = computed(() => {
   return selectedProvider.value === 'llamacpp' ? llamacpp : ollama
 })
 
-const llmStatusTitle = computed(() => {
-  if (selectedProvider.value === 'llamacpp') {
-    if (llamacpp.server_running) return t('settings.llm.llamacppRunning')
-    if (llamacpp.reachable) return t('settings.llm.llamacppReady')
-    return t('settings.llm.llamacppMissing')
+const currentBoardStyleLabel = computed(() => {
+  const s = stageBoardStyles.find(item => item.id === selectedBoardStyle.value)
+  return s ? s.label : '毛玻璃'
+})
+
+const settingsTabs = computed(() => [
+  { id: 'ai', icon: 'bi bi-cpu-fill', label: 'AI 模型與規則', badge: selectedProvider.value === 'ollama' ? 'Ollama' : 'llama.cpp' },
+  { id: 'avatar', icon: 'bi bi-person-video3', label: '數位人與畫質', badge: selectedEngine.value === 'musetalk' ? 'MuseTalk' : 'Wav2Lip' },
+  { id: 'stage', icon: 'bi bi-badge-cc-fill', label: '舞台與看板排版', badge: currentBoardStyleLabel.value },
+  { id: 'voice', icon: 'bi bi-soundwave', label: '語音活動與辨識', badge: 'Silero' },
+  { id: 'experience', icon: 'bi bi-palette-fill', label: '系統偏好與自訂' }
+])
+
+const miniBoardStyle = computed(() => {
+  const p = boardPresetsCoords[selectedBoardPreset.value] || { top: '14%', right: '8%', left: 'auto' }
+  let bg = 'rgba(15, 20, 32, 0.88)'
+  let border = '1px solid rgba(255, 255, 255, 0.2)'
+  if (selectedBoardStyle.value === 'slate') {
+    bg = '#0d1017'
+    border = '2px solid var(--brand)'
+  } else if (selectedBoardStyle.value === 'cue') {
+    bg = 'rgba(30, 41, 59, 0.92)'
+    border = '1px dashed rgba(255, 255, 255, 0.3)'
   }
-  return ollama.reachable ? t('settings.llm.connected') : t('settings.llm.disconnected')
-})
-
-const currentEngineLabel = computed(() => {
-  const engine = runtime.engines.find((item) => item.id === runtime.avatar.type)
-  return engine ? engine.label : (runtime.avatar.type || '—')
-})
-
-const selectedEngineMeta = computed(() => {
-  return runtime.engines.find((item) => item.id === selectedEngine.value) || null
-})
-
-const selectedEngineLabel = computed(() => {
-  return selectedEngineMeta.value?.label || selectedEngine.value || '—'
-})
-
-const canImportSelected = computed(() => Boolean(selectedEngineMeta.value?.can_import))
-
-const importFile = ref(null)
-const importAvatarId = ref('')
-const importDragging = ref(false)
-const importFileInput = ref(null)
-
-const importNamePlaceholder = computed(() => {
-  const engine = selectedEngine.value || 'avatar'
-  return `${engine}_custom`
-})
-
-const canStartImport = computed(() => {
-  return canImportSelected.value && !!importFile.value && !importing.value && !applyingAvatar.value
-})
-
-const confirmDialogTitle = computed(() => {
-  if (confirmKind.value === 'avatar') return t('settings.avatar.confirmTitle')
-  if (confirmKind.value === 'stt' || confirmKind.value === 'tts') {
-    return t('settings.speech.confirmTitle')
+  return {
+    top: p.top,
+    left: p.left,
+    right: p.right,
+    width: `${Math.round(selectedBoardWidth.value / 5.5)}%`,
+    height: `${Math.round(selectedBoardHeight.value / 9)}%`,
+    background: bg,
+    border: border,
+    opacity: Math.max(0.2, 1 - Number(selectedBoardTransparency.value) / 100)
   }
-  return t('settings.confirmTitle')
 })
 
-const confirmDialogMessage = computed(() => {
-  if (confirmKind.value === 'avatar') return t('settings.avatar.confirmMessage')
-  if (confirmKind.value === 'stt' || confirmKind.value === 'tts') {
-    return t('settings.speech.confirmMessage')
-  }
-  return t('settings.confirmMessage')
-})
-
-// 預設設定
 const defaultSettings = {
-  // WebRTC：預設關閉 STUN，本機直連
   useStun: false,
   stunServer: 'stun:stun.miwifi.com:3478',
   customStunServer: '',
-  
-  // 錄製
   autoRecord: false,
   recordFormat: 'mp4',
-  
-  // 介面
   showDebugPanel: false,
   showTimestamp: true,
-  theme: 'dark',
+  theme: 'obsidian',
   uiLanguage: 'zh-TW',
-  videoSize: 100,
-  
-  // 語音引擎由伺服器執行時設定管理
+  videoSize: 100
 }
 
 const settings = ref({ ...defaultSettings })
-
-// 定義事件
-const emit = defineEmits(['settings-changed', 'notification', 'request-disconnect', 'avatar-ready'])
-
-const toggleSettings = () => {
-  showSettings.value = !showSettings.value
-}
+const selectedThemeValue = ref(props.currentTheme || 'obsidian')
 
 const selectSettingsTab = (tabId) => {
-  if (!settingsTabs.value.some((tab) => tab.id === tabId)) return
   activeSettingsTab.value = tabId
   if (settingsContentRef.value) settingsContentRef.value.scrollTop = 0
 }
@@ -1844,75 +1342,20 @@ const selectSettingsTab = (tabId) => {
 const handleTabKeydown = (event, currentIndex) => {
   const lastIndex = settingsTabs.value.length - 1
   let nextIndex = currentIndex
-  if (event.key === 'ArrowRight') nextIndex = currentIndex === lastIndex ? 0 : currentIndex + 1
-  else if (event.key === 'ArrowLeft') nextIndex = currentIndex === 0 ? lastIndex : currentIndex - 1
-  else if (event.key === 'Home') nextIndex = 0
-  else if (event.key === 'End') nextIndex = lastIndex
-  else return
-
+  if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+    nextIndex = currentIndex === lastIndex ? 0 : currentIndex + 1
+  } else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+    nextIndex = currentIndex === 0 ? lastIndex : currentIndex - 1
+  } else {
+    return
+  }
   event.preventDefault()
-  const nextTab = settingsTabs.value[nextIndex]
-  selectSettingsTab(nextTab.id)
-  document.getElementById(`settings-tab-${nextTab.id}`)?.focus()
+  selectSettingsTab(settingsTabs.value[nextIndex].id)
 }
 
 const formatOllamaOption = (model) => {
   const extras = [model.parameter_size, model.size_label].filter(Boolean)
   return extras.length ? `${model.name} · ${extras.join(' · ')}` : model.name
-}
-
-const refreshOllama = async () => {
-  try {
-    await loadOllamaModels()
-  } catch (error) {
-    emit('notification', error.message, 'error')
-  }
-}
-
-const handleApplyVad = async () => {
-  try {
-    vadDraft.type = 'silero'
-    const data = await applyVadSettings()
-    if (data.warmup_error) {
-      emit('notification', data.warmup_error, 'warning')
-      return
-    }
-    emit('notification', `${t('notifications.vadSwitched')}: ${currentVadLabel.value}`, 'success')
-  } catch (error) {
-    emit('notification', error.message, 'error')
-  }
-}
-
-const applySpeechChange = async (kind) => {
-  try {
-    if (props.isConnected) {
-      emit('request-disconnect')
-      await new Promise((resolve) => setTimeout(resolve, 250))
-    }
-    const apply = kind === 'stt' ? applySttSettings : applyTtsSettings
-    try {
-      await apply()
-    } catch (error) {
-      if (!error.payload?.need_disconnect) throw error
-      await new Promise((resolve) => setTimeout(resolve, 750))
-      await apply()
-    }
-    if (kind === 'stt') {
-      emit('notification', t('settings.speech.sttApplied'), 'success')
-    } else {
-      emit('notification', t('settings.speech.ttsApplied'), 'success')
-    }
-  } catch (error) {
-    emit('notification', error.message, 'error')
-  }
-}
-
-const handleApplySpeech = (kind) => {
-  if (props.isConnected) {
-    confirmKind.value = kind
-    return
-  }
-  applySpeechChange(kind)
 }
 
 const handleApplyLlm = async () => {
@@ -1928,6 +1371,25 @@ const handleApplyReplyRules = async () => {
   try {
     await applyReplyRules()
     emit('notification', '回覆規則已儲存，從下一輪生效。', 'success')
+  } catch (error) {
+    emit('notification', error.message, 'error')
+  }
+}
+
+const handleApplyPromptAndRules = async () => {
+  try {
+    await applyLlmModel()
+    await applyReplyRules()
+    emit('notification', 'Prompt 與回覆規則已儲存並套用。', 'success')
+  } catch (error) {
+    emit('notification', error.message, 'error')
+  }
+}
+
+const handleApplyMouthQuality = async () => {
+  try {
+    await applyMouthQuality()
+    emit('notification', t('notifications.qualityApplied'), 'success')
   } catch (error) {
     emit('notification', error.message, 'error')
   }
@@ -1969,54 +1431,129 @@ const applyAvatarChange = async () => {
   }
 }
 
-const confirmAction = () => {
-  const kind = confirmKind.value
-  confirmKind.value = ''
-  if (kind === 'reset') {
-    resetSettings()
-  } else if (kind === 'avatar') {
-    applyAvatarChange()
-  } else if (kind === 'stt' || kind === 'tts') {
-    applySpeechChange(kind)
-  }
-}
-
-const loadRuntimePanel = async () => {
+const handleApplyVad = async () => {
   try {
-    await Promise.all([loadRuntimeSettings(), loadOllamaModels()])
     vadDraft.type = 'silero'
-    if (vad.type !== 'silero' || (vad.enabled && vad.asr_mode !== 'server')) {
-      await applyVadSettings()
+    const data = await applyVadSettings()
+    if (data.warmup_error) {
+      emit('notification', data.warmup_error, 'warning')
+      return
     }
-  } catch (error) {
-    console.error('Failed to load runtime settings:', error)
-  }
-}
-
-const onImportDragOver = () => {
-  if (canImportSelected.value && !importing.value) {
-    importDragging.value = true
-  }
-}
-
-const onImportDrop = (event) => {
-  importDragging.value = false
-  const file = event.dataTransfer?.files?.[0]
-  if (file) importFile.value = file
-}
-
-const onImportFileChange = (event) => {
-  const file = event.target.files?.[0]
-  importFile.value = file || null
-}
-
-const handleApplyMouthQuality = async () => {
-  try {
-    await applyMouthQuality()
-    emit('notification', t('notifications.qualityApplied'), 'success')
+    emit('notification', `${t('notifications.vadSwitched')}: Silero VAD`, 'success')
   } catch (error) {
     emit('notification', error.message, 'error')
   }
+}
+
+const handleApplySpeech = (kind) => {
+  if (props.isConnected) {
+    confirmKind.value = kind
+    return
+  }
+  applySpeechChange(kind)
+}
+
+const applySpeechChange = async (kind) => {
+  try {
+    if (props.isConnected) {
+      emit('request-disconnect')
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+    const apply = kind === 'stt' ? applySttSettings : applyTtsSettings
+    try {
+      await apply()
+    } catch (error) {
+      if (!error.payload?.need_disconnect) throw error
+      await new Promise((resolve) => setTimeout(resolve, 750))
+      await apply()
+    }
+    if (kind === 'stt') {
+      emit('notification', t('settings.speech.sttApplied'), 'success')
+    } else {
+      emit('notification', t('settings.speech.ttsApplied'), 'success')
+    }
+  } catch (error) {
+    emit('notification', error.message, 'error')
+  }
+}
+
+const onThemeDropdownChange = () => {
+  emit('switch-theme', selectedThemeValue.value)
+}
+
+const onLanguageChange = () => {
+  setLocale(settings.value.uiLanguage)
+}
+
+const syncTheme = (theme) => {
+  selectedThemeValue.value = theme
+  settings.value.theme = theme
+}
+
+const hasUnsavedChanges = computed(() => {
+  return Boolean(
+    llmDirty.value ||
+    rulesDirty.value ||
+    stageDirty.value ||
+    avatarDirty.value ||
+    qualityDirty.value ||
+    vadDirty.value ||
+    sttDirty.value ||
+    ttsDirty.value
+  )
+})
+
+const saveAndApplyFullSettings = async () => {
+  try {
+    const promises = []
+    if (llmDirty.value) promises.push(applyLlmModel())
+    if (rulesDirty.value) promises.push(applyReplyRules())
+    if (stageDirty.value) promises.push(applyStageSettings())
+    if (qualityDirty.value) promises.push(applyMouthQuality())
+    if (avatarDirty.value) promises.push(applyAvatarChange())
+    if (vadDirty.value) promises.push(applyVadSettings())
+    if (sttDirty.value) promises.push(applySpeechChange('stt'))
+    if (ttsDirty.value) promises.push(applySpeechChange('tts'))
+
+    persistLocalSettings()
+    if (promises.length > 0) {
+      await Promise.all(promises)
+      emit('notification', '✅ 設定已成功套用至全系統！', 'success')
+    } else {
+      emit('notification', t('notifications.settingsSaved'), 'success')
+    }
+    emit('close-settings')
+  } catch (err) {
+    emit('notification', err.message, 'error')
+  }
+}
+
+const persistLocalSettings = () => {
+  localStorage.setItem('linly-talker-stream-settings', JSON.stringify(settings.value))
+  emit('settings-changed', settings.value)
+}
+
+const resetSettings = () => {
+  settings.value = { ...defaultSettings }
+  localStorage.removeItem('linly-talker-stream-settings')
+  emit('settings-changed', settings.value)
+  emit('notification', t('notifications.settingsReset'), 'success')
+}
+
+const importFile = ref(null)
+const importAvatarId = ref('')
+const importFileInput = ref(null)
+const importNamePlaceholder = computed(() => `${selectedEngine.value || 'avatar'}_custom`)
+const canStartImport = computed(() => !!importFile.value && !importing.value && !applyingAvatar.value)
+
+const onImportDragOver = () => {}
+const onImportDrop = (event) => {
+  const file = event.dataTransfer?.files?.[0]
+  if (file) importFile.value = file
+}
+const onImportFileChange = (event) => {
+  const file = event.target.files?.[0]
+  importFile.value = file || null
 }
 
 const handleImportCharacter = async () => {
@@ -2039,1310 +1576,253 @@ const handleImportCharacter = async () => {
     if (importFileInput.value) importFileInput.value.value = ''
     emit('notification', t('notifications.avatarImported'), 'success')
   } catch (error) {
-    if (error.status === 409 && error.payload?.need_disconnect) {
-      emit('request-disconnect')
-      emit('notification', t('settings.import.needDisconnect'), 'warning')
-      return
-    }
     emit('notification', error.message, 'error')
   }
 }
 
-const persistLocalSettings = () => {
-  localStorage.setItem('linly-talker-stream-settings', JSON.stringify(settings.value))
-  emit('settings-changed', settings.value)
+const confirmDialogTitle = computed(() => {
+  if (confirmKind.value === 'avatar') return t('settings.avatar.confirmTitle')
+  if (confirmKind.value === 'stt' || confirmKind.value === 'tts') return t('settings.speech.confirmTitle')
+  return t('settings.confirmTitle')
+})
+
+const confirmDialogMessage = computed(() => {
+  if (confirmKind.value === 'avatar') return t('settings.avatar.confirmMessage')
+  if (confirmKind.value === 'stt' || confirmKind.value === 'tts') return t('settings.speech.confirmMessage')
+  return t('settings.confirmMessage')
+})
+
+const confirmAction = () => {
+  const kind = confirmKind.value
+  confirmKind.value = ''
+  if (kind === 'reset') resetSettings()
+  else if (kind === 'avatar') applyAvatarChange()
+  else if (kind === 'stt' || kind === 'tts') applySpeechChange(kind)
 }
 
-const saveSettings = () => {
-  persistLocalSettings()
-  showSettings.value = false
-  emit('notification', t('notifications.settingsSaved'), 'success')
-}
-
-const resetSettings = () => {
-  settings.value = { ...defaultSettings }
-  localStorage.removeItem('linly-talker-stream-settings')
-  emit('settings-changed', settings.value)
-  emit('notification', t('notifications.settingsReset'), 'success')
-}
-
-const migrateLocalSettings = (saved) => {
-  const next = { ...defaultSettings, ...saved }
-  if (next.uiLanguage === 'zh-CN' || next.uiLanguage === 'zh') {
-    next.uiLanguage = 'zh-TW'
+const loadRuntimePanel = async () => {
+  const [runtimeResult] = await Promise.allSettled([
+    loadRuntimeSettings(),
+    loadOllamaModels()
+  ])
+  if (runtimeResult.status === 'fulfilled') {
+    vadDraft.type = 'silero'
+    if (vad.type !== 'silero' || (vad.enabled && vad.asr_mode !== 'server')) {
+      await applyVadSettings().catch((error) => {
+        console.error('Failed to normalize VAD settings:', error)
+      })
+    }
+  } else {
+    console.error('Failed to load runtime settings:', runtimeResult.reason)
   }
-  const clearedKey = 'linly-talker-stream-webrtc-cleared-v1'
-  if (!localStorage.getItem(clearedKey)) {
-    next.useStun = false
-    next.customStunServer = ''
-    next.stunServer = defaultSettings.stunServer
-    localStorage.setItem(clearedKey, '1')
-  }
-  return next
 }
 
 onMounted(() => {
+  loadRuntimePanel()
   const savedSettings = localStorage.getItem('linly-talker-stream-settings')
   if (savedSettings) {
     try {
-      settings.value = migrateLocalSettings(JSON.parse(savedSettings))
-      persistLocalSettings()
+      settings.value = { ...defaultSettings, ...JSON.parse(savedSettings) }
     } catch (e) {
-      console.error('Failed to load settings:', e)
-      emit('settings-changed', settings.value)
+      console.error(e)
     }
-  } else {
-    localStorage.setItem('linly-talker-stream-webrtc-cleared-v1', '1')
-    persistLocalSettings()
   }
+  selectedThemeValue.value = props.currentTheme || 'obsidian'
 })
 
-watch(showSettings, (open) => {
-  if (open) {
-    loadRuntimePanel()
-  }
-})
-
-watch([showSettings, activeSettingsTab], ([open, tab]) => {
-  isStageConfiguring.value = Boolean(open && tab === 'stage')
+watch(activeSettingsTab, (tab) => {
+  isStageConfiguring.value = (tab === 'stage')
 }, { immediate: true })
 
-// 監聽設定變化，自動儲存
 watch(settings, () => {
   emit('settings-changed', settings.value)
 }, { deep: true })
+
+watch(() => props.currentTheme, (t) => {
+  if (t) selectedThemeValue.value = t
+})
+
+const openSettings = (tab = 'ai') => {
+  if (typeof tab === 'string') selectSettingsTab(tab)
+  showSettings.value = true
+}
+
+const closeSettings = () => {
+  emit('close-settings')
+}
+
+const toggleSettings = () => {
+  showSettings.value = !showSettings.value
+}
+
+defineExpose({
+  openSettings,
+  closeSettings,
+  toggleSettings,
+  showSettings,
+  isFullBleed,
+  activeSettingsTab,
+  selectSettingsTab,
+  syncTheme
+})
 </script>
 
 <style scoped>
-.settings-wrapper {
-  position: relative;
-}
-
-.settings-trigger {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1.5rem;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-  font-weight: 600;
-}
-
-.rules-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  margin-top: 0.75rem;
-}
-
-.btn-secondary {
-  padding: 0.65rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.btn-secondary:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.settings-trigger:hover {
-  background: var(--primary);
-  border-color: var(--primary);
-  transform: translateY(-2px);
-}
-
-.settings-trigger.active {
-  background: var(--primary);
-  border-color: var(--primary);
-}
-
-.settings-trigger i {
-  font-size: 1.125rem;
-}
-
-.settings-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 999;
-}
-
-.settings-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  width: min(560px, 100vw);
-  height: 100vh;
-  height: 100dvh;
-  background: var(--bg-secondary);
-  border-left: 1px solid var(--border);
-  box-shadow: var(--shadow-lg);
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
-}
-
-.settings-header {
-  flex-shrink: 0;
-  padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: var(--bg-tertiary);
-}
-
-.settings-header h3 {
-  margin: 0;
-  font-size: 1.25rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.close-btn {
-  width: 44px;
-  height: 44px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.close-btn:hover {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-}
-
-.settings-tabs {
-  flex-shrink: 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
-  overflow-x: auto;
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border);
-  scrollbar-width: none;
-}
-
-.settings-tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.settings-tab {
-  position: relative;
-  min-width: 0;
-  min-height: 48px;
-  padding: 0.625rem 0.5rem;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  touch-action: manipulation;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  font: inherit;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  white-space: nowrap;
-  transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
-}
-
-.settings-tab:hover {
-  color: var(--text-primary);
-  background: var(--bg-secondary);
-}
-
-.settings-tab.active {
-  color: var(--primary-light);
-  background: rgba(99, 102, 241, 0.12);
-  border-color: rgba(99, 102, 241, 0.35);
-}
-
-.settings-tab.active::after {
-  content: '';
-  position: absolute;
-  right: 0.75rem;
-  bottom: 0.25rem;
-  left: 0.75rem;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--primary-light);
-}
-
-.settings-tab i {
-  flex-shrink: 0;
-  font-size: 1rem;
-}
-
-.settings-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 1.5rem;
-}
-
-.settings-tab-panel {
-  animation: settings-tab-enter 0.2s ease-out;
-}
-
-.settings-tab-panel:focus-visible {
-  outline: 2px solid var(--primary-light);
-  outline-offset: 4px;
-  border-radius: 10px;
-}
-
-.settings-section {
-  margin-bottom: 2rem;
-}
-
-.settings-tab-panel > .settings-section:last-child {
-  margin-bottom: 0;
-}
-
-.settings-tab-panel > .settings-section + .settings-section {
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--border);
-}
-
-.quality-section {
-  margin: 1.5rem 0 0;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--border);
-}
-
-.settings-section h4 {
-  font-size: 1rem;
-  font-weight: 600;
-  margin: 0 0 1rem 0;
-  color: var(--primary-light);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.setting-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem;
-  background: var(--bg-tertiary);
-  border-radius: 8px;
-  margin-bottom: 0.75rem;
-}
-
-.setting-label {
-  flex: 1;
-}
-
-.setting-label label {
-  display: block;
-  font-weight: 500;
-  margin-bottom: 0.25rem;
-  color: var(--text-primary);
-}
-
-.setting-desc {
-  display: block;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-.setting-control {
-  margin-left: 1rem;
-}
-
-.setting-control select,
-.setting-control input[type="text"],
-.setting-control input[type="number"],
-.setting-control textarea {
-  padding: 0.5rem 0.75rem;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 0.875rem;
-  min-width: 150px;
-}
-
-.setting-control select:focus,
-.setting-control input[type="text"]:focus,
-.setting-control input[type="number"]:focus,
-.setting-control textarea:focus {
-  outline: none;
-  border-color: var(--primary);
-}
-
-/* Range Slider */
-.setting-range {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  min-width: 200px;
-}
-
-.setting-control input[type="range"] {
-  flex: 1;
-  height: 6px;
-  background: var(--bg-secondary);
-  border-radius: 3px;
-  outline: none;
-  -webkit-appearance: none;
-}
-
-.setting-control input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  background: var(--primary);
-  border-radius: 50%;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.setting-control input[type="range"]::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
-  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2);
-}
-
-.setting-control input[type="range"]::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  background: var(--primary);
-  border-radius: 50%;
-  cursor: pointer;
-  border: none;
-  transition: all 0.2s;
-}
-
-.setting-control input[type="range"]::-moz-range-thumb:hover {
-  transform: scale(1.2);
-  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2);
-}
-
-.range-value {
-  font-size: 0.875rem;
-  color: var(--primary);
-  font-weight: 600;
-  min-width: 45px;
-  text-align: right;
-}
-
-/* Toggle Switch */
-.switch {
-  position: relative;
-  display: inline-block;
-  width: 48px;
-  height: 26px;
-}
-
-.switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--bg-secondary);
-  border: 2px solid var(--border);
-  transition: 0.3s;
-  border-radius: 26px;
-}
-
-.slider:before {
-  position: absolute;
-  content: "";
-  height: 18px;
-  width: 18px;
-  left: 2px;
-  bottom: 2px;
-  background: var(--text-muted);
-  transition: 0.3s;
-  border-radius: 50%;
-}
-
-input:checked + .slider {
-  background: var(--primary);
-  border-color: var(--primary);
-}
-
-input:checked + .slider:before {
-  transform: translateX(22px);
-  background: white;
-}
-
-.settings-footer {
-  padding: 1.5rem;
-  border-top: 1px solid var(--border);
-  display: flex;
-  gap: 1rem;
-  background: var(--bg-tertiary);
-}
-
-.settings-footer button {
-  flex: 1;
-  min-height: 44px;
-  padding: 0.75rem;
-  border: none;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-}
-
-.btn-secondary {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-}
-
-.btn-secondary:hover {
-  background: var(--bg-tertiary);
-}
-
-.btn-primary {
-  background: var(--primary);
-  color: white;
-}
-
-.btn-primary:hover {
-  background: var(--primary-dark);
-}
-
-/* 動畫 */
-.slide-fade-enter-active {
-  transition: all 0.3s ease;
-}
-
-.slide-fade-leave-active {
-  transition: all 0.3s ease;
-}
-
-.slide-fade-enter-from,
-.slide-fade-leave-to {
-  transform: translateX(100%);
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.3s;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-
-@keyframes settings-tab-enter {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* 捲軸 */
-.settings-content::-webkit-scrollbar {
-  width: 6px;
-}
-
-.settings-content::-webkit-scrollbar-track {
-  background: var(--bg-secondary);
-}
-
-.settings-content::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 3px;
-}
-
-/* 資訊提示框 */
-.info-banner {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  border-radius: 8px;
-  padding: 1rem;
-  margin-bottom: 1rem;
-}
-
-.info-content {
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-start;
-  flex: 1;
-}
-
-.info-content > i {
-  font-size: 1.25rem;
-  color: var(--primary-light);
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-.info-content strong {
-  display: block;
-  color: var(--primary-light);
-  margin-bottom: 0.5rem;
-  font-size: 0.95rem;
-}
-
-.info-content p {
-  margin: 0.25rem 0;
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.info-content .note {
-  color: var(--warning);
-  font-size: 0.8rem;
-  margin-top: 0.5rem;
-}
-
-.settings-content::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
-}
-
-.runtime-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 1.5rem;
-}
-
-.summary-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-height: 36px;
-  padding: 0.35rem 0.75rem;
-  border-radius: 999px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  font-size: 0.8125rem;
-}
-
-.section-hint {
-  margin: -0.25rem 0 0.85rem;
-  font-size: 0.8125rem;
-  line-height: 1.5;
-  color: var(--text-muted);
-}
-
-.setting-item-stack {
-  align-items: flex-start;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.setting-control-grow {
-  width: 100%;
-  margin-left: 0;
-}
-
-.setting-control-with-clear {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.setting-control-with-clear input[type="text"] {
-  min-width: 0;
-  flex: 1;
-}
-
-.setting-control-grow select,
-.setting-control-grow input[type="text"],
-.setting-control-grow input[type="number"],
-.setting-control-grow textarea {
-  width: 100%;
-  min-width: 0;
-  min-height: 44px;
-}
-
-.setting-control-grow textarea {
-  min-height: 11rem;
-  resize: vertical;
-  line-height: 1.6;
-}
-
-.field-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-}
-
-.field-meta .field-error {
-  margin-right: auto;
-}
-
-.character-count {
-  margin: 0.5rem 0 0 auto;
-  color: var(--text-muted);
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.setting-control select:focus-visible,
-.setting-control input[type="text"]:focus-visible,
-.setting-control input[type="number"]:focus-visible,
-.setting-control textarea:focus-visible,
-.icon-action-btn:focus-visible,
-.engine-card:focus-visible,
-.character-card:focus-visible,
-.btn-apply:focus-visible,
-.settings-tab:focus-visible,
-.close-btn:focus-visible {
-  outline: 2px solid var(--primary-light);
-  outline-offset: 2px;
-}
-
-.icon-action-btn {
-  flex-shrink: 0;
-  width: 44px;
-  height: 44px;
-  border: 1px solid var(--border);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border-radius: 8px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
-}
-
-.icon-action-btn:hover:not(:disabled) {
-  background: var(--bg-secondary);
-  border-color: var(--primary);
-  color: var(--primary-light);
-}
-
-.icon-action-btn:active:not(:disabled) {
-  transform: scale(0.96);
-}
-
-.icon-action-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.info-banner.status-ok {
-  border-color: rgba(16, 185, 129, 0.35);
-}
-
-.info-banner.status-error {
-  border-color: rgba(239, 68, 68, 0.4);
-}
-
-.info-banner .icon-action-btn {
-  margin-left: auto;
-}
-
-.field-hint,
-.field-error {
-  margin: 0.5rem 0 0;
-  font-size: 0.8125rem;
-  line-height: 1.5;
-}
-
-.field-hint {
-  color: var(--text-muted);
-}
-
-.field-error,
-.warning-hint {
-  color: var(--warning);
-}
-
-.btn-apply {
-  width: 100%;
-  min-height: 44px;
-  margin-top: 0.25rem;
-  padding: 0.75rem 1rem;
-  border: none;
-  border-radius: 8px;
-  background: var(--primary);
-  color: #fff;
-  font-weight: 600;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  transition: background 0.2s ease, transform 0.15s ease, opacity 0.2s ease;
-}
-
-.btn-apply:hover:not(:disabled) {
-  background: var(--primary-dark);
-}
-
-.btn-apply:active:not(:disabled) {
-  transform: scale(0.98);
-}
-
-.btn-apply:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.btn-apply.btn-secondary {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-}
-
-.btn-apply.btn-secondary:hover:not(:disabled) {
-  background: var(--bg-tertiary);
-  border-color: var(--primary);
-}
-
-.engine-grid,
-.character-grid,
-.skeleton-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-  margin-bottom: 0.85rem;
-}
-
-.engine-grid.three-col {
-  grid-template-columns: 1fr 1fr 1fr;
-}
-
-.pos-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 28px);
-  grid-template-rows: repeat(3, 36px);
-  gap: 4px;
-  padding: 6px;
-  width: max-content;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-
-.pos-grid button {
-  width: 28px;
-  height: 36px;
-  min-height: 36px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: var(--bg-secondary);
-  cursor: pointer;
-}
-
-.pos-grid button.selected {
-  background: var(--primary);
-}
-
-.stage-layout-preview {
-  position: relative;
-  width: 96px;
-  height: 170px;
-  border-radius: 12px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  background: radial-gradient(ellipse at 50% 38%, #3a4e72, #121a28 72%);
-}
-
-.stage-preview-person {
-  position: absolute;
-  left: 50%;
-  bottom: 22%;
-  transform: translateX(-50%);
-  width: 28%;
-  height: 52%;
-  border-radius: 40px 40px 8px 8px;
-  background: #8fa3bf;
-}
-
-.stage-preview-captions {
-  position: absolute;
-  left: 8%;
-  right: 8%;
-  bottom: 6%;
-  height: 12%;
-  border-radius: 6px;
-  background: rgba(255,255,255,.16);
-}
-
-.stage-preview-board {
-  position: absolute;
-  min-width: 0;
-  border-radius: 4px;
-  background: rgb(165 180 252 / .85);
-  border: 1px solid #c5ceff;
-}
-
-.stage-preview-mic {
-  position: absolute;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #3ddc97;
-  border: 2px solid rgba(255,255,255,.7);
-  transform: translate(-50%, -50%);
-  box-shadow: 0 0 0 4px rgba(61,220,151,.2);
-}
-
-.engine-card,
-.character-card {
-  text-align: left;
-  cursor: pointer;
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border-radius: 10px;
-  padding: 0.85rem;
-  min-height: 88px;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  transition: border-color 0.2s ease, transform 0.15s ease, background 0.2s ease;
-}
-
-.engine-card:hover:not(:disabled),
-.character-card:hover:not(:disabled) {
-  border-color: var(--primary-light);
-  transform: translateY(-1px);
-}
-
-.engine-card.selected,
-.character-card.selected {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 1px var(--primary);
-}
-
-.engine-card.unavailable,
-.engine-card:disabled {
-  opacity: 0.48;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.card-title {
-  font-weight: 600;
-  font-size: 0.95rem;
-}
-
-.card-desc {
-  font-size: 0.75rem;
-  line-height: 1.45;
-  color: var(--text-muted);
-}
-
-.card-status {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--primary-light);
-}
-
-.card-status.muted {
-  color: var(--text-muted);
-  font-weight: 500;
-}
-
-.character-thumb {
-  aspect-ratio: 1;
-  width: 100%;
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--bg-secondary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  font-size: 1.75rem;
-}
-
-.character-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.character-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 1.25rem 1rem;
-  margin-bottom: 0.75rem;
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  color: var(--text-muted);
-  text-align: center;
-}
-
-.empty-state i {
-  font-size: 1.5rem;
-}
-
-.import-card {
-  margin: 1rem 0 0.75rem;
-  padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg-tertiary);
-}
-
-.dropzone {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  min-height: 140px;
-  margin: 0.75rem 0;
-  padding: 1rem;
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  color: var(--text-muted);
-  text-align: center;
-  background: var(--bg-secondary);
-  transition: border-color 0.2s ease, background 0.2s ease;
-}
-
-.dropzone.dragging {
-  border-color: var(--primary);
-  background: rgba(99, 102, 241, 0.08);
-}
-
-.dropzone.disabled {
-  opacity: 0.5;
-}
-
-.dropzone input[type="file"] {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.dropzone.disabled input[type="file"] {
-  cursor: not-allowed;
-}
-
-.dropzone i {
-  font-size: 1.75rem;
-  color: var(--primary-light);
-}
-
-.dropzone p {
-  margin: 0;
-  font-size: 0.875rem;
-  line-height: 1.5;
-}
-
-.compare-card {
-  margin-top: 1.25rem;
-  padding: 1rem;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-
-.compare-actions {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  justify-content: center;
-  margin-top: 0.5rem;
-}
-
-.compare-actions .pick-file-btn {
-  pointer-events: auto;
-}
-
-.compare-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-  margin-top: 0.85rem;
-}
-
-.compare-result {
-  padding: 0.85rem;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg-secondary);
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.compare-result.current {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 1px var(--primary);
-}
-
-.compare-result.unavailable {
-  opacity: 0.7;
-}
-
-.compare-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.dropzone.recording {
-  border-color: var(--warning);
-}
-
-.pick-file-btn {
-  position: relative;
-  z-index: 1;
-  min-height: 44px;
-  padding: 0.5rem 1rem;
-  pointer-events: none;
-}
-
-.import-progress {
-  margin: 0.75rem 0;
-}
-
-.progress-track {
-  height: 8px;
-  border-radius: 999px;
-  background: var(--bg-secondary);
-  overflow: hidden;
-}
-
-.progress-fill {
-  height: 100%;
-  background: var(--primary);
-  transition: width 0.25s ease;
-}
-
-.import-progress p {
-  margin: 0.5rem 0 0;
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
-}
-
-.stt-prewarm-progress {
-  margin: 0 0 0.75rem;
-}
-
-.stt-prewarm-progress p {
-  margin: 0.5rem 0 0;
-  font-size: 0.8125rem;
-  line-height: 1.5;
-  color: var(--text-secondary);
-}
-
-.progress-fill-indeterminate {
-  width: 42%;
-  animation: prewarm-progress 1.35s ease-in-out infinite;
-  transform: translateX(-110%);
-  will-change: transform;
-}
-
-.skeleton-card {
-  min-height: 88px;
-  border-radius: 10px;
-  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-secondary) 50%, var(--bg-tertiary) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.2s ease-in-out infinite;
-}
-
-.spin {
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes shimmer {
-  0% { background-position: 100% 0; }
-  100% { background-position: -100% 0; }
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes prewarm-progress {
-  0% { transform: translateX(-110%); }
-  50% { transform: translateX(135%); }
-  100% { transform: translateX(265%); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .engine-card,
-  .character-card,
-  .btn-apply,
-  .icon-action-btn,
-  .settings-trigger,
-  .settings-tab,
-  .slide-fade-enter-active,
-  .slide-fade-leave-active,
-  .fade-enter-active,
-  .fade-leave-active {
-    transition: none;
-  }
-
-  .skeleton-card,
-  .spin,
-  .settings-tab-panel,
-  .progress-fill-indeterminate {
-    animation: none;
-  }
-
-  .progress-fill-indeterminate {
-    width: 100%;
-    transform: none;
-  }
-}
-
-/* 響應式 */
-@media (max-width: 768px) {
-  .settings-panel {
-    width: 100%;
-  }
-
-  .settings-tabs {
-    padding-inline: 0.75rem;
-  }
-
-  .settings-content {
-    padding: 1rem;
-  }
-
-  .settings-footer {
-    padding: 1rem;
-    padding-bottom: max(1rem, env(safe-area-inset-bottom));
-  }
-
-  .engine-grid,
-  .character-grid,
-  .skeleton-grid,
-  .compare-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 480px) {
-  .settings-tabs {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-/* 確認對話方塊 */
 .confirm-dialog-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  z-index: 9999;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10001;
 }
 
 .confirm-dialog {
-  background: var(--bg-secondary);
-  border-radius: 12px;
-  min-width: 400px;
-  max-width: 500px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
-  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  max-width: 440px;
+  width: 90%;
+  box-shadow: var(--shadow-lg);
 }
 
 .confirm-header {
-  padding: 1.5rem;
-  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-}
-
-.confirm-header i {
-  font-size: 1.5rem;
+  gap: 10px;
+  margin-bottom: 12px;
   color: var(--warning);
+  font-size: 18px;
 }
 
 .confirm-header h4 {
   margin: 0;
-  font-size: 1.125rem;
+  font-size: 16px;
+  font-weight: 700;
   color: var(--text-primary);
 }
 
 .confirm-body {
-  padding: 1.5rem;
+  font-size: 13.5px;
   color: var(--text-secondary);
-  line-height: 1.6;
+  line-height: 1.5;
+  margin-bottom: 20px;
 }
 
 .confirm-footer {
-  padding: 1rem 1.5rem;
-  border-top: 1px solid var(--border);
   display: flex;
   justify-content: flex-end;
-  gap: 0.75rem;
+  gap: 10px;
+}
+
+.btn-secondary {
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  font-size: 13px;
 }
 
 .btn-danger {
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: 6px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
   background: var(--danger);
-  color: white;
+  color: #fff;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
 }
 
-.btn-danger:hover {
-  background: #dc2626;
+.stt-prewarm-progress {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
 }
 
-@media (max-width: 768px) {
-  .confirm-dialog {
-    min-width: auto;
-    width: 90%;
-    max-width: 400px;
+.runtime-state-banner {
+  min-height: 44px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.runtime-state-banner.error {
+  color: var(--warning);
+  background: var(--warning-surface);
+  border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+}
+
+.btn-retry {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+
+.empty-state-card {
+  min-height: 150px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  text-align: center;
+  color: var(--text-tertiary);
+  background: var(--bg-input);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.empty-state-card i { font-size: 30px; color: var(--brand-light); }
+.empty-state-card strong { color: var(--text-primary); }
+
+.progress-track {
+  height: 4px;
+  width: 100%;
+  background: var(--bg-surface);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-fill-indeterminate {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  background: linear-gradient(90deg, var(--brand), var(--brand-light));
+  border-radius: 2px;
+  animation: indeterminate 1.5s infinite ease-in-out;
+}
+
+@keyframes indeterminate {
+  0% { left: -40%; }
+  50% { left: 40%; width: 50%; }
+  100% { left: 100%; width: 20%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill-indeterminate {
+    animation: none;
+    left: 0;
+    width: 100%;
   }
 }
 </style>

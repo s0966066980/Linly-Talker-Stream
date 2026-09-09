@@ -1,271 +1,344 @@
 <!-- Linly-Talker-Stream (https://github.com/Kedreamix/Linly-Talker-Stream). Copyright [Linly-talker-stream@kedreamix]. Apache-2.0. -->
 <template>
-  <div class="app-wrapper">
-    <!-- 頂部導航欄 -->
-    <header class="app-header">
-      <div class="header-content">
-        <div class="logo-section">
-          <div class="logo-icon">
-            <i class="bi bi-robot"></i>
-          </div>
-          <div class="logo-text">
-            <h1>{{ t('header.title') }}</h1>
-            <p>{{ t('header.subtitle') }}</p>
-          </div>
+  <div class="app-root-shell" :data-sample="currentTheme">
+
+    <!-- ══════════════════════════════════════════════════════════════
+         1. 應用主頂部導航列 (App Top Navbar)
+         ══════════════════════════════════════════════════════════════ -->
+    <header class="app-navbar">
+      <div class="nav-brand-group">
+        <div class="nav-logo-box">
+          <i class="bi bi-robot"></i>
         </div>
-        
-        <div class="status-section">
-          <div class="status-badge" :class="statusClass">
-            <span class="status-dot"></span>
-            <span class="status-text">{{ statusText }}</span>
-          </div>
-          <div class="session-info" v-if="sessionId > 0">
-            <i class="bi bi-hash"></i>
-            <span>{{ t('header.session') }} {{ sessionId }}</span>
-          </div>
-          <a 
-            href="https://github.com/Kedreamix/Linly-Talker-Stream" 
-            target="_blank" 
-            class="github-link"
-            :title="t('header.github')"
-          >
-            <i class="bi bi-github"></i>
-            <span>{{ t('header.github') }}</span>
-          </a>
-          <SettingsPanel 
-            :is-connected="isConnected || connectionStatus === 'connecting'"
-            @settings-changed="onSettingsChanged" 
-            @notification="showNotification"
-            @request-disconnect="handleStopConnection"
-            @avatar-ready="onAvatarReady"
-          />
+        <div class="nav-brand-title">
+          <span>Linly-Talker-Stream</span>
+          <span class="nav-version-pill">v2.0</span>
+        </div>
+      </div>
+
+      <!-- 主頁面 Tabs 切換：即時演播控制台 vs 滿板系統設定中心 -->
+      <nav class="nav-main-tabs" aria-label="主要視圖切換">
+        <button
+          class="main-tab-link"
+          id="btnViewConsole"
+          :class="{ active: currentMainView === 'console' }"
+          @click="switchMainView('console')"
+        >
+          <i class="bi bi-broadcast"></i>
+          <span>即時演播控制台</span>
+        </button>
+        <button
+          class="main-tab-link"
+          id="btnViewSettings"
+          :class="{ active: currentMainView === 'settings' }"
+          @click="switchMainView('settings')"
+        >
+          <i class="bi bi-sliders2"></i>
+          <span>系統設定中心</span>
+        </button>
+      </nav>
+
+      <div class="nav-status-group">
+        <div class="webrtc-chip">
+          <span class="live-dot" :class="{ 'connected': isConnected }"></span>
+          <span>{{ isConnected ? 'WebRTC 已連線' : (connectionStatus === 'connecting' ? '連線中...' : 'WebRTC 未連線') }}</span>
+          <span style="color: var(--text-muted); font-family: var(--font-mono); font-size: 11px;">{{ sessionId > 0 ? '#' + sessionId : '—' }}</span>
+        </div>
+        <div class="voice-badge-pill" id="voiceStatusBadge">
+          <i :class="isRecordingVoice ? 'bi bi-mic-fill' : 'bi bi-soundwave'"></i>
+          <span>{{ voiceBadgeText || '語音待命' }}</span>
         </div>
       </div>
     </header>
 
-    <!-- 主內容區 -->
-    <main class="main-content">
-      <div class="content-wrapper">
-        <!-- 左側：對話區域 -->
-        <div class="chat-section">
-          <div class="chat-header">
-            <h2><i class="bi bi-chat-dots"></i> {{ t('chat.title') }}</h2>
-            <div class="chat-actions">
-              <button 
-                class="action-btn" 
-                :class="{ active: activeMode === 'chat' }"
-                @click="activeMode = 'chat'"
-              >
-                <i class="bi bi-chat-text"></i>
-                {{ t('chat.chatMode') }}
+    <!-- ══════════════════════════════════════════════════════════════
+         2. 頁面視圖容器 (Page Views)
+         ══════════════════════════════════════════════════════════════ -->
+    <div class="app-viewport">
+
+      <!-- ──────────────────────────────────────────────────────────
+           頁面 A：即時演播控制台 (Studio Console View)
+           ────────────────────────────────────────────────────────── -->
+      <div class="page-view" :class="{ active: currentMainView === 'console' }" id="viewConsole">
+        <div class="studio-layout">
+
+          <!-- 左側：對話調度與互動區 (studio-chat-panel) -->
+          <div class="studio-chat-panel">
+            <div class="chat-sub-toolbar">
+              <div class="mode-pills-wrap">
+                <button
+                  class="mode-pill-btn"
+                  :class="{ active: activeMode === 'chat' && !showTestPanel }"
+                  @click="activeMode = 'chat'; showTestPanel = false"
+                >
+                  <i class="bi bi-chat-text"></i> 對話模式
+                </button>
+                <button
+                  class="mode-pill-btn"
+                  :class="{ active: activeMode === 'tts' && !showTestPanel }"
+                  @click="activeMode = 'tts'; showTestPanel = false"
+                >
+                  <i class="bi bi-volume-up"></i> 朗讀模式
+                </button>
+                <button
+                  class="mode-pill-btn"
+                  :class="{ active: showTestPanel }"
+                  @click="showTestPanel = !showTestPanel"
+                >
+                  <i class="bi bi-speedometer2"></i> 路由測試
+                </button>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <button
+                  class="sample-btn"
+                  @click="clearChatHistory"
+                  :disabled="!isConnected"
+                  :title="isConnected ? t('chat.clearHistory') : t('notifications.connectFirst')"
+                  style="padding: 4px 10px;"
+                >
+                  <i class="bi bi-trash"></i> 清空紀錄
+                </button>
+                <button
+                  class="sample-btn"
+                  @click="switchMainView('settings', 'stage')"
+                  style="padding: 4px 10px;"
+                >
+                  <i class="bi bi-sliders"></i> 前往看板設定
+                </button>
+              </div>
+            </div>
+
+            <!-- 快捷提問膠囊列 -->
+            <div class="quick-chips-row">
+              <span style="font-size: 11px; color: var(--text-muted); font-weight: 700; white-space: nowrap;">⚡ 快捷指令:</span>
+              <button class="chip-item board-chip" @click="quickSend('請整理 Linly-Talker-Stream 三大優勢並輸出看板')">
+                📋 核心技術優勢 (BOARD)
               </button>
-              <button 
-                class="action-btn"
-                :class="{ active: activeMode === 'tts' }"
-                @click="activeMode = 'tts'"
-              >
-                <i class="bi bi-volume-up"></i>
-                {{ t('chat.ttsMode') }}
+              <button class="chip-item board-chip" @click="quickSend('請列出系統安裝部署四步驟')">
+                📋 部署步驟 (BOARD)
               </button>
-              <button
-                class="action-btn"
-                :class="{ active: showTestPanel }"
-                @click="showTestPanel = !showTestPanel"
-                title="切換雙模式即時測試面板"
-              >
-                <i class="bi bi-speedometer2"></i>
-                模式測試
+              <button class="chip-item" @click="quickSend('你好！請簡短自我介紹')">
+                💬 自我介紹 (SIMPLE)
               </button>
-              <button 
-                class="action-btn clear-history-btn"
-                @click="clearChatHistory"
-                :disabled="!isConnected"
-                :title="isConnected ? t('chat.clearHistory') : t('notifications.connectFirst')"
-              >
-                <i class="bi bi-trash"></i>
-                {{ t('chat.clearHistory') }}
+              <button class="chip-item" @click="quickSend('今天台北天氣如何？')">
+                💬 日常天氣問候
               </button>
             </div>
-          </div>
 
-          <!-- 對話模式 -->
-          <div v-if="activeMode === 'chat'" class="chat-mode">
-            <!-- 雙模式即時測試面板 (Rule Router & Board 測試) -->
-            <div v-if="showTestPanel" class="router-test-panel">
-              <div class="test-panel-header">
-                <div class="test-panel-title">
-                  <i class="bi bi-speedometer2"></i>
+            <!-- 雙模式即時測試面板 (showTestPanel) -->
+            <div v-if="showTestPanel" class="router-test-panel" style="margin: 0 16px 12px 16px; background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13px;">
+                  <i class="bi bi-speedometer2" style="color: var(--brand-light);"></i>
                   <span>雙模式測試面板 (Rule Router & Board)</span>
-                  <span v-if="currentResponseMode" class="mode-badge" :class="currentResponseMode">
+                  <span v-if="currentResponseMode" class="sample-tag" style="font-size: 10px; margin-left: 6px;">
                     {{ currentResponseMode === 'board' ? '📋 看板模式 (BOARD)' : '💬 一般對話 (SIMPLE)' }}
                   </span>
                 </div>
-                <div class="test-panel-actions">
-                  <span v-if="visibleBoard.items.length" class="board-pill" @click="stageBoard.hidden = false" title="點擊展開看板">
-                    <i class="bi bi-layout-sidebar-inset-reverse"></i> 看板就緒 ({{ visibleBoard.items.length }} 項)
-                  </span>
-                  <button class="test-panel-close" @click="showTestPanel = false" title="收合面板">✕</button>
-                </div>
+                <button class="btn-board-x" @click="showTestPanel = false" title="收合面板">✕</button>
               </div>
-              <div class="test-panel-content">
-                <div class="test-row">
-                  <span class="test-label board-label">BOARD 測試句：</span>
-                  <div class="preset-chips">
-                    <button
-                      v-for="p in testPresets.filter(x => x.mode === 'board')"
-                      :key="p.label"
-                      class="preset-chip chip-board"
-                      :disabled="!isConnected || isThinking"
-                      @click="runTestQuery(p.query)"
-                      :title="p.query"
-                    >
-                      {{ p.label }}
-                    </button>
-                  </div>
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                  <span style="font-size: 11px; color: var(--text-tertiary);">BOARD:</span>
+                  <button class="chip-item board-chip" :disabled="!isConnected || isThinking" @click="runTestQuery('請條列出 Linly-Talker-Stream 目前支援的語音與影像推論引擎規格。')">規格條列展示</button>
+                  <button class="chip-item board-chip" :disabled="!isConnected || isThinking" @click="runTestQuery('請列出系統安裝部署四步驟')">部署步驟 (BOARD)</button>
                 </div>
-                <div class="test-row">
-                  <span class="test-label simple-label">SIMPLE 測試句：</span>
-                  <div class="preset-chips">
-                    <button
-                      v-for="p in testPresets.filter(x => x.mode === 'simple')"
-                      :key="p.label"
-                      class="preset-chip chip-simple"
-                      :disabled="!isConnected || isThinking"
-                      @click="runTestQuery(p.query)"
-                      :title="p.query"
-                    >
-                      {{ p.label }}
-                    </button>
-                  </div>
+                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                  <span style="font-size: 11px; color: var(--text-tertiary);">SIMPLE:</span>
+                  <button class="chip-item" :disabled="!isConnected || isThinking" @click="runTestQuery('請用一句話介紹你自己與目前系統狀態。')">簡短問答 (無看板)</button>
+                  <button class="chip-item" :disabled="!isConnected || isThinking" @click="runTestQuery('請問現在時間幾點？目前虛擬人服務運行正常嗎？')">詢問時間與狀態</button>
                 </div>
               </div>
             </div>
 
-            <div class="messages-container" ref="messagesRef">
-              <div 
-                v-for="(msg, index) in chatMessages" 
+            <!-- 對話模式：對話訊息瀑布流 -->
+            <div v-if="activeMode === 'chat'" class="chat-flow-container" id="chatFlowBox" ref="messagesRef">
+              <div v-if="chatMessages.length === 0" class="bubble-row ai">
+                <div class="bubble-avatar"><i class="bi bi-robot"></i></div>
+                <div class="bubble-card">
+                  你好！我是 Linly 數位人。神經語言模型與語音合成引擎皆已準備就緒，您可以點選下方麥克風或輸入文字開始對話。
+                </div>
+              </div>
+
+              <div
+                v-for="(msg, index) in chatMessages"
                 :key="index"
-                class="message"
-                :class="msg.type === 'user' ? 'message-user' : 'message-ai'"
+                class="bubble-row"
+                :class="msg.type === 'user' ? 'user' : 'ai'"
               >
-                <div class="message-avatar">
-                  <i :class="msg.type === 'user' ? 'bi bi-person-circle' : 'bi bi-robot'"></i>
+                <div class="bubble-avatar">
+                  <i :class="msg.type === 'user' ? 'bi bi-person-fill' : 'bi bi-robot'"></i>
                 </div>
-                <div class="message-content">
-                  <div class="message-header">
-                    <span class="message-sender">{{ msg.type === 'user' ? t('chat.you') : t('chat.ai') }}</span>
-                    <span class="message-time" v-if="appSettings.showTimestamp">{{ msg.time }}</span>
+                <div class="bubble-card">
+                  <div v-if="appSettings.showTimestamp && msg.time" style="font-size: 10.5px; opacity: 0.6; margin-bottom: 4px; font-family: var(--font-mono);">{{ msg.time }}</div>
+                  <div v-html="renderMarkdown(msg.text)"></div>
+                  <div v-if="msg.boardItems && msg.boardItems.length" class="inline-board-preview">
+                    <div class="inline-board-title"><i class="bi bi-stars"></i> 看板同步資料：</div>
+                    <ul class="inline-board-list">
+                      <li v-for="(bItem, bIdx) in msg.boardItems" :key="bIdx">
+                        <span class="num-tag">{{ String(bIdx + 1).padStart(2, '0') }}</span>
+                        <span><strong>{{ bItem.title }}：</strong>{{ bItem.body }}</span>
+                      </li>
+                    </ul>
                   </div>
-                  <div class="message-text" v-html="renderMarkdown(msg.text)"></div>
                 </div>
               </div>
-              
-              <div v-if="isThinking" class="message message-ai typing">
-                <div class="message-avatar">
-                  <i class="bi bi-robot"></i>
-                </div>
-                <div class="message-content">
-                  <div class="typing-indicator">
-                    <span></span>
-                    <span></span>
-                    <span></span>
+
+              <div v-if="isThinking" class="bubble-row ai">
+                <div class="bubble-avatar"><i class="bi bi-robot"></i></div>
+                <div class="bubble-card">
+                  <div style="display: flex; gap: 5px; align-items: center; padding: 4px 0;">
+                    <span style="width: 7px; height: 7px; background: currentColor; border-radius: 50%; opacity: 0.4; animation: pulse 1.2s infinite ease-in-out;"></span>
+                    <span style="width: 7px; height: 7px; background: currentColor; border-radius: 50%; opacity: 0.7; animation: pulse 1.2s infinite ease-in-out 0.2s;"></span>
+                    <span style="width: 7px; height: 7px; background: currentColor; border-radius: 50%; opacity: 1.0; animation: pulse 1.2s infinite ease-in-out 0.4s;"></span>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div class="input-area">
-              <div class="input-box">
-                <div class="textarea-wrapper">
-                  <textarea 
-                    v-model="chatInput"
-                    @keydown.enter.exact.prevent="sendChatMessage"
-                    :placeholder="isConnected ? t('chat.inputPlaceholder') : t('chat.inputPlaceholderDisconnected')"
+            <!-- 朗讀模式 -->
+            <div v-else-if="activeMode === 'tts'" style="flex: 1; display: flex; flex-direction: column; padding: 18px; gap: 12px; overflow-y: auto;">
+              <div style="font-size: 14px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+                <i class="bi bi-file-text" style="color: var(--brand-light);"></i> {{ t('chat.ttsTitle') }}
+              </div>
+              <textarea
+                v-model="ttsInput"
+                class="std-textarea"
+                :placeholder="isConnected ? t('chat.ttsInputPlaceholder') : t('chat.inputPlaceholderDisconnected')"
+                :disabled="!isConnected"
+                rows="10"
+                style="flex: 1; resize: none;"
+              ></textarea>
+              <button
+                class="btn-send-main"
+                @click="sendTTSMessage"
+                :disabled="!isConnected || !ttsInput.trim()"
+                style="align-self: flex-end; padding: 10px 24px;"
+              >
+                <i class="bi bi-play-circle-fill"></i>
+                <span>{{ t('chat.ttsButton') }}</span>
+              </button>
+            </div>
+
+            <!-- 底部輸入操作塢 -->
+            <div class="studio-input-dock" v-if="activeMode === 'chat'">
+              <div class="input-box-row">
+                <textarea
+                  id="chatInputText"
+                  class="chat-text-entry"
+                  rows="1"
+                  v-model="chatInput"
+                  :placeholder="isConnected ? '輸入訊息，按 Enter 送出，Shift+Enter 換行...' : t('chat.inputPlaceholderDisconnected')"
+                  :disabled="!isConnected"
+                  @keydown.enter.exact.prevent="sendChatMessage"
+                ></textarea>
+              </div>
+              <div class="input-actions-bar">
+                <div class="vad-status-label">
+                  <i class="bi bi-check-circle-fill" :style="{ color: isConnected ? 'var(--success)' : 'var(--text-muted)' }"></i>
+                  <span>{{ isConnected ? (handsFreeTalk ? 'Silero VAD 免持聆聽就緒 · 靜音 650ms 自動送出' : '文字模式就緒 · 點選按住說話或輸入') : '等待 WebRTC 連線就緒...' }}</span>
+                </div>
+                <div class="dock-buttons-wrap">
+                  <button
+                    class="btn-voice-push"
+                    id="btnPushVoice"
+                    :class="{ 'active-listening': isRecordingVoice }"
                     :disabled="!isConnected"
-                    rows="1"
-                  ></textarea>
-                  <button 
-                    v-if="chatInput.trim()"
-                    class="clear-input-btn"
-                    @click="clearInput"
-                    :title="t('chat.clearInput')"
-                  >
-                    <i class="bi bi-x-circle-fill"></i>
-                  </button>
-                </div>
-                <div
-                  v-if="isConnected"
-                  class="voice-state-badge"
-                  :data-state="voiceState"
-                  aria-live="polite"
-                >
-                  <span class="status-dot"></span>
-                  {{ voiceStateLabel }}
-                </div>
-                <div class="input-actions">
-                  <button 
-                    class="voice-btn"
                     @mousedown="handleVoiceButtonPress"
                     @mouseup="handleVoiceButtonRelease"
                     @click="handleVoiceButtonClick"
                     @touchstart.prevent="handleVoiceButtonPress"
                     @touchend="handleVoiceButtonRelease"
-                    :class="{ recording: isRecordingVoice, 'continuous-mode': handsFreeTalk }"
-                    :disabled="!isConnected"
-                    :title="getVoiceButtonTitle"
                   >
-                    <div class="voice-icon-wrapper">
-                      <i class="bi bi-mic-fill"></i>
-                      <span v-if="isRecordingVoice" class="recording-pulse"></span>
-                    </div>
-                    <span class="voice-btn-text">{{ voiceButtonLabel }}</span>
+                    <i class="bi bi-mic-fill"></i>
+                    <span id="voicePushText">{{ voiceButtonLabel }}</span>
                   </button>
-                  <button 
-                    class="send-btn" 
-                    @click="sendChatMessage" 
+                  <button
+                    class="btn-send-main"
+                    @click="sendChatMessage"
                     :disabled="!isConnected || !chatInput.trim()"
-                    :title="!isConnected ? t('tooltips.connectDisabled') : ''"
                   >
                     <i class="bi bi-send-fill"></i>
-                    <span>{{ t('chat.sendButton') }}</span>
+                    <span>送出</span>
                   </button>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- 朗讀模式 -->
-          <div v-if="activeMode === 'tts'" class="tts-mode">
-            <div class="tts-container">
-              <h3><i class="bi bi-file-text"></i> {{ t('chat.ttsTitle') }}</h3>
-              <textarea 
-                v-model="ttsInput"
-                :placeholder="isConnected ? t('chat.ttsInputPlaceholder') : t('chat.inputPlaceholderDisconnected')"
-                :disabled="!isConnected"
-                rows="12"
-              ></textarea>
-              <button 
-                class="tts-btn" 
-                @click="sendTTSMessage" 
-                :disabled="!isConnected || !ttsInput.trim()"
-                :title="!isConnected ? t('tooltips.connectDisabled') : ''"
-              >
-                <i class="bi bi-play-circle-fill"></i>
-                {{ t('chat.ttsButton') }}
-              </button>
+          <!-- 右側：9:16 數位人展示舞台 (studio-stage-panel) -->
+          <div class="studio-stage-panel">
+            <div class="stage-sub-header">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <i class="bi bi-camera-video-fill" style="color: var(--brand-light);"></i>
+                <span>數位人視訊舞台</span>
+              </div>
+              <span style="font-size: 11.5px; color: var(--text-tertiary);">{{ currentAvatarMeta }}</span>
             </div>
-          </div>
-        </div>
 
-        <!-- 右側：影片區域 -->
-        <div class="video-section">
-          <div class="video-card">
-            <div class="video-header">
-              <h2><i class="bi bi-camera-video"></i> {{ t('video.title') }}</h2>
-              <div class="video-controls-top">
-                <button 
-                  v-if="!isConnected" 
-                  class="connect-btn" 
+            <div class="stage-viewport-center">
+              <div class="stage-ratio-box" ref="videoWrapperRef" :data-board-style="runtime.stage.board_style || 'glass'">
+                <img
+                  v-if="!isConnected && (currentAvatar?.preview_url || currentAvatar?.thumbnail)"
+                  :src="currentAvatar.preview_url || currentAvatar.thumbnail"
+                  :alt="`${currentAvatar.label || currentAvatar.name || currentAvatar.id} 數位人預覽`"
+                  class="stage-avatar-preview"
+                />
+                <svg v-else-if="!isConnected" viewBox="0 0 200 320" style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;">
+                  <ellipse cx="100" cy="115" rx="36" ry="46" fill="#94a3b8"/>
+                  <path d="M45 320C40 250 55 195 80 175C90 167 110 167 120 175C145 195 160 250 155 320H45Z" fill="#1e293b"/>
+                  <ellipse cx="88" cy="108" rx="4" ry="3" fill="#0f172a"/>
+                  <ellipse cx="112" cy="108" rx="4" ry="3" fill="#0f172a"/>
+                  <path d="M92 135Q100 144 108 135Q100 139 92 135Z" fill="#f43f5e"/>
+                </svg>
+
+                <video id="video" autoplay playsinline style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;" :style="{ opacity: isConnected ? 1 : 0 }"></video>
+
+                <!-- 舞台回答看板 (浮層) -->
+                <div
+                  v-if="visibleBoard.items.length && !stageBoard.hidden"
+                  class="board-float-window"
+                  id="boardFloat"
+                  :style="consoleBoardStyle"
+                  style="z-index: 2;"
+                >
+                  <div class="board-window-header">
+                    <span class="board-window-title"><i class="bi bi-layout-sidebar-reverse"></i> {{ visibleBoard.title || '核心優勢看板' }}</span>
+                    <button class="btn-board-x" @click="stageBoard.hidden = true">✕</button>
+                  </div>
+                  <ul class="board-window-items">
+                    <li v-for="(item, index) in visibleBoard.items" :key="index">
+                      {{ String(index + 1).padStart(2, '0') }}. {{ item.title }}{{ item.body ? `：${item.body}` : '' }}
+                    </li>
+                  </ul>
+                </div>
+
+                <div
+                  v-if="visibleBoard.items.length && stageBoard.hidden"
+                  class="board-open-pill"
+                  id="boardOpenPill"
+                  style="z-index: 2;"
+                  @click="stageBoard.hidden = false"
+                >
+                  <i class="bi bi-layout-sidebar-inset-reverse"></i> 看板 ({{ visibleBoard.items.length }}項)
+                </div>
+
+                <div class="stage-captions-sub" style="z-index: 2;">
+                  「{{ stageCaptionText || '好的！這三大核心優勢已同步呈現於右側 9:16 舞台看板中。' }}」
+                </div>
+
+                <div class="recording-badge" v-if="isRecording" style="position: absolute; top: 12px; left: 12px; background: rgba(239, 68, 68, 0.9); color: #fff; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; display: flex; align-items: center; gap: 6px; z-index: 3;">
+                  <i class="bi bi-record-circle"></i>
+                  {{ t('video.recording') }}
+                </div>
+              </div>
+            </div>
+
+            <div class="stage-dock-footer">
+              <div class="stage-footer-actions">
+                <button
+                  v-if="!isConnected"
+                  class="btn-stage-sub"
                   @click="handleStartConnection"
                   :disabled="!canConnect"
                   :title="connectDisabledTitle"
@@ -275,114 +348,75 @@
                   <i class="bi bi-sliders" v-else></i>
                   {{ connectButtonLabel }}
                 </button>
-                <button 
-                  v-else 
-                  class="disconnect-btn" 
+                <button
+                  v-else
+                  class="btn-stage-sub connected-state"
+                  id="btnToggleConn"
                   @click="handleStopConnection"
                 >
-                  <i class="bi bi-stop-circle"></i>
-                  {{ t('video.disconnect') }}
+                  <i class="bi bi-stop-circle"></i> 中斷連線
                 </button>
-              </div>
-            </div>
 
-            <div class="video-wrapper" ref="videoWrapperRef" :data-board-style="runtime.stage.board_style || 'glass'">
-              <video id="video" autoplay playsinline></video>
-              <section
-                v-if="visibleBoard.items.length && !stageBoard.hidden"
-                class="console-float-board"
-                :style="consoleBoardStyle"
-                aria-label="回答看板"
-              >
-                <div class="board-head">
-                  <span>回答看板</span>
-                  <span class="board-head-actions">
-                    <span class="count-pill">{{ visibleBoard.preview ? '預覽' : `${visibleBoard.items.length} 項` }}</span>
-                    <button type="button" class="board-close" aria-label="關閉看板" @click="stageBoard.hidden = true">✕</button>
-                  </span>
-                </div>
-                <div class="board-heading">
-                  <h3>{{ visibleBoard.title }}</h3>
-                </div>
-                <ol class="board-list">
-                  <li v-for="(item, index) in visibleBoard.items" :key="index" class="board-item">
-                    <span class="item-number">{{ String(index + 1).padStart(2, '0') }}</span>
-                    <div>
-                      <div class="item-title">{{ item.title }}</div>
-                      <p class="item-body">{{ item.body }}</p>
-                    </div>
-                  </li>
-                </ol>
-              </section>
-              <button
-                v-if="visibleBoard.items.length && stageBoard.hidden"
-                type="button"
-                class="board-reopen"
-                @click="stageBoard.hidden = false"
-              >展開看板</button>
-              <div class="video-overlay" v-if="!isConnected">
-                <i class="bi bi-camera-video-off" v-if="canConnect"></i>
-                <i class="bi bi-sliders" v-else-if="backendReady"></i>
-                <i class="bi bi-hourglass-split spin" v-else style="font-size: 4rem;"></i>
-                <p v-if="canConnect">{{ t('video.overlayTextReady') }}</p>
-                <p v-else-if="backendReady">{{ t('video.overlaySelectAvatar') }}</p>
-                <p v-else>{{ t('video.overlayTextLoading') }}</p>
-              </div>
-              <div class="recording-badge" v-if="isRecording">
-                <i class="bi bi-record-circle"></i>
-                {{ t('video.recording') }}
-              </div>
-            </div>
+                <button
+                  class="btn-stage-sub"
+                  @click="isRecording ? handleStopRecord() : handleStartRecord()"
+                  :disabled="!isConnected"
+                >
+                  <i class="bi bi-record-circle" :style="{ color: isRecording ? 'var(--danger)' : '' }"></i>
+                  {{ isRecording ? '停止錄影' : '開始錄影' }}
+                </button>
 
-            <div class="video-controls">
-              <div class="control-buttons">
-                <button 
-                  class="control-btn"
-                  @click="handleStartRecord"
-                  :disabled="!isConnected || isRecording"
-                  :title="!isConnected ? t('tooltips.recordDisabled') : ''"
-                >
-                  <i class="bi bi-record-fill"></i>
-                  {{ t('video.startRecord') }}
-                </button>
-                <button 
-                  class="control-btn"
-                  @click="handleStopRecord"
-                  :disabled="!isRecording"
-                >
-                  <i class="bi bi-stop-fill"></i>
-                  {{ t('video.stopRecord') }}
-                </button>
-                <button 
-                  class="control-btn download-btn"
+                <button
+                  v-if="lastRecordFile"
+                  class="btn-stage-sub"
                   @click="downloadRecord"
-                  :disabled="!lastRecordFile"
-                  :title="lastRecordFile ? '' : t('tooltips.downloadDisabled')"
                 >
                   <i class="bi bi-download"></i>
-                  {{ t('video.download') }}
+                  下載錄影
                 </button>
               </div>
+              <button class="btn-stage-sub" @click="openStageWindow" title="在新分頁開啟獨立 9:16 舞台視窗">
+                <i class="bi bi-box-arrow-up-right"></i> 獨立舞台視窗
+              </button>
             </div>
           </div>
+
         </div>
       </div>
-    </main>
+
+      <!-- ──────────────────────────────────────────────────────────
+           頁面 B：★ 獨立滿板系統設定中心 (Full Bleed Settings Suite)
+           ────────────────────────────────────────────────────────── -->
+      <div class="page-view" :class="{ active: currentMainView === 'settings' }" id="viewSettings">
+        <SettingsPanel
+          ref="settingsPanelRef"
+          :is-connected="isConnected || connectionStatus === 'connecting'"
+          :current-theme="currentTheme"
+          @settings-changed="onSettingsChanged"
+          @notification="showNotification"
+          @request-disconnect="handleStopConnection"
+          @avatar-ready="onAvatarReady"
+          @switch-theme="setDesignSample"
+          @close-settings="switchMainView('console')"
+        />
+      </div>
+
+    </div>
+
+    <input type="hidden" id="sessionid" :value="sessionId">
 
     <!-- 除錯面板 -->
-    <DebugPanel 
+    <DebugPanel
       v-if="appSettings.showDebugPanel"
       :connection-status="connectionStatus"
       :session-id="sessionId"
     />
-    
-    <input type="hidden" id="sessionid" :value="sessionId">
-    
+
     <!-- 通知提示 -->
     <div class="notification-container">
       <transition-group name="notification">
-        <div 
-          v-for="notification in notifications" 
+        <div
+          v-for="notification in notifications"
           :key="notification.id"
           class="notification"
           :class="notification.type"
@@ -392,6 +426,7 @@
         </div>
       </transition-group>
     </div>
+
   </div>
 </template>
 
@@ -403,6 +438,7 @@ import { useWebRTC } from './composables/useWebRTC'
 import { useI18n } from './composables/useI18n'
 import { useRuntimeSettings } from './composables/useRuntimeSettings'
 import { applyTurnCommitted } from './consoleTurnCommit.js'
+import { applyConsoleBoardEvent, createConsoleBoardState } from './consoleBoardState.js'
 import { placeStageBoard, STAGE_BOARD_PREVIEW_ITEMS, STAGE_BOARD_PREVIEW_TITLE } from './stageBoardLayout.js'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
@@ -500,6 +536,90 @@ const notifications = ref([])
 let notificationIdCounter = 0
 const lastRecordFile = ref(null)  // 最後一次錄製的檔案資訊
 
+// 設定中心與導航參照
+const settingsPanelRef = ref(null)
+const currentMainView = ref('console')
+const currentTheme = ref('obsidian')
+
+const isSettingsCenterActive = computed(() => {
+  return currentMainView.value === 'settings'
+})
+const openStudioView = () => {
+  currentMainView.value = 'console'
+}
+const openSettingsCenter = (subTab = null) => {
+  currentMainView.value = 'settings'
+  if (subTab && settingsPanelRef.value?.selectSettingsTab) {
+    settingsPanelRef.value.selectSettingsTab(subTab)
+  }
+}
+const switchMainView = (viewKey, subTabKey = null) => {
+  currentMainView.value = viewKey
+  if (viewKey === 'settings' && subTabKey && settingsPanelRef.value?.selectSettingsTab) {
+    settingsPanelRef.value.selectSettingsTab(subTabKey)
+  }
+}
+const quickSend = (txt) => {
+  chatInput.value = txt
+  sendChatMessage()
+}
+const openStageWindow = () => {
+  window.open('stage.html', '_blank')
+}
+const setDesignSample = (sampleKey) => {
+  const isWhite = (sampleKey === 'bento' || sampleKey === 'white' || sampleKey === 'light')
+  const resolvedKey = isWhite ? 'bento' : 'obsidian'
+  currentTheme.value = resolvedKey
+  document.body.setAttribute('data-sample', resolvedKey)
+  document.documentElement.setAttribute('data-theme', isWhite ? 'light' : 'dark')
+  localStorage.setItem('linly_design_sample', resolvedKey)
+  updateTheme(isWhite ? 'white' : 'dark')
+  if (settingsPanelRef.value?.syncTheme) {
+    settingsPanelRef.value.syncTheme(resolvedKey)
+  }
+}
+const stageCaptionText = computed(() => {
+  const lastAi = [...chatMessages.value].reverse().find(m => m.type === 'ai')
+  if (!lastAi || !lastAi.text) return ''
+  const clean = sanitizeChatText(lastAi.text)
+  return clean.length > 80 ? clean.slice(-80) : clean
+})
+
+const currentAvatar = computed(() => {
+  const characters = Array.isArray(runtime.characters) ? runtime.characters : []
+  return characters.find(character => character.id === runtime.avatar?.avatar_id) || null
+})
+
+const currentAvatarMeta = computed(() => {
+  const avatar = currentAvatar.value
+  if (!avatar) {
+    return runtime.avatar?.type
+      ? [runtime.avatar.avatar_id || '目前角色', runtime.avatar.type].filter(Boolean).join(' · ')
+      : '尚未載入角色'
+  }
+  return [
+    avatar.label || avatar.name || avatar.id,
+    avatar.resolution,
+    avatar.fps ? `${avatar.fps} FPS` : '',
+    avatar.type || runtime.avatar?.type,
+  ].filter(Boolean).join(' · ')
+})
+
+// 語音引擎狀態摘要 Badge
+const voiceEngineBadge = computed(() => {
+  const tts = runtime?.tts?.type
+  const stt = runtime?.stt?.type
+  if (!tts && !stt) return ''
+  return `${tts ? 'TTS: ' + tts : ''}${tts && stt ? ' · ' : ''}${stt ? 'STT: ' + stt : ''}`
+})
+
+const voiceBadgeText = computed(() => {
+  if (isRecordingVoice.value) return '聆聽使用者發話中'
+  if (voiceState.value === 'avatar_speaking') return '數位人說話中'
+  if (voiceEngineBadge.value) return voiceEngineBadge.value
+  return isConnected.value ? '全雙工待命' : ''
+})
+
 // 快速指令選單狀態
 const showQuickCommands = ref(false)
 const quickCommands = [
@@ -534,7 +654,7 @@ function askPreset(query) {
 }
 const backendReady = ref(false)  // 後端是否就緒
 const modelReady = ref(false)    // 是否已套用數字人引擎
-const stageBoard = reactive({ title: '', items: [], hidden: false })
+const stageBoard = reactive(createConsoleBoardState())
 const showTestPanel = ref(false)
 const currentResponseMode = ref('')
 const testPresets = [
@@ -553,7 +673,7 @@ const videoWrapperRef = ref(null)
 const videoSizeBox = reactive({ w: 400, h: 400 })
 const visibleBoard = computed(() => {
   if (stageBoard.items.length) {
-    return { title: stageBoard.title, items: stageBoard.items, preview: false }
+    return { title: stageBoard.title || '核心優勢看板', items: stageBoard.items, preview: false }
   }
   if (isStageConfiguring.value && (selectedBoardPreview.value || runtime.stage?.board_preview)) {
     return { title: STAGE_BOARD_PREVIEW_TITLE, items: STAGE_BOARD_PREVIEW_ITEMS, preview: true }
@@ -598,9 +718,9 @@ const appSettings = ref({
 })
 
 const chatMessages = ref([
-  { 
-    type: 'ai', 
-    text: '',  // 將在 onMounted 中設定
+  {
+    type: 'ai',
+    text: '',
     time: getCurrentTime()
   }
 ])
@@ -798,25 +918,14 @@ const handleVoiceEvent = (event) => {
     }
   } else if (event.type === 'assistant_response_mode') {
     currentResponseMode.value = event.mode || ''
-  } else if (event.type === 'board_clear') {
-    stageBoard.title = ''
-    stageBoard.items = []
-    stageBoard.hidden = false
-    currentResponseMode.value = ''
-  } else if (event.type === 'assistant_board' && event.board) {
-    stageBoard.title = event.board.title || ''
-    stageBoard.items = Array.isArray(event.board.items)
-      ? event.board.items.map(it => ({ title: it.title || '', body: it.body || '' }))
-      : []
-    stageBoard.hidden = false
-    acknowledgeRenderedBoardItems(event, stageBoard.items.length)
-  } else if (event.type === 'board_begin') {
-    stageBoard.title = event.title || ''
-    stageBoard.items = []
-    stageBoard.hidden = false
-  } else if (event.type === 'board_item') {
-    stageBoard.items.push({ title: event.title || '', body: event.body || '' })
-    acknowledgeRenderedBoardItems(event, 1, Number(event.index))
+  } else if (applyConsoleBoardEvent(stageBoard, event)) {
+    if (event.type === 'board_clear') {
+      currentResponseMode.value = ''
+    } else if (event.type === 'assistant_board') {
+      acknowledgeRenderedBoardItems(event, stageBoard.items.length)
+    } else if (event.type === 'board_item') {
+      acknowledgeRenderedBoardItems(event, 1, Number(event.index))
+    }
   } else if (event.type === 'assistant_fragment' && event.text) {
     isThinking.value = false
     const lastMessage = chatMessages.value[chatMessages.value.length - 1]
@@ -900,52 +1009,112 @@ const updateVideoSize = (size) => {
   }
 }
 
-// 更新主題
+// 更新主題 (樣式 A: Obsidian Dark vs 樣式 C: Bento White)
 const updateTheme = (theme) => {
   const root = document.documentElement
-  
+
   if (theme === 'auto') {
     // 跟隨系統
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-    theme = prefersDark ? 'dark' : 'light'
+    theme = prefersDark ? 'dark' : 'white'
   }
-  
-  if (theme === 'light') {
-    // 淺色模式
+
+  const isWhite = (theme === 'light' || theme === 'white' || theme === 'bento')
+  currentTheme.value = isWhite ? 'white' : 'dark'
+  const sampleKey = isWhite ? 'bento' : 'obsidian'
+
+  if (typeof document !== 'undefined' && document.body) {
+    document.body.setAttribute('data-theme', currentTheme.value)
+    document.body.setAttribute('data-sample', sampleKey)
+  }
+
+  if (isWhite) {
+    // 樣式 C：Bento 淺色模式 (純淨明亮、灰階微階層)
     root.style.setProperty('--primary', '#6366f1')
     root.style.setProperty('--primary-dark', '#4f46e5')
     root.style.setProperty('--primary-light', '#818cf8')
-    root.style.setProperty('--success', '#10b981')
-    root.style.setProperty('--warning', '#f59e0b')
-    root.style.setProperty('--danger', '#ef4444')
-    root.style.setProperty('--bg-primary', '#ffffff')
-    root.style.setProperty('--bg-secondary', '#f8fafc')
-    root.style.setProperty('--bg-tertiary', '#e2e8f0')
+    root.style.setProperty('--brand', '#6366f1')
+    root.style.setProperty('--brand-light', '#818cf8')
+    root.style.setProperty('--brand-dark', '#4f46e5')
+    root.style.setProperty('--brand-surface', 'rgba(99, 102, 241, 0.08)')
+    root.style.setProperty('--success', '#059669')
+    root.style.setProperty('--success-surface', 'rgba(5, 150, 105, 0.1)')
+    root.style.setProperty('--warning', '#d97706')
+    root.style.setProperty('--warning-surface', 'rgba(217, 119, 6, 0.1)')
+    root.style.setProperty('--danger', '#dc2626')
+    root.style.setProperty('--danger-surface', 'rgba(220, 38, 38, 0.1)')
+    root.style.setProperty('--bg-primary', '#f8fafc')
+    root.style.setProperty('--bg-secondary', '#ffffff')
+    root.style.setProperty('--bg-tertiary', '#f1f5f9')
+    root.style.setProperty('--bg-surface', '#ffffff')
+    root.style.setProperty('--bg-surface-elevated', '#f1f5f9')
+    root.style.setProperty('--bg-surface-hover', '#e2e8f0')
+    root.style.setProperty('--bg-surface-active', '#cbd5e1')
     root.style.setProperty('--text-primary', '#0f172a')
-    root.style.setProperty('--text-secondary', '#475569')
-    root.style.setProperty('--text-muted', '#64748b')
-    root.style.setProperty('--border', '#cbd5e1')
-    root.style.setProperty('--shadow', '0 4px 6px -1px rgba(0, 0, 0, 0.1)')
-    root.style.setProperty('--shadow-lg', '0 10px 15px -3px rgba(0, 0, 0, 0.15)')
-    root.style.setProperty('--bg-gradient', 'linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%)')
+    root.style.setProperty('--text-secondary', '#334155')
+    root.style.setProperty('--text-tertiary', '#64748b')
+    root.style.setProperty('--text-muted', '#94a3b8')
+    root.style.setProperty('--border', 'rgba(0, 0, 0, 0.12)')
+    root.style.setProperty('--border-subtle', 'rgba(0, 0, 0, 0.06)')
+    root.style.setProperty('--border-emphasis', 'rgba(99, 102, 241, 0.5)')
+    root.style.setProperty('--shadow-sm', '0 1px 2px rgba(0, 0, 0, 0.05)')
+    root.style.setProperty('--shadow', '0 4px 12px rgba(0, 0, 0, 0.06)')
+    root.style.setProperty('--shadow-lg', '0 12px 30px rgba(0, 0, 0, 0.08)')
+    root.style.setProperty('--bg-gradient', 'linear-gradient(135deg, #f8fafc 0%, #edf2f7 100%)')
+    root.style.setProperty('--surface', '#ffffff')
+    root.style.setProperty('--surface-elevated', '#f1f5f9')
+    root.style.setProperty('--surface-hover', '#e2e8f0')
+    root.style.setProperty('--input-surface', '#ffffff')
+    root.style.setProperty('--focus-ring', 'rgba(99, 102, 241, 0.25)')
   } else {
-    // 深色模式（預設）
+    // 樣式 A：Obsidian 深色模式（預設）
     root.style.setProperty('--primary', '#6366f1')
     root.style.setProperty('--primary-dark', '#4f46e5')
     root.style.setProperty('--primary-light', '#818cf8')
+    root.style.setProperty('--brand', '#6366f1')
+    root.style.setProperty('--brand-light', '#818cf8')
+    root.style.setProperty('--brand-dark', '#4f46e5')
+    root.style.setProperty('--brand-surface', 'rgba(99, 102, 241, 0.14)')
     root.style.setProperty('--success', '#10b981')
+    root.style.setProperty('--success-surface', 'rgba(16, 185, 129, 0.14)')
     root.style.setProperty('--warning', '#f59e0b')
+    root.style.setProperty('--warning-surface', 'rgba(245, 158, 11, 0.14)')
     root.style.setProperty('--danger', '#ef4444')
-    root.style.setProperty('--bg-primary', '#0f172a')
-    root.style.setProperty('--bg-secondary', '#1e293b')
-    root.style.setProperty('--bg-tertiary', '#334155')
+    root.style.setProperty('--danger-surface', 'rgba(239, 68, 68, 0.14)')
+    root.style.setProperty('--bg-primary', '#080b11')
+    root.style.setProperty('--bg-secondary', '#0e131f')
+    root.style.setProperty('--bg-tertiary', '#151d2f')
+    root.style.setProperty('--bg-surface', '#0e131f')
+    root.style.setProperty('--bg-surface-elevated', '#151d2f')
+    root.style.setProperty('--bg-surface-hover', '#1d273e')
+    root.style.setProperty('--bg-surface-active', '#253350')
     root.style.setProperty('--text-primary', '#f8fafc')
     root.style.setProperty('--text-secondary', '#cbd5e1')
-    root.style.setProperty('--text-muted', '#94a3b8')
-    root.style.setProperty('--border', '#475569')
-    root.style.setProperty('--shadow', '0 4px 6px -1px rgba(0, 0, 0, 0.3)')
-    root.style.setProperty('--shadow-lg', '0 10px 15px -3px rgba(0, 0, 0, 0.4)')
-    root.style.setProperty('--bg-gradient', 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)')
+    root.style.setProperty('--text-tertiary', '#94a3b8')
+    root.style.setProperty('--text-muted', '#64748b')
+    root.style.setProperty('--border', 'rgba(255, 255, 255, 0.13)')
+    root.style.setProperty('--border-subtle', 'rgba(255, 255, 255, 0.07)')
+    root.style.setProperty('--border-emphasis', 'rgba(99, 102, 241, 0.55)')
+    root.style.setProperty('--shadow-sm', '0 1px 3px rgba(0, 0, 0, 0.3)')
+    root.style.setProperty('--shadow', '0 4px 14px rgba(0, 0, 0, 0.4)')
+    root.style.setProperty('--shadow-lg', '0 12px 36px rgba(0, 0, 0, 0.6)')
+    root.style.setProperty('--bg-gradient', 'linear-gradient(135deg, #080b11 0%, #0e131f 100%)')
+    root.style.setProperty('--surface', '#0e131f')
+    root.style.setProperty('--surface-elevated', '#151d2f')
+    root.style.setProperty('--surface-hover', '#1d273e')
+    root.style.setProperty('--input-surface', '#0a0e18')
+    root.style.setProperty('--focus-ring', 'rgba(129, 140, 248, 0.34)')
+  }
+}
+
+const toggleTheme = () => {
+  const next = currentTheme.value === 'dark' ? 'white' : 'dark'
+  appSettings.value.theme = next
+  updateTheme(next)
+  try {
+    localStorage.setItem('linly-talker-stream-theme', next)
+  } catch (e) {
+    // Ignore storage issues
   }
 }
 
@@ -1329,7 +1498,8 @@ onMounted(async () => {
   }
   
   // 應用初始主題
-  updateTheme(appSettings.value.theme)
+  const savedSample = localStorage.getItem('linly_design_sample') || 'obsidian'
+  setDesignSample(savedSample)
   
   const wrap = videoWrapperRef.value
   if (wrap && window.ResizeObserver) {
@@ -1375,972 +1545,22 @@ onMounted(async () => {
 <style>
 @import 'highlight.js/styles/atom-one-dark.css';
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-:root {
-  --primary: #6366f1;
-  --primary-dark: #4f46e5;
-  --primary-light: #818cf8;
-  --success: #10b981;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-tertiary: #334155;
-  --text-primary: #f8fafc;
-  --text-secondary: #cbd5e1;
-  --text-muted: #94a3b8;
-  --border: #475569;
-  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
-}
-
-body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: var(--bg-gradient, linear-gradient(135deg, #0f172a 0%, #1e293b 100%));
-  color: var(--text-primary);
-  min-height: 100vh;
-}
-
-.app-wrapper {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-/* 頂部導航欄 */
-.app-header {
-  background: var(--bg-secondary);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--border);
-  padding: 1rem 2rem;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  box-shadow: var(--shadow);
-}
-
-.header-content {
-  max-width: 1800px;
-  margin: 0 auto;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.logo-section {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.logo-icon {
-  width: 50px;
-  height: 50px;
-  background: linear-gradient(135deg, var(--primary), var(--primary-light));
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
-  color: white;
-  box-shadow: var(--shadow);
-}
-
-.logo-text h1 {
-  font-size: 1.5rem;
-  font-weight: 700;
-  background: linear-gradient(135deg, var(--primary-light), #a78bfa);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  margin: 0;
-}
-
-.logo-text p {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  margin: 0;
-}
-
-.status-section {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.status-badge {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  border-radius: 20px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  animation: pulse 2s infinite;
-}
-
-.status-connected .status-dot {
-  background: var(--success);
-}
-
-.status-connecting .status-dot {
-  background: var(--warning);
-}
-
-.status-disconnected .status-dot {
-  background: var(--danger);
-}
-
-.session-info {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background: var(--bg-tertiary);
-  border-radius: 20px;
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-}
-
-.github-link {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  color: var(--text-secondary);
-  text-decoration: none;
-  font-size: 0.875rem;
-  transition: all 0.2s;
-}
-
-.github-link:hover {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: white;
-  transform: translateY(-2px);
-}
-
-.github-link i {
-  font-size: 1.125rem;
-}
-
-/* 主內容區 */
-.main-content {
-  flex: 1;
-  padding: 2rem;
-}
-
-.content-wrapper {
-  max-width: 1800px;
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: 1fr 500px;
-  gap: 2rem;
-  height: calc(100vh - 150px);
-}
-
-/* 左側對話區 */
-.chat-section {
-  background: var(--bg-secondary);
-  border-radius: 16px;
-  border: 1px solid var(--border);
+.app-root-shell {
+  height: 100vh;
+  width: 100vw;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: var(--shadow-lg);
-}
-
-.chat-header {
-  padding: 1.5rem;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: var(--bg-tertiary);
-}
-
-.chat-header h2 {
-  font-size: 1.25rem;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0;
-}
-
-.chat-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.action-btn {
-  padding: 0.5rem 1rem;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-}
-
-.action-btn:hover {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-}
-
-.action-btn.active {
-  background: var(--primary);
-  color: white;
-}
-
-.action-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.clear-history-btn:hover:not(:disabled) {
-  background: var(--danger);
-  color: white;
-}
-
-/* 對話模式 */
-.chat-mode {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.messages-container {
-  flex: 1;
-  overflow-y: auto;
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.message {
-  display: flex;
-  gap: 1rem;
-  animation: slideIn 0.3s ease;
-}
-
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.message-user {
-  flex-direction: row-reverse;
-}
-
-.message-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: var(--primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  flex-shrink: 0;
-}
-
-.message-user .message-avatar {
-  background: var(--success);
-}
-
-.message-content {
-  flex: 1;
-  max-width: 70%;
-}
-
-.message-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.25rem;
-}
-
-.message-sender {
-  font-weight: 600;
-  font-size: 0.875rem;
-}
-
-.message-time {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-.message-text {
-  background: var(--bg-tertiary);
-  padding: 0.75rem 1rem;
-  border-radius: 12px;
-  line-height: 1.6;
-}
-
-.message-user .message-text {
-  background: var(--primary);
-}
-
-/* Markdown 樣式 */
-.message-text :deep(h1),
-.message-text :deep(h2),
-.message-text :deep(h3),
-.message-text :deep(h4),
-.message-text :deep(h5),
-.message-text :deep(h6) {
-  margin-top: 0.5rem;
-  margin-bottom: 0.5rem;
-  font-weight: 600;
-  line-height: 1.3;
-}
-
-.message-text :deep(h1) { font-size: 1.5rem; }
-.message-text :deep(h2) { font-size: 1.3rem; }
-.message-text :deep(h3) { font-size: 1.1rem; }
-.message-text :deep(h4) { font-size: 1rem; }
-
-.message-text :deep(p) {
-  margin: 0.5rem 0;
-}
-
-.message-text :deep(p:first-child) {
-  margin-top: 0;
-}
-
-.message-text :deep(p:last-child) {
-  margin-bottom: 0;
-}
-
-.message-text :deep(ul),
-.message-text :deep(ol) {
-  margin: 0.5rem 0;
-  padding-left: 1.5rem;
-}
-
-.message-text :deep(li) {
-  margin: 0.25rem 0;
-}
-
-.message-text :deep(code) {
-  background: rgba(0, 0, 0, 0.2);
-  padding: 0.2rem 0.4rem;
-  border-radius: 4px;
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 0.9em;
-}
-
-.message-user .message-text :deep(code) {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.message-text :deep(pre) {
-  background: rgba(0, 0, 0, 0.3);
-  padding: 1rem;
-  border-radius: 8px;
-  overflow-x: auto;
-  margin: 0.5rem 0;
-}
-
-.message-user .message-text :deep(pre) {
-  background: rgba(0, 0, 0, 0.2);
-}
-
-.message-text :deep(pre code) {
-  background: transparent;
-  padding: 0;
-  border-radius: 0;
-  display: block;
-  line-height: 1.5;
-}
-
-.message-text :deep(blockquote) {
-  border-left: 4px solid var(--primary-light);
-  padding-left: 1rem;
-  margin: 0.5rem 0;
-  color: var(--text-secondary);
-  font-style: italic;
-}
-
-.message-text :deep(a) {
-  color: var(--primary-light);
-  text-decoration: none;
-}
-
-.message-text :deep(a:hover) {
-  text-decoration: underline;
-}
-
-.message-text :deep(table) {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 0.5rem 0;
-}
-
-.message-text :deep(table th),
-.message-text :deep(table td) {
-  border: 1px solid var(--border);
-  padding: 0.5rem;
-  text-align: left;
-}
-
-.message-text :deep(table th) {
-  background: rgba(0, 0, 0, 0.2);
-  font-weight: 600;
-}
-
-.message-text :deep(hr) {
-  border: none;
-  border-top: 1px solid var(--border);
-  margin: 1rem 0;
-}
-
-.message-text :deep(strong) {
-  font-weight: 700;
-}
-
-.message-text :deep(em) {
-  font-style: italic;
-}
-
-.message-text :deep(img) {
-  max-width: 100%;
-  border-radius: 8px;
-  margin: 0.5rem 0;
-}
-
-.typing-indicator {
-  display: flex;
-  gap: 0.25rem;
-  padding: 1rem;
-}
-
-.typing-indicator span {
-  width: 8px;
-  height: 8px;
-  background: var(--text-muted);
-  border-radius: 50%;
-  animation: bounce 1.4s infinite;
-}
-
-.typing-indicator span:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.typing-indicator span:nth-child(3) {
-  animation-delay: 0.4s;
-}
-
-@keyframes bounce {
-  0%, 60%, 100% {
-    transform: translateY(0);
-  }
-  30% {
-    transform: translateY(-10px);
-  }
-}
-
-/* 輸入區 */
-.input-area {
-  padding: 1.5rem;
-  border-top: 1px solid var(--border);
-  background: var(--bg-tertiary);
-}
-
-.textarea-wrapper {
   position: relative;
-  margin-bottom: 1rem;
 }
 
-.input-box textarea {
-  width: 100%;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1rem;
-  padding-right: 3rem; /* 為清空按鈕留空間 */
-  color: var(--text-primary);
-  font-size: 1rem;
-  resize: none;
-  min-height: 60px;
-  max-height: 120px;
-  transition: all 0.2s;
-  font-family: inherit;
-}
-
-.input-box textarea:focus {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-}
-
-.input-box textarea:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  background: var(--bg-tertiary);
-}
-
-/* 清空輸入框按鈕 */
-.clear-input-btn {
+.stage-ratio-box video {
   position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-  font-size: 1.2rem;
-}
-
-.clear-input-btn:hover {
-  color: var(--danger);
-  transform: translateY(-50%) scale(1.1);
-}
-
-.input-actions {
-  display: flex;
-  gap: 1rem;
-}
-
-.voice-state-badge {
-  width: fit-content;
-  margin: 0.55rem 0 0.65rem;
-  padding: 0.3rem 0.65rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-secondary);
-  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
-  font-size: 0.78rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.voice-state-badge[data-state='listening'],
-.voice-state-badge[data-state='speech_detected'] {
-  color: var(--success);
-  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
-}
-
-.voice-state-badge[data-state='avatar_speaking'] {
-  color: var(--primary-light);
-  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
-}
-
-.voice-state-badge[data-state='error'],
-.voice-state-badge[data-state='degraded'],
-.voice-state-badge[data-state='reconnecting'] {
-  color: var(--warning);
-}
-
-.voice-btn,
-.send-btn {
-  padding: 0.875rem 1.5rem;
-  border: none;
-  border-radius: 12px;
-  cursor: pointer;
-  font-weight: 600;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  position: relative;
-  overflow: hidden;
-}
-
-.voice-btn {
-  flex: 1;
-  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
-  color: var(--text-primary);
-  border: 2px solid var(--border);
-  justify-content: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.voice-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
-  border-color: var(--primary);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-}
-
-.voice-btn:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.voice-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  background: var(--bg-secondary);
-}
-
-.voice-btn:disabled:hover {
-  background: var(--bg-secondary);
-  transform: none;
-}
-
-/* 錄音狀態樣式 */
-.voice-btn.recording {
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  color: white;
-  border-color: #dc2626;
-  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
-}
-
-.voice-btn.recording:hover {
-  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.5);
-}
-
-/* 連續模式樣式 */
-.voice-btn.continuous-mode:not(.recording) {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  color: white;
-  border-color: #2563eb;
-}
-
-.voice-btn.continuous-mode:not(.recording):hover {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-}
-
-/* 語音按鈕圖示容器 */
-.voice-icon-wrapper {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-}
-
-.voice-icon-wrapper i {
-  font-size: 1.2rem;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   z-index: 1;
-}
-
-/* 錄音脈衝動畫 */
-.recording-pulse {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.3);
-  animation: pulse-ring 1.5s ease-out infinite;
-}
-
-@keyframes pulse-ring {
-  0% {
-    transform: translate(-50%, -50%) scale(0.8);
-    opacity: 1;
-  }
-  100% {
-    transform: translate(-50%, -50%) scale(2);
-    opacity: 0;
-  }
-}
-
-.voice-btn-text {
-  font-size: 0.95rem;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-}
-
-.send-btn {
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-  color: white;
-  border: 2px solid transparent;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
-}
-
-.send-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--primary-dark) 0%, #4338ca 100%);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
-}
-
-.send-btn:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
-}
-
-.send-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.send-btn span {
-  font-size: 0.95rem;
-}
-
-/* 朗讀模式 */
-.tts-mode {
-  flex: 1;
-  padding: 2rem;
-  overflow-y: auto;
-}
-
-.tts-container {
-  max-width: 800px;
-  margin: 0 auto;
-}
-
-.tts-container h3 {
-  margin-bottom: 1rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.tts-container textarea {
-  width: 100%;
-  background: var(--bg-secondary);
-  border: 2px solid var(--border);
-  border-radius: 12px;
-  padding: 1.25rem;
-  color: var(--text-primary);
-  font-size: 1rem;
-  resize: vertical;
-  margin-bottom: 1.5rem;
-  min-height: 300px;
-  transition: all 0.3s;
-  font-family: inherit;
-  line-height: 1.6;
-}
-
-.tts-container textarea:focus {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
-  background: var(--bg-primary);
-}
-
-.tts-container textarea:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  background: var(--bg-secondary);
-}
-
-.tts-btn {
-  width: 100%;
-  padding: 1.125rem 1.5rem;
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-  color: white;
-  border: 2px solid transparent;
-  border-radius: 12px;
-  font-size: 1.05rem;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.625rem;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
-}
-
-.tts-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--primary-dark) 0%, #4338ca 100%);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
-}
-
-.tts-btn:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
-}
-
-.tts-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.tts-btn i {
-  font-size: 1.25rem;
-}
-
-/* 右側影片區 */
-.video-section {
-  background: var(--bg-secondary);
-  border-radius: 16px;
-  border: 1px solid var(--border);
-  overflow: hidden;
-  box-shadow: var(--shadow-lg);
-}
-
-.video-card {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.video-header {
-  padding: 1.5rem;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: var(--bg-tertiary);
-}
-
-.video-header h2 {
-  font-size: 1.25rem;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0;
-}
-
-.connect-btn,
-.disconnect-btn {
-  padding: 0.75rem 1.5rem;
-  border: none;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  transition: all 0.2s;
-}
-
-.connect-btn {
-  background: var(--success);
-  color: white;
-}
-
-.connect-btn:hover:not(:disabled) {
-  background: #059669;
-}
-
-.connect-btn:disabled {
-  background: var(--text-muted);
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.disconnect-btn {
-  background: var(--danger);
-  color: white;
-}
-
-.disconnect-btn:hover {
-  background: #dc2626;
-}
-
-.video-wrapper {
-  flex: 1;
-  position: relative;
-  background: #000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.video-wrapper video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.console-float-board {
-  position: absolute;
-  z-index: 4;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  overflow: auto;
-  color: #f4f6fa;
-  background: rgb(10 14 24 / var(--board-alpha, .72));
-  backdrop-filter: blur(var(--board-blur, 7px));
-  border: 1px solid rgba(255,255,255,.14);
-  border-radius: 16px;
-  padding: 0 0 8px;
-  max-width: 90%;
-}
-.console-float-board .board-head,
-.console-float-board .board-heading {
-  padding: 8px 12px 4px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.board-head-actions { display: flex; align-items: center; gap: 6px; }
-.count-pill {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(61,220,151,.16);
-  color: #9ee4cf;
-}
-.board-close {
-  border: 0;
-  background: transparent;
-  color: rgba(255,255,255,.75);
-  cursor: pointer;
-}
-.console-float-board .board-list { list-style: none; padding: 0 12px; margin: 0; }
-.console-float-board .board-item { display: flex; gap: 8px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
-.item-number {
-  font: 11px/24px ui-monospace, monospace;
-  width: 24px;
-  height: 24px;
-  text-align: center;
-  border-radius: 7px;
-  background: rgba(61,220,151,.12);
-  color: #9ee4cf;
-  flex-shrink: 0;
-}
-.item-title { font-size: 13px; font-weight: 650; }
-.item-body { font-size: 12px; color: #e4ecf6; margin: 0; }
-.board-reopen {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 4;
-  border: 1px solid rgba(255,255,255,.18);
-  background: rgba(12,16,26,.78);
-  color: #f4f6fa;
-  padding: 6px 12px;
-  border-radius: 999px;
-  cursor: pointer;
 }
 
 .video-overlay {
@@ -2350,262 +1570,82 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: var(--text-muted);
-  font-size: 3rem;
+  background: rgba(8, 11, 17, 0.75);
+  backdrop-filter: blur(8px);
+  z-index: 5;
+  text-align: center;
+  padding: 20px;
 }
 
-.video-overlay p {
-  margin-top: 1rem;
-  font-size: 1rem;
+.notification-container {
+  position: fixed;
+  top: 48px;
+  right: 24px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
 }
 
-.recording-badge {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
-  background: var(--danger);
-  color: white;
-  padding: 0.5rem 1rem;
-  border-radius: 20px;
+.notification {
+  pointer-events: auto;
+  padding: 10px 18px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-lg);
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-weight: 600;
-  animation: pulse 2s infinite;
-}
-
-.video-controls {
-  padding: 1.5rem;
-  border-top: 1px solid var(--border);
-  background: var(--bg-tertiary);
-}
-
-.control-buttons {
-  display: flex;
-  gap: 0.75rem;
-}
-
-.control-btn {
-  flex: 1;
-  padding: 0.875rem;
-  background: var(--bg-secondary);
+  gap: 10px;
+  font-size: 13px;
   color: var(--text-primary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  transition: all 0.2s;
-  font-weight: 500;
+  animation: slideIn 0.2s ease-out;
 }
 
-.control-btn:hover:not(:disabled) {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: white;
-  transform: translateY(-2px);
+.notification.success {
+  border-color: var(--success);
+}
+.notification.success i {
+  color: var(--success);
 }
 
-.control-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.notification.warning {
+  border-color: var(--warning);
+}
+.notification.warning i {
+  color: var(--warning);
 }
 
-.download-btn:not(:disabled) {
-  background: var(--success, #10b981);
-  border-color: var(--success, #10b981);
-  color: white;
+.notification.error {
+  border-color: var(--danger);
+}
+.notification.error i {
+  color: var(--danger);
 }
 
-.download-btn:hover:not(:disabled) {
-  background: #059669;
-  border-color: #059669;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-
-@keyframes spin {
+@keyframes slideIn {
   from {
-    transform: rotate(0deg);
+    transform: translateX(100%);
+    opacity: 0;
   }
   to {
-    transform: rotate(360deg);
+    transform: translateX(0);
+    opacity: 1;
   }
 }
 
 .spin {
-  animation: spin 2s linear infinite;
+  animation: spin 1s linear infinite;
 }
 
-/* 響應式 */
-@media (max-width: 1400px) {
-  .content-wrapper {
-    grid-template-columns: 1fr 400px;
-  }
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
-@media (max-width: 1024px) {
-  .content-wrapper {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr 400px;
-  }
-  
-  .input-actions {
-    flex-direction: column;
-  }
-  
-  .voice-btn, .send-btn {
-    width: 100%;
-  }
-}
-
-@media (max-width: 768px) {
-  .chat-header {
-    flex-direction: column;
-    gap: 1rem;
-    align-items: flex-start;
-  }
-  
-  .chat-actions {
-    width: 100%;
-    flex-wrap: wrap;
-  }
-  
-  .action-btn {
-    flex: 1;
-    min-width: 100px;
-  }
-  
-  .voice-btn-text {
-    font-size: 0.875rem;
-  }
-  
-  .send-btn span {
-    display: none;
-  }
-  
-  .send-btn i {
-    font-size: 1.25rem;
-  }
-}
-
-/* 捲軸樣式 */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--bg-tertiary);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
-}
-
-/* 通知樣式 */
-.notification-container {
-  position: fixed;
-  top: 80px;
-  right: 20px;
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.notification {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 20px;
-  background: var(--bg-secondary);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  border-left: 4px solid var(--primary);
-  min-width: 280px;
-  max-width: 400px;
-}
-
-.notification i {
-  font-size: 20px;
-  flex-shrink: 0;
-}
-
-.notification.success {
-  border-left-color: #10b981;
-}
-
-.notification.success i {
-  color: #10b981;
-}
-
-.notification.error {
-  border-left-color: #ef4444;
-}
-
-.notification.error i {
-  color: #ef4444;
-}
-
-.notification.warning {
-  border-left-color: #f59e0b;
-}
-
-.notification.warning i {
-  color: #f59e0b;
-}
-
-.notification.info {
-  border-left-color: var(--primary);
-}
-
-.notification.info i {
-  color: var(--primary);
-}
-
-/* 通知動畫 */
-.notification-enter-active {
-  animation: notification-in 0.3s ease-out;
-}
-
-.notification-leave-active {
-  animation: notification-out 0.3s ease-in;
-}
-
-@keyframes notification-in {
-  from {
-    opacity: 0;
-    transform: translateX(100px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes notification-out {
-  from {
-    opacity: 1;
-    transform: translateX(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateX(100px);
-  }
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
 }
 </style>

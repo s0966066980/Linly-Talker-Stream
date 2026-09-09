@@ -104,6 +104,30 @@ test('設定面板提供三區可編輯 Rule 並使用版本套用 API', () => {
   assert.match(settings, /restoreDefaultRules/)
 })
 
+test('新版設定中心沿用實際 Rule 欄位並顯示載入與角色空狀態', () => {
+  assert.match(panel, /v-model="rulesDraft\[rule\.key\]"/)
+  assert.match(panel, /handleApplyPromptAndRules/)
+  assert.match(panel, /await applyLlmModel\(\)[\s\S]*await applyReplyRules\(\)/)
+  assert.match(panel, /v-if="loadingSettings"[\s\S]*載入/)
+  assert.match(panel, /v-else-if="settingsError"[\s\S]*role="alert"/)
+  assert.match(panel, /v-else-if="!filteredCharacters\.length && !loadingSettings"/)
+})
+
+test('控制台空狀態不以固定示範對話與看板冒充即時資料', () => {
+  assert.doesNotMatch(app, /return \{\s*title:\s*'核心優勢看板',[\s\S]*全雙工打斷機制/)
+  assert.doesNotMatch(app, /chatMessages = ref\(\[[\s\S]*boardItems:/)
+  assert.match(app, /return \{ title: '', items: \[\], preview: false \}/)
+})
+
+test('正式控制台不顯示原型展示列、假延遲，且可預覽目前數位人', () => {
+  assert.doesNotMatch(app, /UI\/UX 滿板架構重構/)
+  assert.doesNotMatch(app, /42ms/)
+  assert.match(app, /const currentAvatar = computed/)
+  assert.match(app, /class="stage-avatar-preview"/)
+  assert.match(app, /currentAvatar\.preview_url \|\| currentAvatar\.thumbnail/)
+  assert.match(panel, /char\.preview_url \|\| char\.thumbnail/)
+})
+
 test('文字回覆由事件模式呈現而非 HTTP 完整 response', () => {
   assert.match(app, /assistant_response/)
   assert.match(app, /assistant_fragment/)
