@@ -243,8 +243,11 @@
               <div class="field-control-area flex-col">
                 <textarea
                   id="llm-system-prompt"
+                  data-editor-key="prompt"
                   class="std-textarea prompt-editor"
                   rows="8"
+                  :style="{ height: `${editorHeights.prompt}px` }"
+                  @pointerup="rememberEditorHeight"
                   maxlength="8000"
                   v-model="selectedSystemPrompt"
                   :placeholder="t('settings.llm.defaultPromptPlaceholder')"
@@ -269,8 +272,11 @@
               <div class="field-control-area flex-col">
                 <textarea
                   :id="`rule-${rule.key}`"
+                  :data-editor-key="rule.key"
                   class="std-textarea"
                   rows="3"
+                  :style="{ height: `${editorHeights[rule.key]}px` }"
+                  @pointerup="rememberEditorHeight"
                   v-model="rulesDraft[rule.key]"
                 ></textarea>
               </div>
@@ -698,7 +704,14 @@
             <span style="font-size: 14px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
               <i class="bi bi-eye-fill" style="color: var(--brand-light);"></i> 9:16 舞台即時對照全景 (所見即所得)
             </span>
-            <div class="interactive-large-stage" :data-board-style="selectedBoardStyle">
+            <div
+              ref="stagePreviewRef"
+              class="interactive-large-stage stage-direct-editor"
+              :data-board-style="selectedBoardStyle"
+              @pointermove="moveStageDirectEdit"
+              @pointerup="finishStageDirectEdit"
+              @pointercancel="finishStageDirectEdit"
+            >
               <img
                 v-if="stagePreviewAvatarUrl"
                 class="stage-preview-avatar"
@@ -712,6 +725,7 @@
                 id="miniBoardRect"
                 :class="`board-style-${selectedBoardStyle}`"
                 :style="stagePreviewBoardStyle"
+                @pointerdown.stop.prevent="startStageDirectEdit('board', $event)"
               >
                 <div style="padding: 6px 8px; font-size: 10px; font-weight: 700; color: #34d399; border-bottom: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; gap: 4px;">
                   <span>📋 核心優勢看板</span>
@@ -722,13 +736,19 @@
                   • 邊生成邊播串流
                 </div>
               </div>
-              <div class="stage-preview-mic" :style="stagePreviewMicStyle" aria-hidden="true"><i class="bi bi-mic-fill"></i></div>
+              <button
+                type="button"
+                class="stage-preview-mic"
+                :style="stagePreviewMicStyle"
+                aria-label="拖曳調整麥克風位置"
+                @pointerdown.stop.prevent="startStageDirectEdit('mic', $event)"
+              ><i class="bi bi-mic-fill"></i></button>
               <div style="position: absolute; bottom: 8px; left: 8px; right: 8px; background: rgba(0,0,0,0.75); border-radius: 4px; padding: 4px; font-size: 9.5px; color: #cbd5e1; text-align: center;">
                 「即時字幕帶展示區域」
               </div>
             </div>
             <span style="font-size: 11.5px; color: var(--text-tertiary);">
-              顯示目前數位人、看板與麥克風位置；調整左側設定時即時同步。
+              可直接拖曳看板或麥克風；放開後會套用並保存到數位人舞台。
             </span>
           </section>
         </div>
@@ -1024,10 +1044,6 @@
                     <span class="opt-detail">{{ theme.desc }}</span>
                   </button>
                 </div>
-                <select class="std-select" id="themeSelectDropdown" v-model="selectedThemeValue" @change="onThemeDropdownChange">
-                  <option value="obsidian">樣式 A: Dark (深色模式)</option>
-                  <option value="bento">樣式 C: White (淺色模式)</option>
-                </select>
               </div>
             </div>
 
@@ -1174,6 +1190,42 @@ const isFullBleed = ref(true)
 const activeSettingsTab = ref(props.initialTab || 'ai')
 const settingsContentRef = ref(null)
 const confirmKind = ref('')
+const stagePreviewRef = ref(null)
+const stageDirectEditTarget = ref('')
+const EDITOR_HEIGHT_STORAGE_KEY = 'linly-talker-stream-editor-heights'
+const DEFAULT_EDITOR_HEIGHTS = Object.freeze({
+  prompt: 176,
+  activation: 96,
+  speech: 96,
+  board: 96
+})
+
+const loadEditorHeights = () => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(EDITOR_HEIGHT_STORAGE_KEY) || '{}')
+    return Object.fromEntries(Object.entries(DEFAULT_EDITOR_HEIGHTS).map(([key, fallback]) => {
+      const value = Number(stored[key])
+      return [key, Number.isFinite(value) && value >= 72 && value <= 1600 ? Math.round(value) : fallback]
+    }))
+  } catch {
+    return { ...DEFAULT_EDITOR_HEIGHTS }
+  }
+}
+
+const editorHeights = ref(loadEditorHeights())
+
+const persistEditorHeights = () => {
+  localStorage.setItem(EDITOR_HEIGHT_STORAGE_KEY, JSON.stringify(editorHeights.value))
+}
+
+const rememberEditorHeight = (event) => {
+  const editor = event.currentTarget
+  const key = editor.dataset.editorKey
+  const height = Math.round(parseFloat(getComputedStyle(editor).height))
+  if (!key || !Number.isFinite(height) || height < 72) return
+  editorHeights.value = { ...editorHeights.value, [key]: height }
+  persistEditorHeights()
+}
 
 const stageBoardStyles = [
   { id: 'glass', icon: '🪟', label: '毛玻璃視窗', desc: '半透霧面高雅質感' },
@@ -1385,6 +1437,57 @@ const stagePreviewBoardStyle = computed(() => {
 
 const stagePreviewMicStyle = computed(() => micStyle(selectedMicX.value, selectedMicY.value))
 
+const clampPercent = (value) => Math.max(0, Math.min(100, Math.round(value)))
+
+const startStageDirectEdit = (target, event) => {
+  stageDirectEditTarget.value = target
+  event.currentTarget.setPointerCapture?.(event.pointerId)
+}
+
+const moveStageDirectEdit = (event) => {
+  const target = stageDirectEditTarget.value
+  const rect = stagePreviewRef.value?.getBoundingClientRect()
+  if (!target || !rect?.width || !rect?.height) return
+
+  const x = ((event.clientX - rect.left) / rect.width) * 100
+  const y = ((event.clientY - rect.top) / rect.height) * 100
+  if (target === 'mic') {
+    selectedMicX.value = clampPercent(x)
+    selectedMicY.value = clampPercent(y)
+    selectedMicPreset.value = 'custom'
+    return
+  }
+
+  const stageWidth = 405
+  const stageHeight = 720
+  const box = placeStageBoard({
+    stageW: stageWidth,
+    stageH: stageHeight,
+    targetW: Number(selectedBoardWidth.value),
+    targetH: Number(selectedBoardHeight.value),
+    x: Number(selectedBoardX.value),
+    y: Number(selectedBoardY.value)
+  })
+  const stageX = ((event.clientX - rect.left) / rect.width) * stageWidth
+  const stageY = ((event.clientY - rect.top) / rect.height) * stageHeight
+  const maxX = Math.max(1, stageWidth - box.inset * 2 - box.width)
+  const maxY = Math.max(1, stageHeight - box.captionH - box.inset - box.height)
+  selectedBoardX.value = clampPercent(((stageX - box.inset - box.width / 2) / maxX) * 100)
+  selectedBoardY.value = clampPercent(((stageY - box.inset - box.height / 2) / maxY) * 100)
+  selectedBoardPreset.value = 'custom'
+}
+
+const finishStageDirectEdit = async () => {
+  if (!stageDirectEditTarget.value) return
+  stageDirectEditTarget.value = ''
+  try {
+    await applyStageSettings()
+    emit('notification', '舞台位置已套用。', 'success')
+  } catch (error) {
+    emit('notification', error.message, 'error')
+  }
+}
+
 const defaultSettings = {
   useStun: false,
   stunServer: 'stun:stun.miwifi.com:3478',
@@ -1548,13 +1651,10 @@ const applySpeechChange = async (kind) => {
   }
 }
 
-const onThemeDropdownChange = () => {
-  emit('switch-theme', selectedThemeValue.value)
-}
-
 const selectTheme = (theme) => {
   selectedThemeValue.value = theme
-  onThemeDropdownChange()
+  settings.value.theme = theme
+  emit('switch-theme', theme)
 }
 
 const onLanguageChange = () => {

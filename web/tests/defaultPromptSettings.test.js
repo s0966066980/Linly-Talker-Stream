@@ -131,6 +131,15 @@ test('舞台設定保留麥克風定位並以真實數位人預覽 9:16 對照�
   assert.match(panel, /placeStageBoard/)
 })
 
+test('放大的 9:16 舞台可直接拖曳看板與麥克風並保存位置', () => {
+  assert.match(panel, /class="interactive-large-stage stage-direct-editor"/)
+  assert.match(panel, /@pointerdown\.stop\.prevent="startStageDirectEdit\('board', \$event\)"/)
+  assert.match(panel, /@pointerdown\.stop\.prevent="startStageDirectEdit\('mic', \$event\)"/)
+  assert.match(panel, /const moveStageDirectEdit = \(event\)/)
+  assert.match(panel, /await applyStageSettings\(\)/)
+  assert.match(panel, /舞台位置已套用/)
+})
+
 test('全域儲存會處理 Prompt、Rule，且 Prompt 編輯器有足夠高度', () => {
   assert.match(panel, /rows="8"/)
   assert.match(panel, /const promptDirty = computed/)
@@ -142,6 +151,16 @@ test('主題選擇會將執行中的 dark 或 white 狀態對應至可見樣式'
   assert.match(panel, /const normalizeThemeValue = \(theme\)/)
   assert.match(panel, /normalizeThemeValue\(props\.currentTheme\)/)
   assert.match(panel, /@click="selectTheme\(theme\.id\)"/)
+})
+
+test('主題只保留卡片選擇，並持久化 Prompt 與 Rule 編輯器高度', () => {
+  assert.doesNotMatch(panel, /themeSelectDropdown/)
+  assert.match(panel, /const EDITOR_HEIGHT_STORAGE_KEY/)
+  assert.match(panel, /const rememberEditorHeight = \(event\)/)
+  assert.match(panel, /@pointerup="rememberEditorHeight"/)
+  assert.match(panel, /localStorage\.setItem\(EDITOR_HEIGHT_STORAGE_KEY/)
+  assert.match(panel, /:style="\{ height: `\$\{editorHeights\.prompt\}px` \}"/)
+  assert.match(panel, /:style="\{ height: `\$\{editorHeights\[rule\.key\]\}px` \}"/)
 })
 
 test('控制台空狀態不以固定示範對話與看板冒充即時資料', () => {
