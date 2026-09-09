@@ -618,6 +618,16 @@ class LLMHistoryTransactionTests(unittest.TestCase):
 
 
 class SemanticFragmenterTests(unittest.TestCase):
+    def test_strong_minimum_joins_short_sentences_before_tts(self):
+        fragmenter = SemanticFragmenter(
+            soft_limit_chars=72,
+            hard_limit_chars=120,
+            strong_min_chars=72,
+        )
+
+        text = "甲" * 40 + "。" + "乙" * 40 + "。"
+        self.assertEqual(fragmenter.feed(text), [text])
+
     def test_strong_and_weak_punctuation_follow_exact_thresholds_across_tokens(self):
         fragmenter = SemanticFragmenter()
 

@@ -264,7 +264,7 @@ class LLMConfig:
     llamacpp_dir: str = ""
     llamacpp_host: str = "127.0.0.1"
     llamacpp_port: int = 8080
-    llamacpp_ctx: int = 2048
+    llamacpp_ctx: int = 8192
     llamacpp_threads: int = 0  # 0 = 自動用滿 CPU
     max_tokens: int = 128  # 語音對話宜短，顯著降低尾端延遲
     response_max_chars: int = 120  # 每次回答的約略字數上限
@@ -318,6 +318,9 @@ class ReplyStreamingConfig:
     weak_min_chars: int = 24
     soft_limit_chars: int = 72
     hard_limit_chars: int = 120
+    # Strong punctuation only emits a fragment after this many content chars.
+    # Raising it joins short sentences and reduces separate TTS requests.
+    strong_min_chars: int = 1
 
 
 @dataclass

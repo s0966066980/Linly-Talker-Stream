@@ -232,6 +232,7 @@ class BaseLLM(ABC):
             self.system_prompt,
             reply_mode=norm_mode,
             response_max_chars=resp_chars,
+            board_max_items=max_items,
             rules=rules_snapshot,
             displayed_board=self.get_last_board(),
         )
@@ -266,11 +267,20 @@ class BaseLLM(ABC):
             )
             or 120
         )
+        strong_min = int(
+            getattr(
+                getattr(self.config, "reply_streaming", None),
+                "strong_min_chars",
+                1,
+            )
+            or 1
+        )
         text_processor = (
             SemanticFragmenter(
                 weak_min_chars=weak_min,
                 soft_limit_chars=soft_limit,
                 hard_limit_chars=hard_limit,
+                strong_min_chars=strong_min,
             )
             if semantic_stream
             else TextStreamProcessor()

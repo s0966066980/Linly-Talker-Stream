@@ -97,7 +97,7 @@ def _ensure_llamacpp_if_needed(config) -> None:
         extra_dir=getattr(config.llm, "llamacpp_dir", "") or "",
         host=host,
         port=port,
-        ctx=int(getattr(config.llm, "llamacpp_ctx", 2048) or 2048),
+        ctx=int(getattr(config.llm, "llamacpp_ctx", 8192) or 8192),
         threads=int(getattr(config.llm, "llamacpp_threads", 0) or 0),
     )
     config.llm.base_url = base_url

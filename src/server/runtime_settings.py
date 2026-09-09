@@ -70,6 +70,8 @@ MIN_BOARD_WIDTH = 200
 MAX_BOARD_WIDTH = 720
 MIN_BOARD_HEIGHT = 180
 MAX_BOARD_HEIGHT = 720
+MIN_BOARD_MAX_ITEMS = 1
+MAX_BOARD_MAX_ITEMS = 12
 
 
 class SettingsError(Exception):
@@ -138,6 +140,9 @@ def current_snapshot(config) -> Dict[str, Any]:
             "system_prompt": load_system_prompt(config),
             "response_max_chars": int(
                 getattr(llm, "response_max_chars", DEFAULT_RESPONSE_MAX_CHARS)
+            ),
+            "board_max_items": validate_board_max_items(
+                getattr(getattr(llm, "board", None), "max_items", 8)
             ),
             "reply_mode": (
                 "streaming"
@@ -229,6 +234,24 @@ def validate_stage_caption_max_chars(value) -> int:
         raise ValueError(
             f"舞台字幕顯示上限必須介於 {MIN_STAGE_CAPTION_MAX_CHARS} 到 "
             f"{MAX_STAGE_CAPTION_MAX_CHARS} 之間"
+        )
+    return normalized
+
+
+def validate_board_max_items(value) -> int:
+    """驗證單輪看板可顯示的項目數。"""
+    if isinstance(value, bool):
+        raise ValueError("看板項目上限必須是整數")
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("看板項目上限必須是整數") from exc
+    if isinstance(value, float) and not value.is_integer():
+        raise ValueError("看板項目上限必須是整數")
+    if not MIN_BOARD_MAX_ITEMS <= normalized <= MAX_BOARD_MAX_ITEMS:
+        raise ValueError(
+            f"看板項目上限必須介於 {MIN_BOARD_MAX_ITEMS} 到 "
+            f"{MAX_BOARD_MAX_ITEMS} 之間"
         )
     return normalized
 
@@ -485,6 +508,7 @@ def apply_llm_model(
     system_prompt: Optional[str] = None,
     response_max_chars: Optional[int] = None,
     reply_mode: Optional[str] = None,
+    board_max_items: Optional[int] = None,
 ) -> Dict[str, Any]:
     model = (model or "").strip()
     if not model:
@@ -502,6 +526,14 @@ def apply_llm_model(
             getattr(config.llm, "response_max_chars", DEFAULT_RESPONSE_MAX_CHARS)
             if response_max_chars is None
             else response_max_chars
+        )
+    except ValueError as exc:
+        raise SettingsError(str(exc)) from exc
+    try:
+        next_board_max_items = validate_board_max_items(
+            getattr(getattr(config.llm, "board", None), "max_items", 8)
+            if board_max_items is None
+            else board_max_items
         )
     except ValueError as exc:
         raise SettingsError(str(exc)) from exc
@@ -523,7 +555,7 @@ def apply_llm_model(
                 extra_dir=extra_dir,
                 host=host,
                 port=port,
-                ctx=int(getattr(config.llm, "llamacpp_ctx", 2048) or 2048),
+                ctx=int(getattr(config.llm, "llamacpp_ctx", 8192) or 8192),
                 threads=int(getattr(config.llm, "llamacpp_threads", 0) or 0),
             )
         except Exception as exc:
@@ -558,6 +590,7 @@ def apply_llm_model(
     config.llm.api_key = api_key
     config.llm.max_tokens = next_max_tokens
     config.llm.response_max_chars = next_response_max_chars
+    config.llm.board.max_items = next_board_max_items
     config.llm.system_prompt = next_system_prompt
     config.llm.extra_body = extra_body
     config.reply_streaming.enabled = next_reply_mode == "streaming"
@@ -578,6 +611,7 @@ def apply_llm_model(
         "base_url": base_url,
         "system_prompt": next_system_prompt,
         "response_max_chars": next_response_max_chars,
+        "board_max_items": next_board_max_items,
         "reply_mode": next_reply_mode,
     }
 

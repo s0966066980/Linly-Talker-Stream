@@ -188,6 +188,7 @@ class OverridePersistTests(unittest.TestCase):
             self.assertEqual(data["llm"]["max_tokens"], 360)
             self.assertEqual(data["llm"]["response_max_chars"], 240)
             self.assertEqual(data["llm"]["system_prompt"], "請用繁體中文簡短回答。")
+            self.assertEqual(data["llm"]["board"]["max_items"], 8)
             self.assertEqual(data["model"]["type"], "musetalk")
             self.assertEqual(data["model"]["avatar_id"], "musetalk_avatar1")
             self.assertEqual(data["model"]["mouth_sharpen"], 0.5)
@@ -198,6 +199,7 @@ class OverridePersistTests(unittest.TestCase):
                 {
                     "enabled": True,
                     "decoupled_audio_clock": False,
+                    "strong_min_chars": 1,
                 },
             )
             self.assertEqual(
@@ -290,6 +292,16 @@ class DefaultPromptSettingsTests(unittest.TestCase):
             snapshot = current_snapshot(config)
 
         self.assertEqual(snapshot["llm"]["response_max_chars"], 240)
+
+    def test_snapshot_exposes_board_item_limit(self):
+        config = Config()
+        config.llm.board.max_items = 6
+        with patch(
+            "src.server.runtime_settings.list_avatar_characters", return_value=[]
+        ), patch("src.server.runtime_settings.list_engines", return_value=[]):
+            snapshot = current_snapshot(config)
+
+        self.assertEqual(snapshot["llm"]["board_max_items"], 6)
 
     def test_snapshot_exposes_stage_caption_limit(self):
         config = Config()
@@ -392,6 +404,35 @@ class DefaultPromptSettingsTests(unittest.TestCase):
                 "請使用繁體中文回答。",
                 19,
             )
+
+    def test_apply_llm_updates_and_validates_board_item_limit(self):
+        config = Config()
+        config.llm.provider = "ollama"
+        config.llm.base_url = "http://localhost:11434/v1"
+
+        with patch("src.server.runtime_settings.persist_runtime_overrides"), patch(
+            "src.server.runtime_settings.switch_llm_endpoint"
+        ):
+            result = apply_llm_model(
+                config,
+                "qwen3.5:4b",
+                "ollama",
+                "請使用繁體中文回答。",
+                board_max_items=6,
+            )
+
+        self.assertEqual(config.llm.board.max_items, 6)
+        self.assertEqual(result["board_max_items"], 6)
+
+        for value in (0, 13, 2.5, True, "invalid"):
+            with self.subTest(value=value), self.assertRaises(SettingsError):
+                apply_llm_model(
+                    Config(),
+                    "qwen3.5:4b",
+                    "ollama",
+                    "請使用繁體中文回答。",
+                    board_max_items=value,
+                )
 
     def test_length_instruction_preserves_prompt_and_requests_complete_sentence(self):
         prompt = with_response_length_instruction("請使用繁體中文回答。", 120)

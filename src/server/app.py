@@ -114,7 +114,7 @@ def main():
                 extra_dir=getattr(state.config.llm, "llamacpp_dir", "") or "",
                 host=getattr(state.config.llm, "llamacpp_host", "127.0.0.1") or "127.0.0.1",
                 port=int(getattr(state.config.llm, "llamacpp_port", 8080) or 8080),
-                ctx=int(getattr(state.config.llm, "llamacpp_ctx", 2048) or 2048),
+                ctx=int(getattr(state.config.llm, "llamacpp_ctx", 8192) or 8192),
                 threads=int(getattr(state.config.llm, "llamacpp_threads", 0) or 0),
             )
             logger.info("llama-server 已就緒: %s", state.config.llm.base_url)

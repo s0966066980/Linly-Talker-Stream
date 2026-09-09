@@ -23,6 +23,15 @@ class AutoResponseProtocolTests(unittest.TestCase):
         self.assertIn("不是工具呼叫", prompt)
         self.assertNotIn("台灣歷史", prompt)
 
+    def test_auto_prompt_states_the_effective_board_item_limit(self):
+        prompt = compose_system_prompt(
+            "You are a helpful assistant.",
+            reply_mode=ReplyMode.AUTO,
+            board_max_items=6,
+        )
+
+        self.assertIn("看板最多 6 項", prompt)
+
     def test_auto_simple_mode_marker_is_confirmed_once(self):
         modes = []
         parser = ResponseProtocolParser(mode=ReplyMode.AUTO, on_mode=modes.append)
@@ -33,6 +42,28 @@ class AutoResponseProtocolTests(unittest.TestCase):
         self.assertEqual(modes, [ReplyMode.SIMPLE])
         self.assertIn("你好。", "".join(spoken))
         self.assertNotIn("MODE", "".join(spoken))
+
+    def test_auto_simple_ignores_whitespace_chunk_before_speech_marker(self):
+        """llama.cpp may emit the newline and speech marker as separate chunks."""
+        parser = ResponseProtocolParser(mode=ReplyMode.AUTO)
+        spoken = []
+        for chunk in (
+            "[[MODE:SIMPLE]]",
+            "\n",
+            "[[",
+            "S",
+            "PE",
+            "ECH",
+            "]]",
+            "\n你好。",
+            "[[END]]",
+        ):
+            spoken.extend(parser.feed(chunk))
+        tail, board = parser.flush()
+        spoken.extend(tail)
+
+        self.assertEqual("".join(spoken).strip(), "你好。")
+        self.assertIsNone(board)
 
     def test_auto_board_mode_marker_parses_board_without_speaking_json(self):
         modes = []

@@ -385,6 +385,10 @@ class ResponseProtocolParser:
                 self._buffer = self._buffer[speech_m.end():].lstrip("\r\n ")
                 self._state = ParserState.IN_SPEECH
             else:
+                # llama.cpp commonly emits the newline after MODE as its own
+                # SSE chunk. It is envelope whitespace, not spoken content.
+                if not self._buffer.strip():
+                    return []
                 speech_overlap = max(
                     ThinkFilter._prefix_overlap(self._buffer, TAG_SPEECH),
                     ThinkFilter._prefix_overlap(self._buffer, "[SPEECH]"),

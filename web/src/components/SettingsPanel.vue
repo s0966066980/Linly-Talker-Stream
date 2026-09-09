@@ -233,6 +233,33 @@
               </div>
             </div>
 
+            <div class="setting-item">
+              <div class="setting-label">
+                <label for="llm-board-max-items">看板項目上限</label>
+                <span id="llm-board-max-items-hint" class="setting-desc">每輪最多保留幾個看板項目。超出的項目不會顯示；可設定 1–12 項。</span>
+              </div>
+              <div class="setting-control setting-control-grow">
+                <input
+                  id="llm-board-max-items"
+                  v-model.number="selectedBoardMaxItems"
+                  type="number"
+                  inputmode="numeric"
+                  min="1"
+                  max="12"
+                  step="1"
+                  :disabled="applyingLlm || loadingSettings"
+                  :aria-invalid="boardItemsError"
+                  aria-describedby="llm-board-max-items-hint llm-board-max-items-meta"
+                >
+                <div id="llm-board-max-items-meta" class="field-meta">
+                  <span v-if="boardItemsError" class="field-error" role="alert">請輸入 1 到 12 之間的整數。</span>
+                  <span class="character-count">{{ selectedBoardMaxItems || '—' }} 項</span>
+                </div>
+              </div>
+            </div>
+
+            <p class="section-hint">系統固定規則：回覆協定與看板 JSON 由系統解析，JSON 不會送入語音；口語摘要、看板啟用與內容偏好可在下方 Rule 調整。</p>
+
             <div class="settings-section rules-editor" aria-labelledby="reply-rules-title">
               <h4 id="reply-rules-title"><i class="bi bi-list-check"></i> 回覆規則（Rule）</h4>
               <p class="section-hint">規則會交給目前選定的單一 LLM；儲存後從下一輪生效。固定輸出格式由系統管理。</p>
@@ -270,7 +297,7 @@
             <button
               class="btn-apply"
               type="button"
-              :disabled="!llmDirty || applyingLlm || !selectedLlm || !selectedSystemPrompt.trim() || responseLengthError"
+              :disabled="!llmDirty || applyingLlm || !selectedLlm || !selectedSystemPrompt.trim() || responseLengthError || boardItemsError"
               @click="handleApplyLlm"
             >
               <i class="bi bi-hourglass-split spin" v-if="applyingLlm"></i>
@@ -1609,6 +1636,7 @@ const {
   selectedLlm,
   selectedSystemPrompt,
   selectedResponseMaxChars,
+  selectedBoardMaxItems,
   selectedReplyMode,
   rulesDraft,
   rulesApplied,
@@ -1639,6 +1667,7 @@ const {
   selectMicPreset,
   markMicPositionCustom,
   responseLengthError,
+  boardItemsError,
   stageCaptionLengthError,
   filteredCharacters,
   llmDirty,

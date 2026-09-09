@@ -7,6 +7,7 @@ const runtime = reactive({
     provider: 'ollama',
     system_prompt: '',
     response_max_chars: 120,
+    board_max_items: 8,
     reply_mode: 'legacy',
     reply_rules: { revision: 1, activation: '', speech: '', board: '' }
   },
@@ -183,6 +184,7 @@ const selectedAvatarId = ref('')
 const selectedLlm = ref('')
 const selectedSystemPrompt = ref('')
 const selectedResponseMaxChars = ref(120)
+const selectedBoardMaxItems = ref(8)
 const selectedReplyMode = ref('legacy')
 const rulesDraft = reactive({ activation: '', speech: '', board: '' })
 const rulesApplied = reactive({ revision: 1, activation: '', speech: '', board: '' })
@@ -227,6 +229,11 @@ const responseLengthError = computed(() => {
   return !Number.isInteger(value) || value < 20 || value > 2000
 })
 
+const boardItemsError = computed(() => {
+  const value = Number(selectedBoardMaxItems.value)
+  return !Number.isInteger(value) || value < 1 || value > 12
+})
+
 const stageCaptionLengthError = computed(() => {
   const value = Number(selectedStageCaptionMaxChars.value)
   return !Number.isInteger(value) || value < 20 || value > 2000
@@ -242,12 +249,13 @@ const currentProviderModels = computed(() => {
 })
 
 const llmDirty = computed(() => {
-  if (!selectedLlm.value || !selectedSystemPrompt.value.trim() || responseLengthError.value) return false
+  if (!selectedLlm.value || !selectedSystemPrompt.value.trim() || responseLengthError.value || boardItemsError.value) return false
   return (
     selectedProvider.value !== runtime.llm.provider ||
     selectedLlm.value !== runtime.llm.model ||
     selectedSystemPrompt.value !== (runtime.llm.system_prompt || '') ||
     Number(selectedResponseMaxChars.value) !== Number(runtime.llm.response_max_chars || 120) ||
+    Number(selectedBoardMaxItems.value) !== Number(runtime.llm.board_max_items || 8) ||
     selectedReplyMode.value !== (runtime.llm.reply_mode || 'legacy')
   )
 })
@@ -656,6 +664,7 @@ function applySnapshot(data) {
   }
   selectedSystemPrompt.value = data.llm?.system_prompt || ''
   selectedResponseMaxChars.value = Number(data.llm?.response_max_chars || 120)
+  selectedBoardMaxItems.value = Number(data.llm?.board_max_items || 8)
   selectedReplyMode.value = data.llm?.reply_mode || 'legacy'
   selectedStageCaptionMaxChars.value = runtime.stage.caption_max_chars
   selectedBoardStyle.value = runtime.stage.board_style
@@ -796,7 +805,8 @@ async function applyLlmModel(
   provider = selectedProvider.value,
   systemPrompt = selectedSystemPrompt.value,
   responseMaxChars = selectedResponseMaxChars.value,
-  replyMode = selectedReplyMode.value
+  replyMode = selectedReplyMode.value,
+  boardMaxItems = selectedBoardMaxItems.value
 ) {
   applyingLlm.value = true
   try {
@@ -808,7 +818,8 @@ async function applyLlmModel(
         provider,
         system_prompt: systemPrompt,
         response_max_chars: Number(responseMaxChars),
-        reply_mode: replyMode
+        reply_mode: replyMode,
+        board_max_items: Number(boardMaxItems)
       })
     }))
     runtime.llm.model = data.model
@@ -816,12 +827,14 @@ async function applyLlmModel(
     runtime.llm.base_url = data.base_url || runtime.llm.base_url
     runtime.llm.system_prompt = data.system_prompt || systemPrompt
     runtime.llm.response_max_chars = Number(data.response_max_chars || responseMaxChars)
+    runtime.llm.board_max_items = Number(data.board_max_items || boardMaxItems)
     runtime.llm.reply_mode = data.reply_mode || replyMode
     ollama.current = data.model
     selectedLlm.value = data.model
     selectedProvider.value = data.provider || provider
     selectedSystemPrompt.value = runtime.llm.system_prompt
     selectedResponseMaxChars.value = runtime.llm.response_max_chars
+    selectedBoardMaxItems.value = runtime.llm.board_max_items
     selectedReplyMode.value = runtime.llm.reply_mode
     return data
   } finally {
@@ -1032,6 +1045,7 @@ export function useRuntimeSettings() {
     selectedLlm,
     selectedSystemPrompt,
     selectedResponseMaxChars,
+    selectedBoardMaxItems,
     selectedReplyMode,
     rulesDraft,
     rulesApplied,
@@ -1064,6 +1078,7 @@ export function useRuntimeSettings() {
     selectMicPreset,
     markMicPositionCustom,
     responseLengthError,
+    boardItemsError,
     stageCaptionLengthError,
     filteredCharacters,
     llmDirty,

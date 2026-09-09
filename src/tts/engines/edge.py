@@ -34,7 +34,6 @@ FRAME_SECONDS = 0.01
 MAX_PREROLL_SECONDS = 0.16
 SILENCE_GUARD_SECONDS = 0.04
 TRAILING_PAUSE_SECONDS = 0.12
-MAX_PREFETCH_FRAMES = 50
 
 
 class _EdgeAsyncWorker:
@@ -118,11 +117,10 @@ class _DirectFrameSink:
 
 
 class _GatedFrameSink:
-    """Buffer PCM until the previous fragment has finished emitting."""
+    """Buffer a synthesized fragment until every preceding fragment is emitted."""
 
-    def __init__(self, parent, *, max_frames: int = MAX_PREFETCH_FRAMES) -> None:
+    def __init__(self, parent) -> None:
         self.parent = parent
-        self.max_frames = max_frames
         self.first_pcm = threading.Event()
         self._buffer: deque[tuple[np.ndarray, dict]] = deque()
         self._lock = threading.Lock()
@@ -163,29 +161,15 @@ class _GatedFrameSink:
                 self._buffer.append(
                     (np.asarray(samples, dtype=np.float32).copy(), dict(eventpoint))
                 )
-                if self._space is not None and len(self._buffer) >= self.max_frames:
-                    self._space.clear()
         if live:
             self.parent.put_audio_frame(samples, eventpoint)
             self.first_pcm.set()
 
     async def wait_for_space(self) -> None:
-        while True:
-            with self._lock:
-                if (
-                    self._released
-                    or self._cancelled
-                    or len(self._buffer) < self.max_frames
-                ):
-                    return
-                if self._space is not None:
-                    self._space.clear()
-            if self._space is None:
-                return
-            try:
-                await asyncio.wait_for(self._space.wait(), timeout=0.5)
-            except asyncio.TimeoutError:
-                pass
+        # A gated sink owns a complete in-memory fragment.  Do not throttle
+        # the Edge stream here: later fragments must finish synthesis while
+        # earlier audio is still playing.
+        return None
 
     def release(self) -> None:
         with self._lock:
@@ -546,7 +530,7 @@ class EdgeTTS(BaseTTS):
         self.retry_after_playback_commit_count = 0
         self.last_onset_preroll_ms = 0.0
         self._worker: Optional[_EdgeAsyncWorker] = None
-        self._prefetch_job = None
+        self._prefetch_jobs: deque[dict] = deque()
         self._worker_lock = threading.Lock()
 
     @property
@@ -585,12 +569,11 @@ class EdgeTTS(BaseTTS):
 
     def flush_talk(self) -> None:
         super().flush_talk()
-        job = self._prefetch_job
-        if job is not None:
+        for job in list(self._prefetch_jobs):
             job["sink"].cancel()
 
     def has_pending_work(self) -> bool:
-        return super().has_pending_work() or self._prefetch_job is not None
+        return super().has_pending_work() or bool(self._prefetch_jobs)
 
     def render(self, quit_event) -> None:
         if self._persistent_enabled:
@@ -650,13 +633,29 @@ class EdgeTTS(BaseTTS):
         except Exception:
             pass
 
+    def _cancel_prefetch_jobs(self) -> None:
+        while self._prefetch_jobs:
+            self._cancel_job(self._prefetch_jobs.popleft())
+
+    def _launch_queued_prefetches(self) -> None:
+        """Synthesize every already-known later fragment while playback drains.
+
+        Each sink retains its PCM until its turn is released, so completing
+        later requests early cannot reorder or overlap audible speech.
+        """
+        while self.state == State.RUNNING:
+            try:
+                msg = self.msgqueue.get_nowait()
+            except Empty:
+                return
+            self._prefetch_jobs.append(self._launch_stream(msg, gated=True))
+
     def _process_tts_with_prefetch(self, quit_event) -> None:
         current = None
         while not quit_event.is_set():
             if current is None:
-                if self._prefetch_job is not None:
-                    current = self._prefetch_job
-                    self._prefetch_job = None
+                if self._prefetch_jobs:
+                    current = self._prefetch_jobs.popleft()
                     if self.state != State.RUNNING:
                         self._cancel_job(current)
                         current = None
@@ -672,34 +671,23 @@ class EdgeTTS(BaseTTS):
                     self._synthesis_active.set()
                     current = self._launch_stream(msg, gated=False)
 
-            if (
-                self._prefetch_job is None
-                and self.state == State.RUNNING
-                and current["sink"].first_pcm.is_set()
-            ):
-                try:
-                    nxt = self.msgqueue.get_nowait()
-                except Empty:
-                    nxt = None
-                if nxt is not None:
-                    self._prefetch_job = self._launch_stream(nxt, gated=True)
+            if self.state == State.RUNNING and current["sink"].first_pcm.is_set():
+                self._launch_queued_prefetches()
 
             if self.state != State.RUNNING:
                 self._cancel_job(current)
-                self._cancel_job(self._prefetch_job)
+                self._cancel_prefetch_jobs()
                 current = None
-                self._prefetch_job = None
                 self._synthesis_active.clear()
                 continue
 
             if not self._finish_job(current):
                 continue
             current = None
-            if self._prefetch_job is None and self.msgqueue.empty():
+            if not self._prefetch_jobs and self.msgqueue.empty():
                 self._synthesis_active.clear()
         self._cancel_job(current)
-        self._cancel_job(self._prefetch_job)
-        self._prefetch_job = None
+        self._cancel_prefetch_jobs()
         logger.info("ttsreal thread stop")
 
     def txt_to_audio(self, msg: tuple[str, dict]):

@@ -71,6 +71,7 @@ class SemanticFragmenter:
         weak_min_chars: int = 24,
         soft_limit_chars: int = 72,
         hard_limit_chars: int = 120,
+        strong_min_chars: int = 1,
     ) -> None:
         if weak_min_chars < 1:
             raise ValueError("weak punctuation threshold must be positive")
@@ -78,9 +79,14 @@ class SemanticFragmenter:
             raise ValueError("soft limit cannot be below weak punctuation threshold")
         if hard_limit_chars < soft_limit_chars:
             raise ValueError("hard limit cannot be below soft limit")
+        if strong_min_chars < 1:
+            raise ValueError("strong punctuation threshold must be positive")
+        if strong_min_chars > hard_limit_chars:
+            raise ValueError("strong punctuation threshold cannot exceed hard limit")
         self._weak_min_chars = weak_min_chars
         self._soft_limit_chars = soft_limit_chars
         self._hard_limit_chars = hard_limit_chars
+        self._strong_min_chars = strong_min_chars
         self._buffer = ""
 
     @property
@@ -119,6 +125,8 @@ class SemanticFragmenter:
             if character not in STRONG_PUNCTUATION:
                 continue
             boundary = index + 1
+            if _content_length(self._buffer[:boundary]) < self._strong_min_chars:
+                continue
             if boundary == len(self._buffer) and self._has_unclosed_delimiter(boundary):
                 continue
             while boundary < len(self._buffer):

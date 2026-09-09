@@ -100,6 +100,7 @@ def compose_system_prompt(
     base_prompt: str,
     reply_mode: Optional[ReplyMode] = ReplyMode.SIMPLE,
     response_max_chars: Optional[int] = None,
+    board_max_items: Optional[int] = None,
     rules: Optional[Any] = None,
     displayed_board: Optional[Any] = None,
 ) -> str:
@@ -119,6 +120,12 @@ def compose_system_prompt(
         mode_instruction = SIMPLE_MODE_PROMPT
 
     parts = [base, mode_instruction]
+
+    if board_max_items is not None and board_max_items > 0:
+        parts.append(
+            f"【看板項目上限】看板最多 {board_max_items} 項。"
+            "只保留最重要且彼此不重複的項目；不要為了湊數拆分。"
+        )
 
     if rules is not None:
         if hasattr(rules, "activation"):
@@ -141,7 +148,8 @@ def compose_system_prompt(
         title = str(getattr(displayed_board, "title", "") or "").strip()
         items = list(getattr(displayed_board, "items", ()) or ())
         context_lines = []
-        for index, item in enumerate(items[:8], start=1):
+        context_limit = board_max_items if board_max_items is not None else 8
+        for index, item in enumerate(items[:context_limit], start=1):
             item_title = str(getattr(item, "title", "") or "").strip()
             item_content = str(
                 getattr(item, "content", getattr(item, "body", "")) or ""

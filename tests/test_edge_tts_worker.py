@@ -134,6 +134,64 @@ class EdgeTTSWorkerTests(unittest.TestCase):
                 quit_event.set()
                 worker.join(timeout=2)
 
+    def test_all_queued_fragments_begin_synthesis_before_first_finishes(self):
+        payload = _mp3_fixture()
+        first_pcm = Event()
+        first_hold = Event()
+        started = [Event(), Event(), Event()]
+        emitted = []
+
+        class Parent:
+            def put_audio_frame(self, _frame, eventpoint):
+                emitted.append(eventpoint.get("fragment_sequence"))
+                if eventpoint.get("fragment_sequence") == 0:
+                    first_pcm.set()
+
+        class Communicate:
+            def __init__(self, index):
+                self.index = index
+
+            async def stream(self):
+                started[self.index].set()
+                yield {"type": "audio", "data": payload}
+                if self.index == 0:
+                    while not first_hold.is_set():
+                        await asyncio.sleep(0.01)
+
+        next_index = 0
+
+        def communicate(*_args):
+            nonlocal next_index
+            result = Communicate(next_index)
+            next_index += 1
+            return result
+
+        tts = self._make_tts(Parent())
+        for index in range(3):
+            tts.put_msg_txt(
+                f"第 {index + 1} 段。",
+                {"turn_id": "turn-1", "generation": 1, "fragment_sequence": index},
+            )
+        quit_event = Event()
+        worker = Thread(target=tts.process_tts, args=(quit_event,))
+        with patch("src.tts.engines.edge.edge_tts.Communicate", side_effect=communicate):
+            worker.start()
+            try:
+                self.assertTrue(first_pcm.wait(timeout=1.5))
+                self.assertTrue(started[1].wait(timeout=1.5))
+                self.assertTrue(started[2].wait(timeout=1.5))
+                self.assertNotIn(1, emitted)
+                self.assertNotIn(2, emitted)
+                first_hold.set()
+                deadline = time.time() + 1.5
+                while 2 not in emitted and time.time() < deadline:
+                    time.sleep(0.01)
+                self.assertLess(emitted.index(0), emitted.index(1))
+                self.assertLess(emitted.index(1), emitted.index(2))
+            finally:
+                quit_event.set()
+                worker.join(timeout=2)
+
     def test_flush_talk_drops_prefetched_fragment_audio(self):
         payload = _mp3_fixture()
         first_pcm = Event()

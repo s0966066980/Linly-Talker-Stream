@@ -37,6 +37,11 @@ def persist_runtime_overrides(config) -> None:
             "response_max_chars": getattr(config.llm, "response_max_chars", 120),
             "system_prompt": getattr(config.llm, "system_prompt", ""),
             "extra_body": getattr(config.llm, "extra_body", {}) or {},
+            "board": {
+                "max_items": int(
+                    getattr(getattr(config.llm, "board", None), "max_items", 8)
+                ),
+            },
             "reply_rules": rules_from_config(config),
         },
         "model": {
@@ -53,6 +58,13 @@ def persist_runtime_overrides(config) -> None:
                     getattr(config, "reply_streaming", None),
                     "decoupled_audio_clock",
                     False,
+                )
+            ),
+            "strong_min_chars": int(
+                getattr(
+                    getattr(config, "reply_streaming", None),
+                    "strong_min_chars",
+                    1,
                 )
             ),
         },

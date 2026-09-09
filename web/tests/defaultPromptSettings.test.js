@@ -35,6 +35,17 @@ test('設定面板提供可存取且有範圍限制的約略回覆字數欄位',
   assert.match(panel, /aria-describedby="llm-response-max-chars-hint llm-response-max-chars-meta"/)
 })
 
+test('設定面板可調整看板項目上限並說明系統固定規則', () => {
+  assert.match(panel, /for="llm-board-max-items"/)
+  assert.match(panel, /id="llm-board-max-items"[\s\S]*type="number"/)
+  assert.match(panel, /min="1"/)
+  assert.match(panel, /max="12"/)
+  assert.match(panel, /系統固定規則/)
+  assert.match(panel, /JSON 不會送入語音/)
+  assert.match(settings, /board_max_items:\s*Number\(boardMaxItems\)/)
+  assert.match(settings, /runtime\.llm\.board_max_items\s*=\s*Number/)
+})
+
 test('設定面板可調整嘴型銳化、貼回插值與 MuseTalk 製作參數', () => {
   assert.match(panel, /for="mouth-sharpen"/)
   assert.match(panel, /id="mouth-sharpen"[\s\S]*type="range"/)
