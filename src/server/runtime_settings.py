@@ -63,6 +63,8 @@ DEFAULT_BOARD_TRANSPARENCY = 28
 DEFAULT_BOARD_X = 100
 DEFAULT_BOARD_Y = 0
 DEFAULT_BOARD_PRESET = "tr"
+DEFAULT_BOARD_OPEN_X = 50
+DEFAULT_BOARD_OPEN_Y = 8
 DEFAULT_MIC_X = 50
 DEFAULT_MIC_Y = 62
 DEFAULT_MIC_PRESET = "custom"
@@ -326,6 +328,18 @@ def stage_snapshot(config) -> Dict[str, Any]:
             getattr(stage, "board_preset", DEFAULT_BOARD_PRESET)
         ),
         "board_preview": bool(getattr(stage, "board_preview", False)),
+        "board_open_x": _validate_int_range(
+            getattr(stage, "board_open_x", DEFAULT_BOARD_OPEN_X),
+            field="展開看板按鈕左右位置",
+            minimum=0,
+            maximum=100,
+        ),
+        "board_open_y": _validate_int_range(
+            getattr(stage, "board_open_y", DEFAULT_BOARD_OPEN_Y),
+            field="展開看板按鈕上下位置",
+            minimum=0,
+            maximum=100,
+        ),
         "mic_x": _validate_int_range(
             getattr(stage, "mic_x", DEFAULT_MIC_X),
             field="麥克風左右位置",
@@ -396,6 +410,20 @@ def apply_stage_settings(config, params: Dict[str, Any]) -> Dict[str, Any]:
             stage.board_preset = validate_board_preset(payload["board_preset"])
         if "board_preview" in payload:
             stage.board_preview = bool(payload["board_preview"])
+        if "board_open_x" in payload:
+            stage.board_open_x = _validate_int_range(
+                payload["board_open_x"],
+                field="展開看板按鈕左右位置",
+                minimum=0,
+                maximum=100,
+            )
+        if "board_open_y" in payload:
+            stage.board_open_y = _validate_int_range(
+                payload["board_open_y"],
+                field="展開看板按鈕上下位置",
+                minimum=0,
+                maximum=100,
+            )
         if "mic_x" in payload:
             stage.mic_x = _validate_int_range(
                 payload["mic_x"],

@@ -217,6 +217,8 @@ class OverridePersistTests(unittest.TestCase):
                     "mic_x": 50,
                     "mic_y": 62,
                     "mic_preset": "custom",
+                    "board_open_x": 88,
+                    "board_open_y": 12,
                 },
             )
 
@@ -340,6 +342,8 @@ class DefaultPromptSettingsTests(unittest.TestCase):
                     "board_y": 0,
                     "board_preset": "tl",
                     "board_preview": False,
+                    "board_open_x": 24,
+                    "board_open_y": 76,
                 },
             )
 
@@ -347,6 +351,10 @@ class DefaultPromptSettingsTests(unittest.TestCase):
         self.assertEqual(config.stage.board_width, 280)
         self.assertEqual(config.stage.board_preset, "tl")
         self.assertFalse(config.stage.board_preview)
+        self.assertEqual(config.stage.board_open_x, 24)
+        self.assertEqual(config.stage.board_open_y, 76)
+        self.assertEqual(result["board_open_x"], 24)
+        self.assertEqual(result["board_open_y"], 76)
         self.assertEqual(result["board_style"], "slate")
         persist.assert_called_once_with(config)
 

@@ -81,6 +81,27 @@ test('套用舞台設定時會送出看板視窗樣式', () => {
   assert.match(panel, /selectedBoardStyle = style\.id/)
 })
 
+test('舞台與控制台預覽共用看板、麥克風與展開看板按鈕的位置', () => {
+  assert.match(app, /:style="consoleBoardStyle"/)
+  assert.match(app, /:style="consoleMicStyle"/)
+  assert.match(app, /:style="consoleBoardOpenStyle"/)
+  assert.match(panel, /:style="stagePreviewBoardStyle"/)
+  assert.match(panel, /:style="stagePreviewMicStyle"/)
+  assert.match(panel, /:style="stagePreviewBoardOpenStyle"/)
+  assert.match(panel, /startStageDirectEdit\('board-open'/)
+  assert.match(settings, /board_open_x:\s*Number\(selectedBoardOpenX\.value\)/)
+  assert.match(settings, /board_open_y:\s*Number\(selectedBoardOpenY\.value\)/)
+})
+
+test('舞台直接編輯提供拖曳與滑桿兩種調整方式', () => {
+  assert.match(panel, /拖曳調整看板位置/)
+  assert.match(panel, /拖曳調整展開看板按鈕位置/)
+  assert.match(panel, /id="stage-board-open-x"/)
+  assert.match(panel, /id="stage-board-open-y"/)
+  assert.match(panel, /target === 'board-open'/)
+  assert.match(panel, /await applyStageSettings\(\)/)
+})
+
 test('套用 LLM 設定時會送出並同步回覆字數', () => {
   assert.match(settings, /response_max_chars:\s*Number\(responseMaxChars\)/)
   assert.match(settings, /runtime\.llm\.response_max_chars\s*=\s*Number/)

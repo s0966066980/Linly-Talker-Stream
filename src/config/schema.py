@@ -335,6 +335,8 @@ class StageConfig:
     board_y: int = 0
     board_preset: str = "tr"
     board_preview: bool = False
+    board_open_x: int = 50
+    board_open_y: int = 8
     mic_x: int = 50
     mic_y: int = 62
     mic_preset: str = "custom"

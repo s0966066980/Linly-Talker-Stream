@@ -21,6 +21,8 @@ const runtime = reactive({
     board_y: 0,
     board_preset: 'tr',
     board_preview: false,
+    board_open_x: 50,
+    board_open_y: 8,
     mic_x: 50,
     mic_y: 62,
     mic_preset: 'custom'
@@ -209,6 +211,8 @@ const selectedBoardY = ref(0)
 const selectedBoardPreset = ref('tr')
 const selectedBoardPreview = ref(false)
 const isStageConfiguring = ref(false)
+const selectedBoardOpenX = ref(50)
+const selectedBoardOpenY = ref(8)
 const selectedMicX = ref(50)
 const selectedMicY = ref(62)
 const selectedMicPreset = ref('custom')
@@ -288,6 +292,8 @@ const stageDirty = computed(() => (
     Number(selectedBoardY.value) !== Number(runtime.stage.board_y || 0) ||
     selectedBoardPreset.value !== (runtime.stage.board_preset || 'tr') ||
     Boolean(selectedBoardPreview.value) !== Boolean(runtime.stage.board_preview) ||
+    Number(selectedBoardOpenX.value) !== Number(runtime.stage.board_open_x ?? 50) ||
+    Number(selectedBoardOpenY.value) !== Number(runtime.stage.board_open_y ?? 8) ||
     Number(selectedMicX.value) !== Number(runtime.stage.mic_x ?? 50) ||
     Number(selectedMicY.value) !== Number(runtime.stage.mic_y ?? 62) ||
     selectedMicPreset.value !== (runtime.stage.mic_preset || 'custom')
@@ -662,6 +668,8 @@ function applySnapshot(data) {
     board_y: Number(data.stage?.board_y ?? 0),
     board_preset: data.stage?.board_preset || 'tr',
     board_preview: Boolean(data.stage?.board_preview),
+    board_open_x: Number(data.stage?.board_open_x ?? 50),
+    board_open_y: Number(data.stage?.board_open_y ?? 8),
     mic_x: Number(data.stage?.mic_x ?? 50),
     mic_y: Number(data.stage?.mic_y ?? 62),
     mic_preset: data.stage?.mic_preset || 'custom'
@@ -696,6 +704,8 @@ function applySnapshot(data) {
   selectedBoardY.value = runtime.stage.board_y
   selectedBoardPreset.value = runtime.stage.board_preset
   selectedBoardPreview.value = runtime.stage.board_preview
+  selectedBoardOpenX.value = runtime.stage.board_open_x
+  selectedBoardOpenY.value = runtime.stage.board_open_y
   selectedMicX.value = runtime.stage.mic_x
   selectedMicY.value = runtime.stage.mic_y
   selectedMicPreset.value = runtime.stage.mic_preset
@@ -908,6 +918,8 @@ async function applyStageSettings(
         board_y: Number(selectedBoardY.value),
         board_preset: selectedBoardPreset.value,
         board_preview: Boolean(selectedBoardPreview.value),
+        board_open_x: Number(selectedBoardOpenX.value),
+        board_open_y: Number(selectedBoardOpenY.value),
         mic_x: Number(selectedMicX.value),
         mic_y: Number(selectedMicY.value),
         mic_preset: selectedMicPreset.value
@@ -922,6 +934,8 @@ async function applyStageSettings(
     runtime.stage.board_y = Number(data.board_y)
     runtime.stage.board_preset = data.board_preset
     runtime.stage.board_preview = Boolean(data.board_preview)
+    runtime.stage.board_open_x = Number(data.board_open_x)
+    runtime.stage.board_open_y = Number(data.board_open_y)
     selectedStageCaptionMaxChars.value = runtime.stage.caption_max_chars
     selectedBoardStyle.value = runtime.stage.board_style
     selectedBoardWidth.value = runtime.stage.board_width
@@ -931,6 +945,8 @@ async function applyStageSettings(
     selectedBoardY.value = runtime.stage.board_y
     selectedBoardPreset.value = runtime.stage.board_preset
     selectedBoardPreview.value = runtime.stage.board_preview
+    selectedBoardOpenX.value = runtime.stage.board_open_x
+    selectedBoardOpenY.value = runtime.stage.board_open_y
     runtime.stage.mic_x = Number(data.mic_x)
     runtime.stage.mic_y = Number(data.mic_y)
     runtime.stage.mic_preset = data.mic_preset
@@ -1090,6 +1106,8 @@ export function useRuntimeSettings() {
     selectedBoardPreset,
     selectedBoardPreview,
     isStageConfiguring,
+    selectedBoardOpenX,
+    selectedBoardOpenY,
     selectedMicX,
     selectedMicY,
     selectedMicPreset,
