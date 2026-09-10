@@ -13,6 +13,9 @@ const runtime = reactive({
   },
   stage: {
     caption_max_chars: 120,
+    caption_x: 50,
+    caption_y: 90,
+    caption_width: 100,
     board_style: 'glass',
     board_width: 252,
     board_height: 300,
@@ -202,6 +205,9 @@ const rulesDirty = computed(() => JSON.stringify(rulesDraft) !== JSON.stringify(
   board: rulesApplied.board
 }))
 const selectedStageCaptionMaxChars = ref(120)
+const selectedCaptionX = ref(50)
+const selectedCaptionY = ref(90)
+const selectedCaptionWidth = ref(100)
 const selectedBoardStyle = ref('glass')
 const selectedBoardWidth = ref(252)
 const selectedBoardHeight = ref(300)
@@ -270,12 +276,18 @@ const boardSizeError = computed(() => {
   const transparency = Number(selectedBoardTransparency.value)
   const x = Number(selectedBoardX.value)
   const y = Number(selectedBoardY.value)
+  const captionX = Number(selectedCaptionX.value)
+  const captionY = Number(selectedCaptionY.value)
+  const captionWidth = Number(selectedCaptionWidth.value)
   return (
     !Number.isInteger(width) || width < 200 || width > 720 ||
     !Number.isInteger(height) || height < 180 || height > 720 ||
     !Number.isInteger(transparency) || transparency < 0 || transparency > 100 ||
     !Number.isInteger(x) || x < 0 || x > 100 ||
-    !Number.isInteger(y) || y < 0 || y > 100
+    !Number.isInteger(y) || y < 0 || y > 100 ||
+    !Number.isInteger(captionX) || captionX < 0 || captionX > 100 ||
+    !Number.isInteger(captionY) || captionY < 0 || captionY > 100 ||
+    !Number.isInteger(captionWidth) || captionWidth < 40 || captionWidth > 100
   )
 })
 
@@ -284,6 +296,9 @@ const stageDirty = computed(() => (
   !boardSizeError.value &&
   (
     Number(selectedStageCaptionMaxChars.value) !== Number(runtime.stage.caption_max_chars || 120) ||
+    Number(selectedCaptionX.value) !== Number(runtime.stage.caption_x ?? 50) ||
+    Number(selectedCaptionY.value) !== Number(runtime.stage.caption_y ?? 90) ||
+    Number(selectedCaptionWidth.value) !== Number(runtime.stage.caption_width ?? 100) ||
     selectedBoardStyle.value !== (runtime.stage.board_style || 'glass') ||
     Number(selectedBoardWidth.value) !== Number(runtime.stage.board_width || 252) ||
     Number(selectedBoardHeight.value) !== Number(runtime.stage.board_height || 300) ||
@@ -660,6 +675,9 @@ function applySnapshot(data) {
   }
   runtime.stage = {
     caption_max_chars: Number(data.stage?.caption_max_chars || 120),
+    caption_x: Number(data.stage?.caption_x ?? 50),
+    caption_y: Number(data.stage?.caption_y ?? 90),
+    caption_width: Number(data.stage?.caption_width ?? 100),
     board_style: data.stage?.board_style || 'glass',
     board_width: Number(data.stage?.board_width || 252),
     board_height: Number(data.stage?.board_height || 300),
@@ -696,6 +714,9 @@ function applySnapshot(data) {
   selectedBoardMaxItems.value = Number(data.llm?.board_max_items || 8)
   selectedReplyMode.value = data.llm?.reply_mode || 'legacy'
   selectedStageCaptionMaxChars.value = runtime.stage.caption_max_chars
+  selectedCaptionX.value = runtime.stage.caption_x
+  selectedCaptionY.value = runtime.stage.caption_y
+  selectedCaptionWidth.value = runtime.stage.caption_width
   selectedBoardStyle.value = runtime.stage.board_style
   selectedBoardWidth.value = runtime.stage.board_width
   selectedBoardHeight.value = runtime.stage.board_height
@@ -910,6 +931,9 @@ async function applyStageSettings(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         caption_max_chars: Number(captionMaxChars),
+        caption_x: Number(selectedCaptionX.value),
+        caption_y: Number(selectedCaptionY.value),
+        caption_width: Number(selectedCaptionWidth.value),
         board_style: selectedBoardStyle.value,
         board_width: Number(selectedBoardWidth.value),
         board_height: Number(selectedBoardHeight.value),
@@ -926,6 +950,9 @@ async function applyStageSettings(
       })
     }))
     runtime.stage.caption_max_chars = Number(data.caption_max_chars)
+    runtime.stage.caption_x = Number(data.caption_x ?? selectedCaptionX.value)
+    runtime.stage.caption_y = Number(data.caption_y ?? selectedCaptionY.value)
+    runtime.stage.caption_width = Number(data.caption_width ?? selectedCaptionWidth.value)
     runtime.stage.board_style = data.board_style
     runtime.stage.board_width = Number(data.board_width)
     runtime.stage.board_height = Number(data.board_height)
@@ -937,6 +964,9 @@ async function applyStageSettings(
     runtime.stage.board_open_x = Number(data.board_open_x)
     runtime.stage.board_open_y = Number(data.board_open_y)
     selectedStageCaptionMaxChars.value = runtime.stage.caption_max_chars
+    selectedCaptionX.value = runtime.stage.caption_x
+    selectedCaptionY.value = runtime.stage.caption_y
+    selectedCaptionWidth.value = runtime.stage.caption_width
     selectedBoardStyle.value = runtime.stage.board_style
     selectedBoardWidth.value = runtime.stage.board_width
     selectedBoardHeight.value = runtime.stage.board_height
@@ -1097,6 +1127,9 @@ export function useRuntimeSettings() {
     restoreDefaultRules,
     applyReplyRules,
     selectedStageCaptionMaxChars,
+    selectedCaptionX,
+    selectedCaptionY,
+    selectedCaptionWidth,
     selectedBoardStyle,
     selectedBoardWidth,
     selectedBoardHeight,

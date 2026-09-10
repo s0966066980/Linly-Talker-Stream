@@ -72,6 +72,15 @@ def persist_runtime_overrides(config) -> None:
             "caption_max_chars": int(
                 getattr(getattr(config, "stage", None), "caption_max_chars", 120)
             ),
+            "caption_x": int(
+                getattr(getattr(config, "stage", None), "caption_x", 50)
+            ),
+            "caption_y": int(
+                getattr(getattr(config, "stage", None), "caption_y", 90)
+            ),
+            "caption_width": int(
+                getattr(getattr(config, "stage", None), "caption_width", 100)
+            ),
             "board_style": str(
                 getattr(getattr(config, "stage", None), "board_style", "glass")
             ),

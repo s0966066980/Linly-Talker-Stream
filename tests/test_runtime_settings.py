@@ -206,6 +206,9 @@ class OverridePersistTests(unittest.TestCase):
                 data["stage"],
                 {
                     "caption_max_chars": 120,
+                    "caption_x": 50,
+                    "caption_y": 90,
+                    "caption_width": 100,
                     "board_style": "glass",
                     "board_width": 252,
                     "board_height": 300,
@@ -334,6 +337,9 @@ class DefaultPromptSettingsTests(unittest.TestCase):
             result = apply_stage_settings(
                 config,
                 {
+                    "caption_x": 35,
+                    "caption_y": 74,
+                    "caption_width": 68,
                     "board_style": "slate",
                     "board_width": 280,
                     "board_height": 360,
@@ -348,6 +354,9 @@ class DefaultPromptSettingsTests(unittest.TestCase):
             )
 
         self.assertEqual(config.stage.board_style, "slate")
+        self.assertEqual(config.stage.caption_x, 35)
+        self.assertEqual(config.stage.caption_y, 74)
+        self.assertEqual(config.stage.caption_width, 68)
         self.assertEqual(config.stage.board_width, 280)
         self.assertEqual(config.stage.board_preset, "tl")
         self.assertFalse(config.stage.board_preview)
@@ -373,6 +382,8 @@ class DefaultPromptSettingsTests(unittest.TestCase):
             apply_stage_settings(Config(), {"board_style": "neon"})
         with self.assertRaises(SettingsError):
             apply_stage_settings(Config(), {"board_width": 80})
+        with self.assertRaises(SettingsError):
+            apply_stage_settings(Config(), {"caption_width": 39})
 
     def test_stage_snapshot_rejects_invalid_config_value(self):
         config = Config()

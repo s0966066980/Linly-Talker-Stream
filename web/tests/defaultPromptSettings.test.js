@@ -18,6 +18,10 @@ const standaloneStage = readFileSync(
   new URL('../stage.html', import.meta.url),
   'utf8'
 )
+const consoleCss = readFileSync(
+  new URL('../src/console-prototype.css', import.meta.url),
+  'utf8'
+)
 
 test('設定面板提供有標籤與說明的預設 Prompt 欄位', () => {
   assert.match(panel, /for="llm-system-prompt"/)
@@ -85,16 +89,61 @@ test('套用舞台設定時會送出看板視窗樣式', () => {
   assert.match(panel, /selectedBoardStyle = style\.id/)
 })
 
-test('舞台與控制台預覽共用看板、麥克風與展開看板按鈕的位置', () => {
+test('舞台預覽共用看板、麥克風與展開看板按鈕的位置，控制台右側不重複顯示麥克風', () => {
   assert.match(app, /:style="consoleBoardStyle"/)
-  assert.match(app, /:style="consoleMicStyle"/)
-  assert.match(app, /:style="consoleBoardOpenStyle"/)
+  assert.match(app, /:style="consoleBoardOpenPresentation\.style"/)
+  assert.doesNotMatch(app, /class="stage-mic-control"/)
+  assert.doesNotMatch(app, /const consoleMicStyle/)
   assert.match(panel, /:style="stagePreviewBoardStyle"/)
   assert.match(panel, /:style="stagePreviewMicStyle"/)
-  assert.match(panel, /:style="stagePreviewBoardOpenStyle"/)
+  assert.match(panel, /:style="stagePreviewBoardOpenPresentation\.style"/)
   assert.match(panel, /startStageDirectEdit\('board-open'/)
   assert.match(settings, /board_open_x:\s*Number\(selectedBoardOpenX\.value\)/)
   assert.match(settings, /board_open_y:\s*Number\(selectedBoardOpenY\.value\)/)
+})
+
+test('舞台預覽麥克風尺寸與 stage.html 一致', () => {
+  assert.match(consoleCss, /\.stage-preview-mic\s*\{[\s\S]*?width:\s*104px;[\s\S]*?height:\s*104px;/)
+  assert.match(consoleCss, /\.stage-preview-ring\s*\{[\s\S]*?inset:\s*-14px;/)
+  assert.match(standaloneStage, /\.mic\{[\s\S]*?width:\s*104px;\s*height:\s*104px;/)
+})
+
+test('展開看板按鈕在預覽與 stage.html 都會依左右邊緣切換圖示', () => {
+  assert.match(app, /consoleBoardOpenPresentation\.icon/)
+  assert.match(panel, /stagePreviewBoardOpenPresentation\.icon/)
+  assert.match(panel, /stagePreviewBoardOpenPresentation\.style/)
+  assert.match(standaloneStage, /boardOpenPresentation/)
+  assert.match(standaloneStage, /boardReopenIcon\.textContent/)
+})
+
+test('展開看板按鈕在各舞台位置都維持單行且不被壓縮', () => {
+  assert.match(consoleCss, /\.board-open-pill\s*\{[\s\S]*?display:\s*inline-flex;[\s\S]*?flex:\s*0 0 auto;[\s\S]*?white-space:\s*nowrap;/)
+  assert.match(consoleCss, /\.stage-preview-board-open\s*\{[\s\S]*?display:\s*inline-flex;[\s\S]*?flex:\s*0 0 auto;[\s\S]*?white-space:\s*nowrap;/)
+  assert.match(standaloneStage, /\.board-reopen\s*\{[\s\S]*?display:inline-flex;[\s\S]*?flex:0 0 auto;[\s\S]*?white-space:nowrap;/)
+})
+
+test('展開看板按鈕可在開啟與關閉間切換，並宣告目前狀態', () => {
+  assert.match(app, /v-if="visibleBoard\.items\.length"/)
+  assert.match(app, /:aria-pressed="!stageBoard\.hidden"/)
+  assert.match(app, /@click="stageBoard\.hidden = !stageBoard\.hidden"/)
+  assert.match(app, /stageBoard\.hidden \? '展開看板' : '收合看板'/)
+  assert.match(standaloneStage, /boardReopen\.hidden=!hasItems/)
+  assert.match(standaloneStage, /boardReopen\.setAttribute\('aria-pressed', String\(!liveBoard\.hidden\)\)/)
+  assert.match(standaloneStage, /liveBoard\.hidden=!liveBoard\.hidden; applyBoardLayout\(\);/)
+})
+
+test('即時字幕帶可用滑桿或直接拖曳調整展示區域並持久化', () => {
+  assert.match(panel, /id="stage-caption-x"/)
+  assert.match(panel, /id="stage-caption-y"/)
+  assert.match(panel, /id="stage-caption-width"/)
+  assert.match(panel, /startStageDirectEdit\('caption'/)
+  assert.match(panel, /target === 'caption'/)
+  assert.match(settings, /caption_x:\s*Number\(selectedCaptionX\.value\)/)
+  assert.match(settings, /caption_y:\s*Number\(selectedCaptionY\.value\)/)
+  assert.match(settings, /caption_width:\s*Number\(selectedCaptionWidth\.value\)/)
+  assert.match(standaloneStage, /data\.caption_x/)
+  assert.match(standaloneStage, /data\.caption_y/)
+  assert.match(standaloneStage, /data\.caption_width/)
 })
 
 test('舞台直接編輯提供拖曳與滑桿兩種調整方式', () => {
@@ -124,8 +173,8 @@ test('獨立 stage.html 套用展開看板按鈕位置', () => {
   assert.match(standaloneStage, /boardOpenLayout=\{x:50, y:8\}/)
   assert.match(standaloneStage, /data\.board_open_x/)
   assert.match(standaloneStage, /data\.board_open_y/)
-  assert.match(standaloneStage, /boardReopen\.style\.left/)
-  assert.match(standaloneStage, /boardReopen\.style\.top/)
+  assert.match(standaloneStage, /boardReopenPresentation\(boardOpenLayout\.x, boardOpenLayout\.y\)/)
+  assert.match(standaloneStage, /Object\.assign\(boardReopen\.style, boardOpenPresentation\.style\)/)
 })
 
 test('套用 LLM 設定時會送出並同步回覆字數', () => {

@@ -54,6 +54,10 @@ _RULES_LOCK = threading.RLock()
 DEFAULT_STAGE_CAPTION_MAX_CHARS = 120
 MIN_STAGE_CAPTION_MAX_CHARS = 20
 MAX_STAGE_CAPTION_MAX_CHARS = 2000
+DEFAULT_CAPTION_X = 50
+DEFAULT_CAPTION_Y = 90
+DEFAULT_CAPTION_WIDTH = 100
+MIN_CAPTION_WIDTH = 40
 BOARD_STYLES = ("glass", "slate", "cue")
 BOARD_PRESETS = ("tl", "tc", "tr", "ml", "mc", "mr", "bl", "bc", "br", "custom")
 DEFAULT_BOARD_STYLE = "glass"
@@ -291,6 +295,24 @@ def stage_snapshot(config) -> Dict[str, Any]:
     caption = getattr(stage, "caption_max_chars", DEFAULT_STAGE_CAPTION_MAX_CHARS)
     return {
         "caption_max_chars": validate_stage_caption_max_chars(caption),
+        "caption_x": _validate_int_range(
+            getattr(stage, "caption_x", DEFAULT_CAPTION_X),
+            field="字幕帶左右位置",
+            minimum=0,
+            maximum=100,
+        ),
+        "caption_y": _validate_int_range(
+            getattr(stage, "caption_y", DEFAULT_CAPTION_Y),
+            field="字幕帶上下位置",
+            minimum=0,
+            maximum=100,
+        ),
+        "caption_width": _validate_int_range(
+            getattr(stage, "caption_width", DEFAULT_CAPTION_WIDTH),
+            field="字幕帶寬度",
+            minimum=MIN_CAPTION_WIDTH,
+            maximum=100,
+        ),
         "board_style": validate_board_style(
             getattr(stage, "board_style", DEFAULT_BOARD_STYLE)
         ),
@@ -368,6 +390,27 @@ def apply_stage_settings(config, params: Dict[str, Any]) -> Dict[str, Any]:
         if "caption_max_chars" in payload:
             stage.caption_max_chars = validate_stage_caption_max_chars(
                 payload["caption_max_chars"]
+            )
+        if "caption_x" in payload:
+            stage.caption_x = _validate_int_range(
+                payload["caption_x"],
+                field="字幕帶左右位置",
+                minimum=0,
+                maximum=100,
+            )
+        if "caption_y" in payload:
+            stage.caption_y = _validate_int_range(
+                payload["caption_y"],
+                field="字幕帶上下位置",
+                minimum=0,
+                maximum=100,
+            )
+        if "caption_width" in payload:
+            stage.caption_width = _validate_int_range(
+                payload["caption_width"],
+                field="字幕帶寬度",
+                minimum=MIN_CAPTION_WIDTH,
+                maximum=100,
             )
         if "board_style" in payload:
             stage.board_style = validate_board_style(payload["board_style"])

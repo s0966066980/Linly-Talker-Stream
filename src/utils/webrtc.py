@@ -93,6 +93,7 @@ class PlayerStreamTrack(MediaStreamTrack):
         self.timelist = [] #記錄最近包的時間戳
         self.current_frame_count = 0
         self._last_video_item = None
+        self._last_video_release_at: Optional[float] = None
         self._last_audio_release_at: Optional[float] = None
         self._audio_late_release = False
         self.catch_up_burst_count = 0
@@ -227,6 +228,13 @@ class PlayerStreamTrack(MediaStreamTrack):
                     lag * 1000.0,
                     skipped,
                 )
+            if self.kind == "video" and self._last_video_release_at is not None:
+                # A short event-loop or inference stall used to leave video up
+                # to 100 ms late.  Consecutive recv() calls then escaped with
+                # no sleep and appeared as a brief speed-up / shake.  Keep a
+                # hard wall-clock floor between displayed video frames even
+                # when RTP timestamps need to catch up or skip.
+                deadline = max(deadline, self._last_video_release_at + packet_time)
             wait = deadline - now
             if wait > 0:
                 await asyncio.sleep(wait)
@@ -235,6 +243,9 @@ class PlayerStreamTrack(MediaStreamTrack):
             self._timestamp = 0
             self.timelist.append(self._start)
             mylogger.info("%s start:%f", self.kind, self._start)
+
+        if self.kind == "video":
+            self._last_video_release_at = time.monotonic()
 
         if self.kind == "audio":
             released_at = time.monotonic()

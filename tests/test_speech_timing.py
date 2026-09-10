@@ -173,6 +173,37 @@ class WebRTCPacingTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual([first_pts, second_pts, third_pts], expected)
                 track.stop()
 
+    async def test_video_does_not_release_catch_up_frames_after_short_stall(self):
+        from src.utils.webrtc import VIDEO_PTIME, PlayerStreamTrack
+
+        now = [100.0]
+        deliveries = []
+
+        async def fake_sleep(delay):
+            now[0] += delay
+
+        track = PlayerStreamTrack(None, kind="video")
+        with (
+            patch("src.utils.webrtc.time.monotonic", side_effect=lambda: now[0]),
+            patch("src.utils.webrtc.asyncio.sleep", new=fake_sleep),
+            patch("src.utils.webrtc.mylogger"),
+        ):
+            await track.next_timestamp()
+            deliveries.append(now[0])
+            now[0] += 0.080
+            for _ in range(4):
+                await track.next_timestamp()
+                deliveries.append(now[0])
+
+        intervals = [
+            deliveries[index] - deliveries[index - 1]
+            for index in range(1, len(deliveries))
+        ]
+        self.assertGreaterEqual(intervals[0], 0.079)
+        for interval in intervals[1:]:
+            self.assertGreaterEqual(interval, VIDEO_PTIME - 0.001)
+        track.stop()
+
     async def test_audio_does_not_catch_up_after_sub_threshold_stall(self):
         from src.utils.webrtc import AUDIO_PTIME, SAMPLE_RATE, PlayerStreamTrack
 

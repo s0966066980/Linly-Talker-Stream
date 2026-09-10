@@ -646,6 +646,21 @@
               </div>
             </div>
 
+            <div class="stage-caption-controls" style="border-top: 1px solid var(--border-subtle); padding-top: 14px;">
+              <span style="font-size: 13px; font-weight: 600; display: block; margin-bottom: 8px;">
+                <i class="bi bi-badge-cc-fill" style="color: var(--brand-light);"></i> 即時字幕帶展示區域
+              </span>
+              <div class="stage-position-sliders">
+                <label for="stage-caption-x">水平位置 {{ selectedCaptionX }}%</label>
+                <input id="stage-caption-x" type="range" class="std-range" min="0" max="100" step="1" v-model.number="selectedCaptionX">
+                <label for="stage-caption-y">垂直位置 {{ selectedCaptionY }}%</label>
+                <input id="stage-caption-y" type="range" class="std-range" min="0" max="100" step="1" v-model.number="selectedCaptionY">
+                <label for="stage-caption-width">展示寬度 {{ selectedCaptionWidth }}%</label>
+                <input id="stage-caption-width" type="range" class="std-range" min="40" max="100" step="1" v-model.number="selectedCaptionWidth">
+              </div>
+              <span class="field-sub-hint">可在右側舞台直接拖曳字幕帶；滑桿可精準調整位置與寬度。</span>
+            </div>
+
             <!-- 九宮格定位器 -->
             <div style="border-top: 1px solid var(--border-subtle); padding-top: 14px;">
               <span style="font-size: 13px; font-weight: 600; display: block; margin-bottom: 8px;">
@@ -758,10 +773,11 @@
               <button
                 type="button"
                 class="stage-preview-board-open"
-                :style="stagePreviewBoardOpenStyle"
+                :style="stagePreviewBoardOpenPresentation.style"
+                :data-edge="stagePreviewBoardOpenPresentation.edge"
                 aria-label="拖曳調整展開看板按鈕位置"
                 @pointerdown.stop.prevent="startStageDirectEdit('board-open', $event)"
-              ><i class="bi bi-layout-sidebar-inset-reverse"></i> 展開看板</button>
+              ><span class="stage-board-open-icon" aria-hidden="true">{{ stagePreviewBoardOpenPresentation.icon }}</span> 展開看板</button>
               <div class="stage-preview-mic-wrap" :style="stagePreviewMicStyle">
                 <button
                   type="button"
@@ -774,7 +790,15 @@
                 </button>
                 <span class="stage-preview-mic-hint">直接說話</span>
               </div>
-              <div ref="stagePreviewCaptionsRef" class="stage-preview-captions">
+              <div
+                ref="stagePreviewCaptionsRef"
+                class="stage-preview-captions"
+                :style="stagePreviewCaptionStyle"
+                role="button"
+                tabindex="0"
+                aria-label="拖曳調整即時字幕帶展示區域"
+                @pointerdown.stop.prevent="startStageDirectEdit('caption', $event)"
+              >
                 <span class="stage-preview-said">準備好後，直接開始對話</span>
                 <div class="stage-preview-reply">「即時字幕帶展示區域」</div>
               </div>
@@ -1190,7 +1214,7 @@
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from '../composables/useI18n'
 import { useRuntimeSettings } from '../composables/useRuntimeSettings'
-import { micStyle, placeStageBoard } from '../stageBoardLayout.js'
+import { boardReopenPresentation, captionStyle, micStyle, placeStageBoard } from '../stageBoardLayout.js'
 
 const { t, setLocale } = useI18n()
 const props = defineProps({
@@ -1329,6 +1353,9 @@ const {
   restoreDefaultRules,
   applyReplyRules,
   selectedStageCaptionMaxChars,
+  selectedCaptionX,
+  selectedCaptionY,
+  selectedCaptionWidth,
   selectedBoardStyle,
   selectedBoardWidth,
   selectedBoardHeight,
@@ -1475,7 +1502,15 @@ const stagePreviewBoardStyle = computed(() => {
 })
 
 const stagePreviewMicStyle = computed(() => micStyle(selectedMicX.value, selectedMicY.value))
-const stagePreviewBoardOpenStyle = computed(() => micStyle(selectedBoardOpenX.value, selectedBoardOpenY.value))
+const stagePreviewBoardOpenPresentation = computed(() => boardReopenPresentation(
+  selectedBoardOpenX.value,
+  selectedBoardOpenY.value
+))
+const stagePreviewCaptionStyle = computed(() => captionStyle(
+  selectedCaptionX.value,
+  selectedCaptionY.value,
+  selectedCaptionWidth.value
+))
 
 const measureStagePreview = () => {
   const stageNode = stagePreviewRef.value
@@ -1519,6 +1554,11 @@ const moveStageDirectEdit = (event) => {
   if (target === 'board-open') {
     selectedBoardOpenX.value = clampPercent(x)
     selectedBoardOpenY.value = clampPercent(y)
+    return
+  }
+  if (target === 'caption') {
+    selectedCaptionX.value = clampPercent(x)
+    selectedCaptionY.value = clampPercent(y)
     return
   }
 

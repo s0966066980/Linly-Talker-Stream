@@ -327,6 +327,9 @@ class ReplyStreamingConfig:
 class StageConfig:
     """數字人舞台顯示配置。"""
     caption_max_chars: int = 120
+    caption_x: int = 50
+    caption_y: int = 90
+    caption_width: int = 100
     board_style: str = "glass"
     board_width: int = 252
     board_height: int = 300

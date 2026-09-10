@@ -123,7 +123,8 @@
 
   /* ── 字幕（正中間下方）───────────────────── */
   .captions{
-    position:absolute; left:0; right:0; bottom:0;
+    position:absolute; left:50%; top:90%; width:100%;
+    transform:translate(-50%,-50%);
     z-index:2;
     padding:0 20px 28px;
     display:flex; flex-direction:column; align-items:center; gap:10px;
@@ -259,10 +260,12 @@
   }
   .board-reopen{
     position:absolute; z-index:4;
+    display:inline-flex; align-items:center; flex:0 0 auto; white-space:nowrap;
     transform:translate(-50%,-50%);
     border:1px solid rgba(255,255,255,.18); background:rgba(12,16,26,.78);
     color:var(--ink); padding:6px 12px; border-radius:999px; font-size:12px; cursor:pointer;
   }
+  .board-reopen-icon{display:inline-grid;min-width:1em;place-items:center;font-size:18px;line-height:.7}
   .float-board[hidden]{display:none!important}
   .float-board .board-head{
     display:flex; align-items:center; justify-content:space-between;
@@ -362,7 +365,7 @@
         <ol class="board-list" id="boardList"></ol>
       </div>
     </section>
-    <button class="board-reopen" id="boardReopen" type="button" hidden>展開看板</button>
+    <button class="board-reopen" id="boardReopen" type="button" hidden aria-pressed="false"><span class="board-reopen-icon" id="boardReopenIcon" aria-hidden="true">▣</span> <span id="boardReopenLabel">展開看板</span></button>
 
     <div class="veil" id="veil">
       <h1 id="veilTitle">數字人舞台</h1>
@@ -380,6 +383,8 @@ import {
 } from '/src/stageCaptionWindow.js';
 import { StageCaptionView } from '/src/stageCaptionView.js';
 import {
+  boardReopenPresentation,
+  captionStyle,
   STAGE_BOARD_PREVIEW_ITEMS,
   STAGE_BOARD_PREVIEW_TITLE,
   placeStageBoard
@@ -395,7 +400,7 @@ import {
         veilBtn=$('veilBtn'), veilAlt=$('veilAlt');
   const board=$('board'), boardList=$('boardList'), boardKicker=$('boardKicker'),
         boardBadge=$('boardBadge'), captions=$('captions'), micWrap=$('micWrap'),
-        hideBoardBtn=$('hideBoard'), boardReopen=$('boardReopen'),
+        hideBoardBtn=$('hideBoard'), boardReopen=$('boardReopen'), boardReopenIcon=$('boardReopenIcon'), boardReopenLabel=$('boardReopenLabel'),
         boardTitle=$('boardTitle'), boardSource=$('boardSource');
 
   // ── 連線狀態 ────────────────────────────────
@@ -418,6 +423,7 @@ import {
   };
   const micLayout={x:50, y:62, preset:'custom'};
   const boardOpenLayout={x:50, y:8};
+  const captionLayout={x:50, y:90, width:100};
   const liveBoard={title:'', items:[], hidden:false, turnId:null};
   const displayedBoardReceipts=new Set();
 
@@ -469,10 +475,12 @@ import {
       micWrap.style.transform='translate(-50%,-50%)';
     }
     if(boardReopen){
-      boardReopen.style.left=`${boardOpenLayout.x}%`;
-      boardReopen.style.top=`${boardOpenLayout.y}%`;
-      boardReopen.style.transform='translate(-50%,-50%)';
+      const boardOpenPresentation=boardReopenPresentation(boardOpenLayout.x, boardOpenLayout.y);
+      Object.assign(boardReopen.style, boardOpenPresentation.style);
+      boardReopen.dataset.edge=boardOpenPresentation.edge;
+      if(boardReopenIcon) boardReopenIcon.textContent=boardOpenPresentation.icon;
     }
+    if(captions) Object.assign(captions.style, captionStyle(captionLayout.x, captionLayout.y, captionLayout.width));
     if(!board || !captions) return;
     stage.dataset.boardStyle=boardLayout.style || 'glass';
     boardKicker.textContent=BOARD_KICKERS[boardLayout.style] || BOARD_KICKERS.glass;
@@ -481,7 +489,11 @@ import {
     const hasItems=shown.items.length>0;
     const show=hasItems && !liveBoard.hidden;
     board.hidden=!show;
-    if(boardReopen) boardReopen.hidden=!(hasItems && liveBoard.hidden);
+    if(boardReopen){
+      boardReopen.hidden=!hasItems;
+      boardReopen.setAttribute('aria-pressed', String(!liveBoard.hidden));
+      if(boardReopenLabel) boardReopenLabel.textContent=liveBoard.hidden ? '展開看板' : '收合看板';
+    }
     if(!hasItems) return;
     const box=placeStageBoard({
       stageW:stage.clientWidth,
@@ -640,6 +652,10 @@ import {
       if(Number.isInteger(next) && next >= 20 && next <= 2000){
         configuredCaptionMaxChars = next;
       }
+      const captionX=Number(data.caption_x), captionY=Number(data.caption_y), captionWidth=Number(data.caption_width);
+      if(Number.isInteger(captionX) && captionX>=0 && captionX<=100) captionLayout.x=captionX;
+      if(Number.isInteger(captionY) && captionY>=0 && captionY<=100) captionLayout.y=captionY;
+      if(Number.isInteger(captionWidth) && captionWidth>=40 && captionWidth<=100) captionLayout.width=captionWidth;
       const style = String(data.board_style || 'glass');
       if(['glass','slate','cue'].includes(style)) boardLayout.style = style;
       const width = Number(data.board_width);
@@ -881,7 +897,7 @@ import {
   addEventListener('resize', applyBoardLayout);
   if(window.ResizeObserver) new ResizeObserver(applyBoardLayout).observe(stage);
   hideBoardBtn?.addEventListener('click', () => { liveBoard.hidden=true; applyBoardLayout(); });
-  boardReopen?.addEventListener('click', () => { liveBoard.hidden=false; applyBoardLayout(); });
+  boardReopen?.addEventListener('click', () => { liveBoard.hidden=!liveBoard.hidden; applyBoardLayout(); });
   setMode();
   applyBoardLayout();
 })();

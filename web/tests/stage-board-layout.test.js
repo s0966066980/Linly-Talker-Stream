@@ -1,11 +1,37 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  boardReopenPresentation,
+  captionStyle,
   placeStageBoard,
   previewScale,
   STAGE_LAYOUT_REF_WIDTH,
   STAGE_LAYOUT_REF_HEIGHT
 } from '../src/stageBoardLayout.js'
+
+test('展開看板按鈕靠舞台邊緣時改用朝內圖示並避免溢出', () => {
+  assert.deepEqual(boardReopenPresentation(0, 20), {
+    edge: 'left',
+    icon: '›',
+    style: { left: '0%', top: '20%', transform: 'translate(0, -50%)' }
+  })
+  assert.deepEqual(boardReopenPresentation(100, 20), {
+    edge: 'right',
+    icon: '‹',
+    style: { left: '100%', top: '20%', transform: 'translate(-100%, -50%)' }
+  })
+  assert.equal(boardReopenPresentation(50, 20).icon, '▣')
+})
+
+test('字幕帶寬度與中心位置會限制在舞台可見範圍', () => {
+  assert.deepEqual(captionStyle(0, 75, 60), {
+    left: '30%',
+    top: '75%',
+    width: '60%',
+    transform: 'translate(-50%, -50%)'
+  })
+  assert.equal(captionStyle(100, 90, 60).left, '70%')
+})
 
 test('右上對齊時看板貼近影像右上，不進入字幕帶', () => {
   const box = placeStageBoard({

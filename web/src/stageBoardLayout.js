@@ -55,6 +55,37 @@ export function micStyle(x, y) {
   }
 }
 
+export function boardReopenPresentation(x, y) {
+  const horizontal = clampPercent(x)
+  const vertical = clampPercent(y)
+  const edge = horizontal <= 8 ? 'left' : horizontal >= 92 ? 'right' : 'center'
+  return {
+    edge,
+    icon: edge === 'left' ? '›' : edge === 'right' ? '‹' : '▣',
+    style: {
+      left: `${horizontal}%`,
+      top: `${vertical}%`,
+      transform: edge === 'left'
+        ? 'translate(0, -50%)'
+        : edge === 'right'
+          ? 'translate(-100%, -50%)'
+          : 'translate(-50%, -50%)'
+    }
+  }
+}
+
+export function captionStyle(x, y, width) {
+  const safeWidth = Math.max(40, Math.min(100, Number(width) || 100))
+  const halfWidth = safeWidth / 2
+  const horizontal = Math.max(halfWidth, Math.min(100 - halfWidth, clampPercent(x)))
+  return {
+    left: `${horizontal}%`,
+    top: `${clampPercent(y)}%`,
+    width: `${safeWidth}%`,
+    transform: 'translate(-50%, -50%)'
+  }
+}
+
 function clampPercent(value) {
   const n = Number(value)
   if (!Number.isFinite(n)) return 0
