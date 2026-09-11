@@ -426,9 +426,12 @@ class MuseTalkAvatar(BaseAvatar):
                 True,
             )
         )
-        gap_grace = int(getattr(musetalk_cfg, "gap_grace_frames", 3) or 3)
+        gap_grace = int(getattr(musetalk_cfg, "gap_grace_frames", 2) or 2)
         opening = int(getattr(musetalk_cfg, "opening_frames", 2) or 2)
         closing = int(getattr(musetalk_cfg, "closing_frames", 4) or 4)
+        align_idle_return = bool(
+            getattr(musetalk_cfg, "mouth_continuity_idle_alignment", False)
+        )
         self._mouth_continuity = (
             MouthContinuityController(
                 self.frame_list_cycle,
@@ -437,6 +440,7 @@ class MuseTalkAvatar(BaseAvatar):
                 gap_grace_frames=gap_grace,
                 opening_frames=opening,
                 closing_frames=closing,
+                align_idle_return=align_idle_return,
             )
             if mouth_continuity_enabled
             else None

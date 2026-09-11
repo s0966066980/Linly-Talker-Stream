@@ -133,6 +133,62 @@ class MouthContinuityControllerTests(unittest.TestCase):
         self.assertEqual(int(closing[3, 3].mean()), 130)
         self.assertEqual(int(closing[0, 0].mean()), 0)
 
+    def test_idle_return_aligns_the_previous_mouth_to_a_moving_mask(self):
+        from src.avatars.musetalk.mouth_continuity import MouthContinuityController
+
+        source = np.zeros((12, 12, 3), dtype=np.uint8)
+        left_mask = np.zeros((12, 12), dtype=np.uint8)
+        right_mask = np.zeros((12, 12), dtype=np.uint8)
+        left_mask[4:8, 2:6] = 255
+        right_mask[4:8, 3:7] = 255
+        controller = MouthContinuityController(
+            [source, source],
+            [left_mask, right_mask],
+            gap_grace_frames=0,
+            closing_frames=2,
+        )
+        generated = source.copy()
+        generated[4:8, 2:6] = 200
+
+        controller.compose(
+            generated,
+            index=0,
+            is_speech=True,
+            eventpoint={"generation": 1},
+        )
+        closing = controller.compose(
+            source,
+            index=1,
+            is_speech=False,
+            eventpoint={"generation": 1},
+        )
+
+        self.assertGreater(int(closing[4:8, 3:7].mean()), 90)
+        self.assertEqual(int(closing[4:8, 7:10].mean()), 0)
+
+    def test_idle_return_alignment_canary_keeps_the_legacy_blend_disabled(self):
+        from src.avatars.musetalk.mouth_continuity import MouthContinuityController
+
+        source = np.zeros((12, 12, 3), dtype=np.uint8)
+        left_mask = np.zeros((12, 12), dtype=np.uint8)
+        right_mask = np.zeros((12, 12), dtype=np.uint8)
+        left_mask[4:8, 2:6] = 255
+        right_mask[4:8, 3:7] = 255
+        controller = MouthContinuityController(
+            [source, source],
+            [left_mask, right_mask],
+            gap_grace_frames=0,
+            closing_frames=2,
+            align_idle_return=False,
+        )
+        generated = source.copy()
+        generated[4:8, 2:6] = 200
+
+        controller.compose(generated, index=0, is_speech=True, eventpoint=None)
+        closing = controller.compose(source, index=1, is_speech=False, eventpoint=None)
+
+        self.assertEqual(int(closing[4:8, 3:7].mean()), 75)
+
 
 if __name__ == "__main__":
     unittest.main()

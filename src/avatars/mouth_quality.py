@@ -33,6 +33,7 @@ DEFAULT_MUSETALK = {
     "expand": 1.5,
     "mask_blur_ratio": 0.05,
     "mouth_continuity": True,
+    "mouth_continuity_idle_alignment": False,
 }
 
 DEFAULT_WAV2LIP = {
@@ -136,6 +137,9 @@ def normalize_quality(params: Optional[Mapping[str, Any]] = None) -> dict[str, A
         musetalk["mask_blur_ratio"], "mask_blur_ratio"
     )
     musetalk["mouth_continuity"] = bool(musetalk.get("mouth_continuity", True))
+    musetalk["mouth_continuity_idle_alignment"] = bool(
+        musetalk.get("mouth_continuity_idle_alignment", False)
+    )
     parsing_mode = str(musetalk.get("parsing_mode", "jaw")).strip().lower()
     if parsing_mode not in PARSING_MODES:
         raise QualityError("融合遮罩只能是 jaw 或 raw")

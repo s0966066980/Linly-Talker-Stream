@@ -24,6 +24,7 @@ class MouthContinuityController:
         gap_grace_frames: int = 2,
         opening_frames: int = 2,
         closing_frames: int = 4,
+        align_idle_return: bool = True,
     ) -> None:
         if len(source_frames) != len(masks):
             raise ValueError("source_frames and masks must have the same length")
@@ -42,15 +43,19 @@ class MouthContinuityController:
         self._gap_grace_frames = max(0, int(gap_grace_frames))
         self._opening_frames = max(1, int(opening_frames))
         self._closing_frames = max(1, int(closing_frames))
+        self._align_idle_return = bool(align_idle_return)
         self._full_masks = tuple(self._build_full_mask(index) for index in range(len(masks)))
+        self._mouth_boxes = tuple(self._mouth_box(mask) for mask in self._full_masks)
         self.reset()
 
     def reset(self) -> None:
         self._previous_frame: np.ndarray | None = None
+        self._previous_box: tuple[int, int, int, int] | None = None
         self._previous_is_speech = False
         self._generation = None
         self._gap_remaining = 0
         self._transition_origin: np.ndarray | None = None
+        self._transition_origin_box: tuple[int, int, int, int] | None = None
         self._transition_target: np.ndarray | None = None
         self._transition_step = 0
         self._transition_total = 0
@@ -84,20 +89,21 @@ class MouthContinuityController:
             self._generation = generation
 
         mask = self._full_masks[index]
-        if mask.shape != target.shape[:2]:
+        box = self._mouth_boxes[index]
+        if mask.shape != target.shape[:2] or box is None:
             return target.copy()
 
         if self._previous_frame is None or self._previous_frame.shape != target.shape:
             output = target.copy()
-            self._remember(output, is_speech)
+            self._remember(output, is_speech, box)
             return output
 
         if is_speech:
             if not self._previous_is_speech:
                 self._start_transition(target, self._opening_frames)
-            output = self._transition_or_target(target, mask)
+            output = self._transition_or_target(target, mask, box)
             self._gap_remaining = 0
-            self._remember(output, True)
+            self._remember(output, True, box)
             return output
 
         if self._previous_is_speech:
@@ -110,18 +116,24 @@ class MouthContinuityController:
         if self._gap_remaining > 0:
             self._gap_remaining -= 1
             output = self._blend_mouth(
-                self._previous_frame,
+                self._align_previous_mouth(self._previous_frame, self._previous_box, target, box),
                 target,
                 mask,
                 0.0,
             )
         else:
-            output = self._transition_or_target(target, mask)
-        self._remember(output, False)
+            output = self._transition_or_target(target, mask, box)
+        self._remember(output, False, box)
         return output
 
-    def _remember(self, frame: np.ndarray, is_speech: bool) -> None:
+    def _remember(
+        self,
+        frame: np.ndarray,
+        is_speech: bool,
+        box: tuple[int, int, int, int],
+    ) -> None:
         self._previous_frame = frame.copy()
+        self._previous_box = box
         self._previous_is_speech = bool(is_speech)
 
     def _start_transition(self, target: np.ndarray, total: int) -> None:
@@ -130,6 +142,7 @@ class MouthContinuityController:
             if self._previous_frame is not None
             else target.copy()
         )
+        self._transition_origin_box = self._previous_box
         self._transition_target = target.copy()
         self._transition_step = 0
         self._transition_total = max(1, int(total))
@@ -138,11 +151,13 @@ class MouthContinuityController:
         self,
         target: np.ndarray,
         mask: np.ndarray,
+        box: tuple[int, int, int, int],
     ) -> np.ndarray:
         if self._transition_origin is None or self._transition_target is None:
             return target.copy()
         if self._transition_step >= self._transition_total:
             self._transition_origin = None
+            self._transition_origin_box = None
             self._transition_target = None
             return target.copy()
         self._transition_step += 1
@@ -151,7 +166,12 @@ class MouthContinuityController:
         # predictable, which is more important here than easing a transition.
         alpha = progress
         output = self._blend_mouth(
-            self._transition_origin,
+            self._align_previous_mouth(
+                self._transition_origin,
+                self._transition_origin_box,
+                target,
+                box,
+            ),
             self._transition_target,
             mask,
             alpha,
@@ -159,8 +179,69 @@ class MouthContinuityController:
         )
         if self._transition_step >= self._transition_total:
             self._transition_origin = None
+            self._transition_origin_box = None
             self._transition_target = None
         return output
+
+    @staticmethod
+    def _mouth_box(mask: np.ndarray) -> tuple[int, int, int, int] | None:
+        ys, xs = np.nonzero(np.asarray(mask) > 0)
+        if not len(xs) or not len(ys):
+            return None
+        return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+
+    def _align_previous_mouth(
+        self,
+        previous: np.ndarray,
+        previous_box: tuple[int, int, int, int] | None,
+        target: np.ndarray,
+        current_box: tuple[int, int, int, int],
+    ) -> np.ndarray:
+        """Move a previous mouth patch into the current idle-frame mouth box.
+
+        Invalid or implausibly large transforms deliberately fall back to the
+        current target. That prevents a stale mouth from being warped across a
+        cut or a bad mask while preserving the audio-first rendering path.
+        """
+        if not self._align_idle_return:
+            return previous
+        if previous_box is None or previous.shape != target.shape:
+            return target
+        px0, py0, px1, py1 = previous_box
+        cx0, cy0, cx1, cy1 = current_box
+        previous_width, previous_height = px1 - px0, py1 - py0
+        current_width, current_height = cx1 - cx0, cy1 - cy0
+        if min(previous_width, previous_height, current_width, current_height) <= 0:
+            return target
+        previous_center_x = (px0 + px1) / 2.0
+        previous_center_y = (py0 + py1) / 2.0
+        current_center_x = (cx0 + cx1) / 2.0
+        current_center_y = (cy0 + cy1) / 2.0
+        shift_ratio = np.hypot(
+            current_center_x - previous_center_x,
+            current_center_y - previous_center_y,
+        ) / previous_width
+        scale = np.sqrt(
+            (current_width / previous_width) * (current_height / previous_height)
+        )
+        if not np.isfinite(shift_ratio) or not np.isfinite(scale):
+            return target
+        if shift_ratio > 0.25 or not 0.85 <= scale <= 1.15:
+            return target
+        patch = previous[py0:py1, px0:px1]
+        if patch.shape[:2] != (previous_height, previous_width):
+            return target
+        try:
+            aligned_patch = cv2.resize(
+                patch,
+                (current_width, current_height),
+                interpolation=cv2.INTER_LINEAR,
+            )
+        except cv2.error:
+            return target
+        aligned = target.copy()
+        aligned[cy0:cy1, cx0:cx1] = aligned_patch
+        return aligned
 
     @staticmethod
     def _blend_mouth(
