@@ -430,7 +430,14 @@ class MuseTalkAvatar(BaseAvatar):
         opening = int(getattr(musetalk_cfg, "opening_frames", 2) or 2)
         closing = int(getattr(musetalk_cfg, "closing_frames", 4) or 4)
         align_idle_return = bool(
-            getattr(musetalk_cfg, "mouth_continuity_idle_alignment", False)
+            getattr(musetalk_cfg, "mouth_continuity_idle_alignment", True)
+        )
+        settling_enabled = bool(
+            getattr(musetalk_cfg, "settling_enabled", True)
+        )
+        settling_frames = max(
+            1,
+            int(getattr(musetalk_cfg, "settling_frames", 12) or 12),
         )
         self._mouth_continuity = (
             MouthContinuityController(
@@ -440,6 +447,7 @@ class MuseTalkAvatar(BaseAvatar):
                 gap_grace_frames=gap_grace,
                 opening_frames=opening,
                 closing_frames=closing,
+                settling_frames=settling_frames if settling_enabled else None,
                 align_idle_return=align_idle_return,
             )
             if mouth_continuity_enabled

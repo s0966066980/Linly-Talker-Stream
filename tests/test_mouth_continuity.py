@@ -189,6 +189,38 @@ class MouthContinuityControllerTests(unittest.TestCase):
 
         self.assertEqual(int(closing[4:8, 3:7].mean()), 75)
 
+    def test_settling_keeps_idle_motion_while_the_mouth_closes_over_twelve_frames(self):
+        from src.avatars.musetalk.mouth_continuity import MouthContinuityController
+
+        sources = [np.full((8, 8, 3), value, dtype=np.uint8) for value in (0, 20, 40)]
+        mask = np.zeros((8, 8), dtype=np.uint8)
+        mask[2:6, 2:6] = 255
+        controller = MouthContinuityController(
+            sources,
+            [mask, mask, mask],
+            gap_grace_frames=0,
+            settling_frames=12,
+        )
+        generated = sources[0].copy()
+        generated[2:6, 2:6] = 200
+        controller.compose(generated, index=0, is_speech=True, eventpoint=None)
+
+        settling = [
+            controller.compose(
+                sources[(step + 1) % len(sources)],
+                index=(step + 1) % len(sources),
+                is_speech=False,
+                eventpoint=None,
+            )
+            for step in range(12)
+        ]
+
+        for step, frame in enumerate(settling):
+            idle_value = (20, 40, 0)[step % 3]
+            self.assertEqual(int(frame[0, 0].mean()), idle_value)
+        self.assertGreater(int(settling[0][2:6, 2:6].mean()), 100)
+        self.assertEqual(int(settling[-1][2:6, 2:6].mean()), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

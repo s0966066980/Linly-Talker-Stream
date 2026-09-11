@@ -33,7 +33,9 @@ DEFAULT_MUSETALK = {
     "expand": 1.5,
     "mask_blur_ratio": 0.05,
     "mouth_continuity": True,
-    "mouth_continuity_idle_alignment": False,
+    "mouth_continuity_idle_alignment": True,
+    "settling_enabled": True,
+    "settling_frames": 12,
 }
 
 DEFAULT_WAV2LIP = {
@@ -52,6 +54,7 @@ _LIMITS = {
     "upper_boundary_ratio": (0.3, 0.7),
     "expand": (1.2, 2.0),
     "mask_blur_ratio": (0.0, 0.15),
+    "settling_frames": (1, 50),
     "pad_top": (0, 40),
     "pad_bottom": (0, 40),
     "pad_left": (0, 40),
@@ -138,7 +141,13 @@ def normalize_quality(params: Optional[Mapping[str, Any]] = None) -> dict[str, A
     )
     musetalk["mouth_continuity"] = bool(musetalk.get("mouth_continuity", True))
     musetalk["mouth_continuity_idle_alignment"] = bool(
-        musetalk.get("mouth_continuity_idle_alignment", False)
+        musetalk.get("mouth_continuity_idle_alignment", True)
+    )
+    musetalk["settling_enabled"] = bool(
+        musetalk.get("settling_enabled", True)
+    )
+    musetalk["settling_frames"] = _bounded_int(
+        musetalk.get("settling_frames", 12), "settling_frames"
     )
     parsing_mode = str(musetalk.get("parsing_mode", "jaw")).strip().lower()
     if parsing_mode not in PARSING_MODES:

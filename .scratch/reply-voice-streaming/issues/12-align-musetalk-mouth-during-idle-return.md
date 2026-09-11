@@ -168,12 +168,12 @@ git diff --check
 ## 完成條件
 
 - 所有 Phase 0–5 gate 通過。
-- 新行為預設關閉，舊行為可立即回退。
+- v1 預設啟用待機嘴部對齊；設定可立即回退原行為。
 - Edge TTS＋MuseTalk 自動測試無 regression。
 - ADR-0007 的音訊主時鐘與 ADR-0008 的純視覺嘴型 seam 均未被破壞。
-- Issue 13 可進入 `ready-for-human` 實機驗收。
+- 回答結束另由 12 影格 settling 接續至移動中的待機影格。
 
 ## Comments
 
 - 2026-09-11: 根據待機回復抖動分析與三輪設計決策建立；Issue 11 的靜止影格測試不足以涵蓋移動待機素材。
-- 2026-09-11: 已完成 controller ROI 對齊、25% 位移與 `0.85–1.15` scale 安全回退、canary 設定開關，以及 2-frame grace 預設。新增移動 mask regression 與 canary-disable regression。`uv run python -m unittest tests.test_mouth_continuity tests.test_mouth_quality tests.test_media_fencing tests.test_speech_timing tests.test_playback_commit`：102 tests passed；`compileall` 與 `git diff --check` 通過。完整 suite 另有既存 `test_editable_llm_rules` 文案預期失敗，未修改。
+- 2026-09-11: 已完成 controller ROI 對齊、25% 位移與 `0.85–1.15` scale 安全回退、設定開關，以及 2-frame grace 預設。新增移動 mask regression、停用回退與 settling regression；完整 suite 的過期 Rule 文案預期亦已同步至目前預設規則。

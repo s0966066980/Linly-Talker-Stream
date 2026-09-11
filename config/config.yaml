@@ -33,7 +33,9 @@ model:
     expand: 1.5
     mask_blur_ratio: 0.05
     mouth_continuity: true
-    mouth_continuity_idle_alignment: false
+    mouth_continuity_idle_alignment: true
+    settling_enabled: true
+    settling_frames: 12
     gap_grace_frames: 2
   wav2lip:
     pad_top: 0

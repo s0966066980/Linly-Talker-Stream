@@ -382,6 +382,7 @@ import {
   StageCaptionWindow
 } from '/src/stageCaptionWindow.js';
 import { StageCaptionView } from '/src/stageCaptionView.js';
+import { shouldFadeStageReply } from '/src/stageReplyLifecycle.js';
 import {
   boardReopenPresentation,
   captionStyle,
@@ -721,7 +722,7 @@ import {
       showReply(ev.text, ev.turn_id); return;
     }
     if(ev.type === 'assistant_fragment_end'){
-      fadeReply(ev.turn_id); return;
+      return;
     }
     if(ev.type === 'speaking_start'){
       clearTimeout(replyTimer);
@@ -732,9 +733,14 @@ import {
       speaking = true; setVisual('speaking'); refreshAffordance(); return;
     }
     if(ev.type === 'speaking_end'){
-      speaking = false; fadeReply();
+      speaking = false;
+      if(shouldFadeStageReply(ev.type)) fadeReply(ev.turn_id);
       setVisual(autoMode && !autoPaused ? 'idle' : 'paused');
       refreshAffordance(); return;
+    }
+    if(ev.type === 'turn_committed'){
+      if(shouldFadeStageReply(ev.type)) fadeReply(ev.turn_id);
+      return;
     }
     if(ev.type === 'turn_cancelled'){
       speaking = false; clearReply(); refreshAffordance();

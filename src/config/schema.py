@@ -146,8 +146,10 @@ class MuseTalkQualityConfig:
     mask_blur_ratio: float = 0.05
     # Keep the generated mouth temporally continuous across streamed fragments.
     mouth_continuity: bool = True
-    # Canary switch for aligning a generated mouth to a moving idle-frame ROI.
-    mouth_continuity_idle_alignment: bool = False
+    # Align the final generated mouth to the moving idle-frame ROI during close.
+    mouth_continuity_idle_alignment: bool = True
+    settling_enabled: bool = True
+    settling_frames: int = 12
     max_tts_audio_wait_seconds: float = 0.35
     gap_grace_frames: int = 2
     closing_frames: int = 4

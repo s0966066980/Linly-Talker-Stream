@@ -20,7 +20,7 @@ class EditableRuleTests(unittest.TestCase):
     def test_default_activation_uses_board_for_multiple_independent_points(self):
         activation = default_rules()["activation"]
         self.assertIn("兩個或以上彼此獨立的重點", activation)
-        self.assertIn("多個歷史時期", activation)
+        self.assertIn("存在多個獨立重點", activation)
 
     def test_validation_rejects_blank_and_overlong_content(self):
         defaults = default_rules()

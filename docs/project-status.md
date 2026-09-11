@@ -1,26 +1,23 @@
-# 專案狀態
+# v1 Base 狀態
 
-更新日期：2026-09-03
+更新日期：2026-09-11
 
-Linly-Talker-Stream 的核心單機即時數字人對話流程已完成並可用：WebRTC 上行、服務端 VAD、STT、LLM、TTS、Avatar、影音回傳、免按對話、插話與執行期設定已串成同一個伺服器擁有的對話輪次。可靠回覆語音串流已完成主力組合的實作與實機驗證，但仍以功能旗標保留舊有模式作為跨引擎回退。
+目前工作樹定義為 Linly-Talker-Stream 第一版基線。此文件只記錄已交付能力、已通過驗證與執行邊界；後續需求重新立項時再建立新的規格與計畫。
 
-## 完成度矩陣
+## 已完成範圍
 
-| 領域 | 狀態 | 已完成 | 尚未完成或限制 |
-| --- | --- | --- | --- |
-| WebRTC 與互動 | 可用 | 雙向音訊、Avatar 影像、事件通道、免按對話、按住說話、插話、斷線清理 | 公網部署的驗證、rate limit 與多使用者隔離 |
-| 使用者語音 | 可用 | Silero 服務端端點偵測、Whisper／FunASR、繁體轉換、STT 預熱與設定 | partial STT、使用者尚未說完即預測回覆不在目前範圍 |
-| LLM | 可用 | Ollama／llama.cpp、串流 token、Prompt、柔性回覆字數、交易式 history | llama.cpp 與 Avatar 同 GPU 時仍需自行規劃 VRAM；無多模型排程 |
-| llama.cpp 生命週期 | 完成 | 按需啟動；正常退出、Ctrl-C、SIGTERM 與 aiohttp shutdown 自動停止 owned process | SIGKILL、斷電無法執行清理；外部服務刻意不終止 |
-| 回覆語音串流 | 主力組合完成 | 語意切片、有界背壓、generation fence、取消、播放提交、字幕、history、錯誤恢復、Edge 冷啟動預熱、首包／續包分離逾時、本機 event loop 與下一段預取 | 預設關閉；正式 SLO 僅保證 Edge TTS＋MuseTalk、單一會話；預取後的實機片段間空窗尚未重跑 soak |
-| 音訊品質與 A/V | 主力組合完成 | 單一 renderer-owned audio producer、40 ms speech runway、bounded media queue、無 catch-up burst | direct PCM／decoupled audio clock 為關閉的實驗功能 |
-| MuseTalk 嘴型 | 完成 | Lanczos／銳化、遮罩品質參數、段落邊界嘴部 ROI 連續控制、generation reset | 人工外觀仍受角色素材、臉框與遮罩品質影響 |
-| 其他 Avatar／TTS | 相容 | Wav2Lip、Ultralight、ER-NeRF、TalkingGaussian 與多種 TTS adapter 保留 | 尚未逐一取得與 Edge＋MuseTalk 相同的 streaming SLO |
-| 設定與前端 | 可用 | LLM、Avatar、VAD、STT、TTS、Prompt、回覆字數、回覆模式、角色預覽／匯入 | 設定面板拆分與通用 EngineRegistry 尚未完成 |
-| 測試與觀測 | 可用 | 單元／整合測試、Web 測試、stage metrics、content-free 50-turn soak | 完整 UI E2E、長期 soak、資源儀表板與 session leak gate 尚未完成 |
-| 部署 | 開發／本機 | HTTPS、自動安裝與整合啟動腳本、health endpoint | Docker Compose、受信任 TLS、反向代理、監控與備援 |
+| 領域 | v1 已完成能力 |
+| --- | --- |
+| 對話與傳輸 | WebRTC 雙向音訊、Avatar 影像、事件通道、免按對話、按住說話、插話、斷線清理與伺服器擁有的單一有效輪次 |
+| 語音輸入 | Silero 服務端端點偵測、faster-whisper／FunASR、繁體轉換、STT 預熱與執行期設定 |
+| 回覆生成 | Ollama／llama.cpp、串流 token、交易式 history、柔性回覆長度、單一 LLM 可編輯回覆規則 |
+| 看板回答 | SIMPLE／BOARD 協定、口語摘要與看板項目分流、顯示確認、已顯示項目上下文與輪次隔離 |
+| 語音與字幕 | 多 TTS adapter、可靠語意切片、播放提交、字幕顯示窗口；字幕在播放結束或輪次提交後才淡出 |
+| 數字人 | Wav2Lip、MuseTalk、Ultralight、ER-NeRF、TalkingGaussian；MuseTalk 段落連續、待機對齊與 12 影格回答收尾 settling |
+| 設定與生命週期 | LLM、Avatar、VAD、STT、TTS、Prompt、Rule、回覆模式與舞台設定；owned llama-server 正常關閉清理 |
+| 安全與隱私 | generation fence、取消後拒絕 stale output、有界媒體背壓；未啟動錄製時不持久保存原始麥克風音訊 |
 
-## 已驗證的正式基準
+## 正式實機基準
 
 環境：NVIDIA RTX 4090、本機 llama.cpp、Edge TTS、MuseTalk、WebRTC、單一活躍會話。
 
@@ -37,30 +34,26 @@ Linly-Talker-Stream 的核心單機即時數字人對話流程已完成並可用
 | 最大媒體債務 | 0.24 s | ≤ 2 s |
 | stale output | 0 | 必須為 0 |
 
-情境包含短句、長句、弱標點、無標點、播放中插話與 LLM 階段中斷。報告只保留彙總遙測，不保存使用者音訊或對話內容。
+回答收尾的 720×1280 嘴部 ROI settling 實測平均 1.596 ms、最大 3.966 ms，不加入 GPU 推理或音訊等待。
 
-## 自動驗證快照
+## v1 自動驗證
 
-在 commit `2c32597` 上：
-
-- Python：234 tests passed。
-- Web：23 tests passed。
+- Python：355 tests，352 passed，3 skipped（依環境條件跳過）。
+- Web：67 tests passed。
 - Vite production build：passed。
-- Python compileall：passed。
-- `git diff --check`：passed。
-- owned llama-server SIGTERM 實機清理：passed，backend 關閉後 llama PID 於 1 秒內消失。
+- 嘴型連續、待機對齊、settling、字幕生命週期、看板提交與可編輯規則均有專用回歸測試。
+- 測試稽核未發現可安全整檔移除的測試；現有測試各自覆蓋仍受支援的引擎、路由、協定或 UI 行為。
 
 ## 正式執行設定
 
-- `reply_streaming.enabled` 預設 `false`，由設定頁或 YAML 明確選擇串流模式。
-- `reply_streaming.decoupled_audio_clock` 預設 `false`，避免未驗證的 direct PCM fan-out 形成第二個音訊 producer。
-- `model.musetalk.mouth_continuity` 預設 `true`；可單獨關閉並回退原始嘴型切換行為。
+- `reply_streaming.enabled: false`：v1 保留舊有與串流兩種回覆模式，串流由設定頁或 YAML 明確啟用。
+- `reply_streaming.decoupled_audio_clock: false`：正式路徑維持單一 renderer-owned 音訊 producer。
+- `model.musetalk.mouth_continuity: true`、`idle_alignment: true`、`settling_enabled: true`、`settling_frames: 12`。
 - 音訊是媒體主時鐘；視訊不得讓音訊等待，也不得以 catch-up burst 追趕。
 
-## 下一階段
+## v1 執行邊界
 
-1. 完成 Phase 10 尚未交付的資源工作：idle cache、hot log 降頻與 session lifecycle leak 測試。實機 soak 驗證 Edge 預取後的片段間空窗。
-2. 對更多 TTS／Avatar 組合執行相同 50 回合 SLO，而不是沿用主力組合結論。
-3. 建立前端延遲與資源儀表板，呈現 VAD、STT、LLM、TTS、Avatar 與 WebRTC 各階段時間。
-4. 補齊 Docker Compose、反向代理、受信任 TLS、驗證、rate limit 與多使用者 GPU 排程。
-5. 完成跨瀏覽器人工聽感與嘴型長期驗收後，再評估將串流模式改為預設。
+- 正式串流 SLO 只涵蓋 Edge TTS＋MuseTalk、單一活躍會話。
+- 其他 TTS／Avatar adapter 可用，但不宣稱具有與主力組合相同的實機延遲基準。
+- direct PCM／decoupled audio clock 是預設關閉的實驗路徑，不屬於 v1 正式保證。
+- SIGKILL、斷電或核心崩潰無法觸發程序清理；外部管理的 llama-server 不由本程式終止。

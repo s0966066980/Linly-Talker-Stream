@@ -83,6 +83,9 @@ class QualityNormalizeTests(unittest.TestCase):
         self.assertEqual(quality["musetalk"]["extra_margin"], 10)
         self.assertEqual(quality["musetalk"]["parsing_mode"], "jaw")
         self.assertEqual(quality["musetalk"]["mask_blur_ratio"], 0.05)
+        self.assertTrue(quality["musetalk"]["mouth_continuity_idle_alignment"])
+        self.assertTrue(quality["musetalk"]["settling_enabled"])
+        self.assertEqual(quality["musetalk"]["settling_frames"], 12)
         self.assertEqual(quality["wav2lip"]["pad_bottom"], 10)
 
     def test_accepts_flat_or_nested_build_fields(self):

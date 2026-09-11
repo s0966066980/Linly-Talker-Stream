@@ -24,6 +24,7 @@ class MouthContinuityController:
         gap_grace_frames: int = 2,
         opening_frames: int = 2,
         closing_frames: int = 4,
+        settling_frames: int | None = None,
         align_idle_return: bool = True,
     ) -> None:
         if len(source_frames) != len(masks):
@@ -42,7 +43,11 @@ class MouthContinuityController:
         )
         self._gap_grace_frames = max(0, int(gap_grace_frames))
         self._opening_frames = max(1, int(opening_frames))
-        self._closing_frames = max(1, int(closing_frames))
+        self._settling_enabled = settling_frames is not None
+        self._closing_frames = max(
+            1,
+            int(closing_frames if settling_frames is None else settling_frames),
+        )
         self._align_idle_return = bool(align_idle_return)
         self._full_masks = tuple(self._build_full_mask(index) for index in range(len(masks)))
         self._mouth_boxes = tuple(self._mouth_box(mask) for mask in self._full_masks)
@@ -59,6 +64,8 @@ class MouthContinuityController:
         self._transition_target: np.ndarray | None = None
         self._transition_step = 0
         self._transition_total = 0
+        self._transition_follows_target = False
+        self._transition_easing = "linear"
 
     def compose(
         self,
@@ -111,6 +118,8 @@ class MouthContinuityController:
             self._start_transition(
                 self._neutral_target(index, target),
                 self._closing_frames,
+                follows_target=self._settling_enabled,
+                easing="smoothstep" if self._settling_enabled else "linear",
             )
 
         if self._gap_remaining > 0:
@@ -120,6 +129,7 @@ class MouthContinuityController:
                 target,
                 mask,
                 0.0,
+                box=box,
             )
         else:
             output = self._transition_or_target(target, mask, box)
@@ -136,7 +146,14 @@ class MouthContinuityController:
         self._previous_box = box
         self._previous_is_speech = bool(is_speech)
 
-    def _start_transition(self, target: np.ndarray, total: int) -> None:
+    def _start_transition(
+        self,
+        target: np.ndarray,
+        total: int,
+        *,
+        follows_target: bool = False,
+        easing: str = "linear",
+    ) -> None:
         self._transition_origin = (
             self._previous_frame.copy()
             if self._previous_frame is not None
@@ -146,6 +163,8 @@ class MouthContinuityController:
         self._transition_target = target.copy()
         self._transition_step = 0
         self._transition_total = max(1, int(total))
+        self._transition_follows_target = bool(follows_target)
+        self._transition_easing = easing
 
     def _transition_or_target(
         self,
@@ -162,9 +181,14 @@ class MouthContinuityController:
             return target.copy()
         self._transition_step += 1
         progress = self._transition_step / self._transition_total
-        # Linear interpolation keeps the per-frame pixel delta bounded and
-        # predictable, which is more important here than easing a transition.
-        alpha = progress
+        alpha = (
+            progress * progress * (3.0 - 2.0 * progress)
+            if self._transition_easing == "smoothstep"
+            else progress
+        )
+        transition_target = (
+            target if self._transition_follows_target else self._transition_target
+        )
         output = self._blend_mouth(
             self._align_previous_mouth(
                 self._transition_origin,
@@ -172,10 +196,11 @@ class MouthContinuityController:
                 target,
                 box,
             ),
-            self._transition_target,
+            transition_target,
             mask,
             alpha,
             base_frame=target,
+            box=box,
         )
         if self._transition_step >= self._transition_total:
             self._transition_origin = None
@@ -251,19 +276,33 @@ class MouthContinuityController:
         alpha: float,
         *,
         base_frame: np.ndarray | None = None,
+        box: tuple[int, int, int, int] | None = None,
     ) -> np.ndarray:
         output = (base_frame if base_frame is not None else target).copy()
-        weights = np.asarray(mask, dtype=np.float32)
+        if box is None:
+            ys, xs = np.nonzero(np.asarray(mask) > 0)
+            if not len(xs) or not len(ys):
+                return output
+            box = (
+                int(xs.min()),
+                int(ys.min()),
+                int(xs.max()) + 1,
+                int(ys.max()) + 1,
+            )
+        x0, y0, x1, y1 = box
+        mask_roi = np.asarray(mask[y0:y1, x0:x1])
+        active = mask_roi > 0
+        weights = mask_roi.astype(np.float32, copy=False)
         if weights.max(initial=0.0) > 1.0:
             weights /= 255.0
         weights = np.clip(weights * float(alpha), 0.0, 1.0)
-        if not np.any(mask):
+        if not np.any(active):
             return output
-        old = previous.astype(np.float32, copy=False)
-        new = target.astype(np.float32, copy=False)
+        old = previous[y0:y1, x0:x1].astype(np.float32, copy=False)
+        new = target[y0:y1, x0:x1].astype(np.float32, copy=False)
         mixed = old * (1.0 - weights[..., None]) + new * weights[..., None]
-        active = np.asarray(mask) > 0
-        output[active] = np.clip(mixed[active], 0, 255).astype(output.dtype)
+        output_roi = output[y0:y1, x0:x1]
+        output_roi[active] = np.clip(mixed[active], 0, 255).astype(output.dtype)
         return output
 
     def _neutral_target(self, index: int, target: np.ndarray) -> np.ndarray:

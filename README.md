@@ -2,7 +2,7 @@
 
 以 WebRTC 串起語音辨識、LLM、語音合成與數字人渲染的即時對話系統。前端提供繁體中文操作介面，並可在設定頁直接切換模型、角色、VAD、STT、TTS、預設 Prompt、回覆字數與舊有／串流回覆模式。
 
-> 想先看圖再讀文件？直接用瀏覽器開啟 [`docs/project-overview.html`](docs/project-overview.html)。目前完成度、驗證證據與剩餘工作請看 [`docs/project-status.md`](docs/project-status.md)。
+> 想先看圖再讀文件？直接用瀏覽器開啟 [`docs/project-overview.html`](docs/project-overview.html)。v1 基線、驗證證據與執行邊界請看 [`docs/project-status.md`](docs/project-status.md)。
 
 ## 30 秒理解
 
@@ -30,7 +30,8 @@ flowchart LR
 - LLM：Ollama 與 llama.cpp，可列出並切換本機模型。
 - TTS：Edge TTS、GPT-SoVITS、XTTS、CosyVoice 2、Fun-CosyVoice 3.0、Fish TTS、IndexTTS2。
 - 數字人：Wav2Lip、MuseTalk、Ultralight、ER-NeRF、TalkingGaussian。
-- MuseTalk 段落邊界嘴型連續控制，只融合嘴部 ROI，不以音訊緩衝換取平滑。
+- MuseTalk 段落邊界與回答結束的嘴型連續控制，只融合嘴部 ROI，不以音訊緩衝換取平滑。
+- 舞台字幕以實際播放生命週期為準，不會在語音片段結束時提前消失。
 - 設定頁可修改預設 Prompt、約略回覆字數、回覆模式、數字人角色、VAD、STT 與 TTS。
 - Edge TTS 直接列出臺灣華語聲音：曉臻、曉雨與雲哲。
 - 設定套用前執行可用性檢查與語音試聽，成功後才持久化至 YAML。
@@ -53,7 +54,7 @@ flowchart LR
 ```text
 Linly-Talker-Stream/
 ├── config/                 # 服務、模型、語音、VAD 與 Prompt 設定
-├── docs/                   # ADR、研究、架構說明與功能路線圖
+├── docs/                   # ADR、v1 狀態與架構說明
 ├── scripts/                # 安裝、模型下載、憑證與啟動腳本
 ├── src/
 │   ├── asr/                # STT 介面、工廠與各引擎
@@ -189,7 +190,7 @@ uv run python scripts/run_voice_soak.py \
   --output .scratch/reply-voice-streaming/real-soak-report.json
 ```
 
-截至 2026-09-01，完整回歸為 234 個 Python 測試與 23 個 Web 測試；正式 50 回合報告達成首音 P50 1.186 秒、P95 1.692 秒、A/V 偏差 P95 60 ms、stale output 0。測試數量會隨功能增加，請以當前命令結果為準。
+截至 2026-09-11，v1 完整回歸為 355 個 Python 測試（352 通過、3 個依環境跳過）與 67 個 Web 測試，Vite production build 通過；正式 50 回合報告達成首音 P50 1.186 秒、P95 1.692 秒、A/V 偏差 P95 60 ms、stale output 0。
 
 ## 常見問題
 
@@ -205,19 +206,17 @@ uv run python scripts/run_voice_soak.py \
 
 請使用 Ctrl-C、啟動腳本的正常停止流程或 SIGTERM。後端只會追蹤並停止自己啟動的 llama-server；已在後端啟動前存在的外部 llama-server 會刻意保留。SIGKILL（`kill -9`）、斷電或核心崩潰無法觸發清理 hook。
 
-## 已知限制
+## v1 執行邊界
 
 - 回覆語音串流的正式 SLO 目前只涵蓋 Edge TTS＋MuseTalk、單一活躍會話。
 - `reply_streaming.enabled` 預設仍為 `false`；可在設定頁或 YAML 明確啟用。
 - direct PCM／decoupled audio clock 實驗路徑預設關閉；正式路徑維持單一 renderer-owned 音訊 producer，避免重複音訊與電子音。
 - Legacy 回覆模式仍保留；其他 TTS／Avatar 可使用，但不承諾與主力組合相同的串流延遲。
-- 尚未完成多使用者 GPU 排程、正式驗證／rate limit、Docker Compose、完整延遲儀表板與所有引擎能力註冊。
 
 ## 延伸文件
 
 - [可視化專案架構與說明](docs/project-overview.html)
 - [目前完成度、驗證與限制](docs/project-status.md)
-- [後續功能路線圖](docs/project-roadmap.html)
 - [架構決策紀錄](docs/adr/)
 - [專案共通語言](CONTEXT.md)
 
